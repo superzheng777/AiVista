@@ -1,0 +1,27 @@
+spring:
+  application:
+    name: aivista
+
+server:
+  port: 8888
+  servlet:
+    context-path: /api
+
+# springdoc-openapi：生成 OpenAPI 3 接口描述。
+springdoc:
+  # OpenAPI JSON 描述文件的访问路径：/api/v3/api-docs。
+  api-docs:
+    path: /v3/api-docs
+  # Swagger UI 的访问路径：/api/swagger-ui.html（Knife4j 页面为 /api/doc.html）。
+  swagger-ui:
+    path: /swagger-ui.html
+  # 接口分组。后续可按用户端、管理端等业务拆分为多个分组。
+  group-configs:
+    - group: default # 文档分组名称，会显示在 Knife4j 的分组列表中。
+      packages-to-scan: com.superz.aivista.controller # 仅扫描 Controller 包，避免暴露非 HTTP 接口。
+
+# Knife4j：OpenAPI 文档的增强 UI 配置。
+knife4j:
+  enable: true # 启用 Knife4j 增强功能与 /doc.html 页面。
+  setting:
+    language: zh_cn # Knife4j UI 使用简体中文。
