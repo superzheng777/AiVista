@@ -7,6 +7,11 @@ server:
   servlet:
     context-path: /api
 
+app:
+  cors:
+    # 多个来源以英文逗号分隔；生产环境请配置为实际前端域名。
+    allowed-origins: http://localhost:5173
+
 # springdoc-openapi：生成 OpenAPI 3 接口描述。
 springdoc:
   # OpenAPI JSON 描述文件的访问路径：/api/v3/api-docs。
