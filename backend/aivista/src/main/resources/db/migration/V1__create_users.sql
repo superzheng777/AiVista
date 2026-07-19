@@ -1,13 +1,4 @@
--- AiVista 数据库与普通用户基础表初始化脚本
--- 适用数据库：MySQL 8.x
-
-CREATE DATABASE IF NOT EXISTS `aivista`
-    DEFAULT CHARACTER SET utf8mb4
-    COLLATE utf8mb4_unicode_ci;
-
-USE `aivista`;
-
-CREATE TABLE IF NOT EXISTS `users` (
+CREATE TABLE `users` (
     `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '用户唯一ID',
     `login_name` VARCHAR(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '用户登录账号，不作为公开展示昵称，大小写不敏感',
     `password_hash` VARCHAR(255) NOT NULL COMMENT '密码哈希值，不保存明文密码',
@@ -23,4 +14,3 @@ CREATE TABLE IF NOT EXISTS `users` (
   DEFAULT CHARSET = utf8mb4
   COLLATE = utf8mb4_unicode_ci
   COMMENT = 'AiVista普通用户基础信息表';
-

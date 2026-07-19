@@ -1,6 +1,18 @@
 spring:
   application:
     name: aivista
+  datasource:
+    url: ${AIVISTA_DB_URL:jdbc:mysql://localhost:3306/aivista?serverTimezone=UTC&connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true&characterEncoding=UTF-8}
+    username: ${AIVISTA_DB_USERNAME:root}
+    password: ${AIVISTA_DB_PASSWORD:1234}
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    validate-migration-naming: true
+
+mybatis-flex:
+  configuration:
+    map-underscore-to-camel-case: true
 
 server:
   port: 8888
@@ -11,6 +23,23 @@ app:
   cors:
     # 多个来源以英文逗号分隔；生产环境请配置为实际前端域名。
     allowed-origins: http://localhost:5173
+  auth:
+    access-token-ttl: 15m
+    refresh-token-ttl: 14d
+    refresh-token-bytes: 32
+    jwt:
+      secret: ${AIVISTA_JWT_SECRET:}
+    cookie:
+      name: refresh_token
+      path: /api/auth
+      secure: ${AIVISTA_COOKIE_SECURE:false}
+      same-site: Lax
+    argon2:
+      salt-length: 16
+      hash-length: 32
+      parallelism: 1
+      memory: 16384
+      iterations: 2
 
 # springdoc-openapi：生成 OpenAPI 3 接口描述。
 springdoc:
