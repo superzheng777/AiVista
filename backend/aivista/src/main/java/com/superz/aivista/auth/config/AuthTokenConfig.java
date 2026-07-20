@@ -5,12 +5,14 @@ import java.time.Clock;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.security.crypto.argon2.Argon2PasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 /** 提供认证基础组件需要的可替换依赖。 */
 @Configuration
-@EnableConfigurationProperties(AuthProperties.class)
+@EnableScheduling
+@EnableConfigurationProperties({AuthProperties.class, AuthSessionCleanupProperties.class})
 public class AuthTokenConfig {
 
     @Bean

@@ -41,6 +41,12 @@ app:
       parallelism: 1
       memory: 16384
       iterations: 2
+    session-cleanup:
+      enabled: true
+      retention: 7d
+      batch-size: 500
+      max-batches: 10
+      fixed-delay-ms: 3600000
 
 # springdoc-openapi：生成 OpenAPI 3 接口描述。
 springdoc:
