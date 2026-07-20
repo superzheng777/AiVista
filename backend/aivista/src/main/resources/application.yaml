@@ -28,7 +28,8 @@ app:
     refresh-token-ttl: 14d
     refresh-token-bytes: 32
     jwt:
-      secret: ${AIVISTA_JWT_SECRET:}
+      # 仅用于本地开发；生产环境必须通过 AIVISTA_JWT_SECRET 覆盖。
+      secret: ${AIVISTA_JWT_SECRET:aivista-local-development-jwt-secret-change-before-production}
     cookie:
       name: refresh_token
       path: /api/auth
