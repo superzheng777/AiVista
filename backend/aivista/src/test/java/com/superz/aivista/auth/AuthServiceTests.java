@@ -81,7 +81,7 @@ class AuthServiceTests {
 
         var response = authService.register(new RegisterRequest("  Alice_2026  ", "Aivista2026", "  Alice  "));
 
-        assertThat(response.id()).isEqualTo(7L);
+        assertThat(response.id()).isEqualTo("7");
         assertThat(response.loginName()).isEqualTo("Alice_2026");
         assertThat(response.nickname()).isEqualTo("Alice");
         assertThat(inserted.get().getPasswordHash()).isEqualTo("encoded-password");

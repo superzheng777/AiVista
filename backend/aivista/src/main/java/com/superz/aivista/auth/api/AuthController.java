@@ -1,4 +1,4 @@
-package com.superz.aivista.controller;
+package com.superz.aivista.auth.api;
 
 import com.superz.aivista.auth.config.AuthProperties;
 import com.superz.aivista.auth.dto.LoginRequest;

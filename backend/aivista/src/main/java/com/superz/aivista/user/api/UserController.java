@@ -1,4 +1,4 @@
-package com.superz.aivista.controller;
+package com.superz.aivista.user.api;
 
 import com.superz.aivista.common.exception.BusinessException;
 import com.superz.aivista.common.exception.ErrorCode;

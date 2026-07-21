@@ -1,4 +1,4 @@
-package com.superz.aivista.controller;
+package com.superz.aivista.health.api;
 
 import cn.hutool.core.date.DateUtil;
 import com.superz.aivista.common.response.ApiResponse;

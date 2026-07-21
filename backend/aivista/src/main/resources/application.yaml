@@ -22,7 +22,7 @@ server:
 app:
   cors:
     # 多个来源以英文逗号分隔；生产环境请配置为实际前端域名。
-    allowed-origins: http://localhost:5173
+    allowed-origins: ${AIVISTA_CORS_ALLOWED_ORIGINS:http://localhost:3000,http://127.0.0.1:3000}
   auth:
     access-token-ttl: 15m
     refresh-token-ttl: 14d
@@ -59,7 +59,7 @@ springdoc:
   # 接口分组。后续可按用户端、管理端等业务拆分为多个分组。
   group-configs:
     - group: default # 文档分组名称，会显示在 Knife4j 的分组列表中。
-      packages-to-scan: com.superz.aivista.controller # 仅扫描 Controller 包，避免暴露非 HTTP 接口。
+      packages-to-scan: com.superz.aivista # 扫描各业务模块的 api 包中的 Controller。
 
 # Knife4j：OpenAPI 文档的增强 UI 配置。
 knife4j:

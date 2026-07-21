@@ -5,7 +5,7 @@ import java.time.Instant;
 
 /** 当前用户个人资料响应。 */
 public record UserProfileResponse(
-        Long id,
+        String id,
         String loginName,
         String nickname,
         String avatarUrl,
@@ -15,7 +15,7 @@ public record UserProfileResponse(
 
     public static UserProfileResponse from(User user) {
         return new UserProfileResponse(
-                user.getId(),
+                user.getId().toString(),
                 user.getLoginName(),
                 user.getNickname(),
                 user.getAvatarUrl(),
