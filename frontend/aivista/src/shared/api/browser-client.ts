@@ -1,6 +1,6 @@
 import axios, { type InternalAxiosRequestConfig } from "axios";
 
-import type { ApiResponse } from "@/shared/api/api-response";
+import { getApiErrorCode, type ApiResponse } from "@/shared/api/api-response";
 
 /** Browser-side client. All calls use Next.js's same-origin /api proxy. */
 export const browserApiClient = axios.create({
@@ -67,7 +67,9 @@ browserApiClient.interceptors.response.use(undefined, async (error: unknown) => 
     config.headers.Authorization = `Bearer ${accessToken}`;
     return browserApiClient.request(config);
   } catch (refreshError) {
-    authHandlers?.onSessionInvalid();
+    if (getApiErrorCode(refreshError) === 40102) {
+      authHandlers?.onSessionInvalid();
+    }
     return Promise.reject(refreshError);
   }
 });

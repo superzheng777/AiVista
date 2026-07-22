@@ -5,9 +5,9 @@ import { create } from "zustand";
 
 import type { CurrentUser } from "@/entities/user/model/user";
 import * as authApi from "@/features/auth/api/auth-api";
-import type { ApiResponse } from "@/shared/api/api-response";
+import { getApiErrorCode, type ApiResponse } from "@/shared/api/api-response";
 
-export type AuthStatus = "loading" | "anonymous" | "authenticated";
+export type AuthStatus = "loading" | "anonymous" | "authenticated" | "error";
 
 type AuthStore = {
   accessToken: string | null;
@@ -68,12 +68,14 @@ export const useAuthStore = create<AuthStore>((set) => ({
   },
 
   async restoreSession() {
+    set({ status: "loading" });
+
     try {
-      const accessToken = await authApi.refreshAccessToken();
-      const user = await authApi.getCurrentUser(accessToken);
-      set({ accessToken, user, status: "authenticated" });
-    } catch {
-      set({ accessToken: null, user: null, status: "anonymous" });
+      const user = await authApi.getCurrentUser();
+      set({ user, status: "authenticated" });
+    } catch (error) {
+      const status = getApiErrorCode(error) === 40102 ? "anonymous" : "error";
+      set({ accessToken: null, user: null, status });
     }
   },
 
@@ -83,7 +85,9 @@ export const useAuthStore = create<AuthStore>((set) => ({
       set({ accessToken });
       return accessToken;
     } catch (error) {
-      set({ accessToken: null, user: null, status: "anonymous" });
+      if (getApiErrorCode(error) === 40102) {
+        set({ accessToken: null, user: null, status: "anonymous" });
+      }
       throw error;
     }
   },

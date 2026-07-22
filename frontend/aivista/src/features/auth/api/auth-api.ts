@@ -68,10 +68,8 @@ export async function refreshAccessToken(): Promise<string> {
   return unwrapApiResponse(response.data).accessToken;
 }
 
-export async function getCurrentUser(accessToken: string): Promise<CurrentUser> {
-  const response = await browserApiClient.get<ApiResponse<CurrentUserDto>>("/users/me", {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
+export async function getCurrentUser(): Promise<CurrentUser> {
+  const response = await browserApiClient.get<ApiResponse<CurrentUserDto>>("/users/me");
   return toCurrentUser(unwrapApiResponse(response.data));
 }
 
