@@ -51,7 +51,7 @@ export function InspirationHome() {
                 <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
                   <span className="rounded-lg border border-border px-2.5 py-1.5">图片生成</span>
                   <span className="rounded-lg border border-border px-2.5 py-1.5">参考图</span>
-                  <span className="rounded-lg border border-border px-2.5 py-1.5">1–2 张结果</span>
+                  <span className="rounded-lg border border-border px-2.5 py-1.5">1–6 张结果</span>
                 </div>
                 <span className="flex size-9 items-center justify-center rounded-full bg-primary text-primary-foreground transition group-hover:bg-sky-600">
                   <ArrowUpRight className="size-4" />

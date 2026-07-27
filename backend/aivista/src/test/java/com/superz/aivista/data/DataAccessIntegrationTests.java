@@ -4,6 +4,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.superz.aivista.auth.entity.AuthSession;
 import com.superz.aivista.auth.mapper.AuthSessionMapper;
+import com.superz.aivista.generation.mapper.GenerationImageMapper;
+import com.superz.aivista.generation.mapper.GenerationMessageMapper;
+import com.superz.aivista.generation.mapper.GenerationSessionMapper;
+import com.superz.aivista.generation.mapper.GenerationTaskMapper;
+import com.superz.aivista.generation.mapper.OutboxEventMapper;
+import com.superz.aivista.generation.mapper.UserConsentMapper;
+import com.superz.aivista.generation.mapper.UserGenerationDailyUsageMapper;
 import com.superz.aivista.user.entity.User;
 import com.superz.aivista.user.mapper.UserMapper;
 import java.nio.charset.StandardCharsets;
@@ -49,6 +56,27 @@ class DataAccessIntegrationIT {
     @Autowired
     private AuthSessionMapper authSessionMapper;
 
+    @Autowired
+    private GenerationSessionMapper generationSessionMapper;
+
+    @Autowired
+    private GenerationMessageMapper generationMessageMapper;
+
+    @Autowired
+    private GenerationTaskMapper generationTaskMapper;
+
+    @Autowired
+    private GenerationImageMapper generationImageMapper;
+
+    @Autowired
+    private OutboxEventMapper outboxEventMapper;
+
+    @Autowired
+    private UserGenerationDailyUsageMapper userGenerationDailyUsageMapper;
+
+    @Autowired
+    private UserConsentMapper userConsentMapper;
+
     @BeforeEach
     void cleanDatabase() {
         jdbcTemplate.update("DELETE FROM auth_sessions");
@@ -61,10 +89,25 @@ class DataAccessIntegrationIT {
                 SELECT COUNT(*)
                 FROM information_schema.tables
                 WHERE table_schema = DATABASE()
-                  AND table_name IN ('users', 'auth_sessions')
+                  AND table_name IN (
+                    'users', 'auth_sessions', 'generation_sessions', 'generation_messages',
+                    'generation_tasks', 'generation_images', 'outbox_events',
+                    'user_generation_daily_usage', 'user_consents'
+                  )
                 """, Integer.class);
 
-        assertThat(tableCount).isEqualTo(2);
+        assertThat(tableCount).isEqualTo(9);
+    }
+
+    @Test
+    void generationMappersAreRegistered() {
+        assertThat(generationSessionMapper).isNotNull();
+        assertThat(generationMessageMapper).isNotNull();
+        assertThat(generationTaskMapper).isNotNull();
+        assertThat(generationImageMapper).isNotNull();
+        assertThat(outboxEventMapper).isNotNull();
+        assertThat(userGenerationDailyUsageMapper).isNotNull();
+        assertThat(userConsentMapper).isNotNull();
     }
 
     @Test

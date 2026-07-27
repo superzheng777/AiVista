@@ -13,6 +13,7 @@ public enum ErrorCode {
     MEDIA_FORBIDDEN(40301, "无权使用该媒体文件", HttpStatus.FORBIDDEN),
     NOT_FOUND(40400, "资源不存在", HttpStatus.NOT_FOUND),
     LOGIN_NAME_EXISTS(40901, "登录账号已存在", HttpStatus.CONFLICT),
+    GENERATION_CONSENT_VERSION_OUTDATED(40902, "第三方数据处理规则已更新，请重新确认", HttpStatus.CONFLICT),
     VALIDATION_ERROR(42200, "请求参数校验失败", HttpStatus.UNPROCESSABLE_CONTENT),
     RATE_LIMITED(42900, "请求过于频繁，请稍后重试", HttpStatus.TOO_MANY_REQUESTS),
     SYSTEM_ERROR(50000, "系统繁忙，请稍后重试", HttpStatus.INTERNAL_SERVER_ERROR);
