@@ -13,6 +13,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.bind.MissingRequestHeaderException;
 
 /** 将控制器层异常转换为统一且不泄露内部细节的 HTTP 响应。 */
 @RestControllerAdvice
@@ -42,7 +43,11 @@ public class GlobalExceptionHandler {
         return response(ErrorCode.VALIDATION_ERROR, message);
     }
 
-    @ExceptionHandler({HttpMessageNotReadableException.class, MethodArgumentTypeMismatchException.class})
+    @ExceptionHandler({
+            HttpMessageNotReadableException.class,
+            MethodArgumentTypeMismatchException.class,
+            MissingRequestHeaderException.class
+    })
     public ResponseEntity<ApiResponse<Void>> handleBadRequest(Exception exception) {
         return response(ErrorCode.BAD_REQUEST, ErrorCode.BAD_REQUEST.getMessage());
     }
