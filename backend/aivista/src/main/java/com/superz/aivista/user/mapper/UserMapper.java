@@ -17,6 +17,9 @@ public interface UserMapper extends BaseMapper<User> {
             """)
     User selectByLoginName(@Param("loginName") String loginName);
 
+    @Select("SELECT id FROM users WHERE id = #{userId} FOR UPDATE")
+    Long selectIdForUpdate(@Param("userId") long userId);
+
     @Update("""
             UPDATE users
             SET nickname = #{nickname}, avatar_url = #{avatarUrl}, bio = #{bio}
