@@ -1,0 +1,24 @@
+# 复制为 application-local.yaml 后填写本机真实值；application-local.yaml 已被 Git 忽略。
+# 在 IDE 运行配置或终端中设置 SPRING_PROFILES_ACTIVE=local 以启用本文件。
+spring:
+  rabbitmq:
+    host: "<your-rabbitmq-host>"
+    port: 5672
+    username: "<your-rabbitmq-username>"
+    password: "<your-rabbitmq-password>"
+    virtual-host: "/aivista"
+  datasource:
+    url: "jdbc:mysql://localhost:3306/aivista?serverTimezone=UTC&connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true&characterEncoding=UTF-8"
+    username: "<your-db-username>"
+    password: "<your-db-password>"
+
+app:
+  generation:
+    bailian:
+      endpoint: "<your-bailian-endpoint>"
+      api-key: "<your-bailian-api-key>"
+    oss:
+      endpoint: "<your-oss-endpoint>"
+      bucket: "<your-oss-bucket>"
+      access-key-id: "<your-oss-access-key-id>"
+      access-key-secret: "<your-oss-access-key-secret>"

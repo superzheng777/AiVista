@@ -2,21 +2,17 @@ spring:
   application:
     name: aivista
   rabbitmq:
-    # 填写 RabbitMQ 服务器公网 IP 或域名；填写完成后再将 app.generation.queue.enabled 改为 true。
-    host: "118.31.236.251"
-    port: 5672
-    # 当前约定使用 RabbitMQ 独立业务账号；如服务端账号不同，请一并修改。
-    username: aivista
-    # 密码含 #、: 等 YAML 特殊字符时必须保留引号。
-    password: "8bm4OU6W5DqnaT0YteR+x999A+j7/ZHWCysvM4nsVzE="
-    # RabbitMQ 的逻辑隔离空间，需与服务器上创建的业务虚拟主机完全一致。
-    virtual-host: /aivista
+    host: ${AIVISTA_RABBITMQ_HOST:}
+    port: ${AIVISTA_RABBITMQ_PORT:5672}
+    username: ${AIVISTA_RABBITMQ_USERNAME:}
+    password: ${AIVISTA_RABBITMQ_PASSWORD:}
+    virtual-host: ${AIVISTA_RABBITMQ_VHOST:/aivista}
     connection-timeout: 5s
     publisher-confirm-type: correlated
   datasource:
-    url: ${AIVISTA_DB_URL:jdbc:mysql://localhost:3306/aivista?serverTimezone=UTC&connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true&characterEncoding=UTF-8}
-    username: ${AIVISTA_DB_USERNAME:root}
-    password: ${AIVISTA_DB_PASSWORD:1234}
+    url: ${AIVISTA_DB_URL:}
+    username: ${AIVISTA_DB_USERNAME:}
+    password: ${AIVISTA_DB_PASSWORD:}
   flyway:
     enabled: true
     locations: classpath:db/migration
@@ -72,21 +68,17 @@ app:
       queue-timeout: 5m
       queue-timeout-fixed-delay: 30s
     bailian:
-      # 填写百炼目标业务空间的完整 HTTPS Endpoint，不在代码中拼接 WorkspaceId。
-      endpoint: "https://ws-e17x0nhbbkvjv0it.cn-beijing.maas.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
-      # 仅后端使用，不得记录到日志、文档或返回给客户端。
-      api-key: "sk-ws-H.EIEREEL.r6Qd.MEUCIQCb41rZsCH4cO5-eykkaGMvFBJ_0s9Y5RgRBIqzoC_rlgIgHVRVWXsIMoic3NOUmhlOwET5ieeQDgGSsbCmWPavAgA"
+      endpoint: ${AIVISTA_BAILIAN_ENDPOINT:}
+      api-key: ${AIVISTA_BAILIAN_API_KEY:}
       connect-timeout: 5s
       read-timeout: 300s
       max-concurrent-calls: 30
       rate-limit-per-second: 2
     oss:
-      # 开发环境的地域 Endpoint；请按实际 Bucket 所在地域填写。
-      endpoint: "oss-cn-hangzhou.aliyuncs.com"
-      bucket: "zdy-aivista-dev"
-      # 使用独立 RAM 身份的凭证，仅后端使用。
-      access-key-id: "LTAI5t9XpzVAbcHo2dhrJsST"
-      access-key-secret: "RlmVzjxIycLqQrzsEHriD0dhJpVhbq"
+      endpoint: ${AIVISTA_OSS_ENDPOINT:}
+      bucket: ${AIVISTA_OSS_BUCKET:}
+      access-key-id: ${AIVISTA_OSS_ACCESS_KEY_ID:}
+      access-key-secret: ${AIVISTA_OSS_ACCESS_KEY_SECRET:}
       object-prefix: users
       signed-url-ttl: 10m
       connect-timeout: 5s
