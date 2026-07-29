@@ -26,6 +26,18 @@ public interface GenerationTaskMapper extends BaseMapper<GenerationTask> {
             @Param("idempotencyKey") String idempotencyKey);
 
     @Select("""
+            SELECT id, user_id, session_id, source_message_id, model, status, task_version,
+                   attempt_count, provider_call_started_at, final_prompt, final_negative_prompt,
+                   width, height, requested_image_count, completed_image_count, quota_refunded_at,
+                   provider_request_id, provider_result_snapshot, idempotency_key, request_fingerprint,
+                   failure_code, created_at, updated_at, started_at, completed_at
+            FROM generation_tasks
+            WHERE id = #{taskId} AND user_id = #{userId}
+            LIMIT 1
+            """)
+    GenerationTask selectOwnedById(@Param("userId") long userId, @Param("taskId") long taskId);
+
+    @Select("""
             SELECT COUNT(*)
             FROM generation_tasks
             WHERE user_id = #{userId}

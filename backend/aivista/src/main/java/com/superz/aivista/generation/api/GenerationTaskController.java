@@ -6,16 +6,21 @@ import com.superz.aivista.common.response.ApiResponse;
 import com.superz.aivista.common.response.ResponseUtils;
 import com.superz.aivista.generation.dto.CreateGenerationTaskRequest;
 import com.superz.aivista.generation.dto.CreateGenerationTaskResponse;
+import com.superz.aivista.generation.dto.GenerationTaskSnapshotResponse;
 import com.superz.aivista.generation.service.GenerationTaskCreationService;
+import com.superz.aivista.generation.service.GenerationTaskQueryService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.ExampleObject;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -28,9 +33,12 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/generation-tasks")
 public class GenerationTaskController {
     private final GenerationTaskCreationService creationService;
+    private final GenerationTaskQueryService queryService;
 
-    public GenerationTaskController(GenerationTaskCreationService creationService) {
+    public GenerationTaskController(GenerationTaskCreationService creationService,
+            GenerationTaskQueryService queryService) {
         this.creationService = creationService;
+        this.queryService = queryService;
     }
 
     @Operation(summary = "创建普通文生图任务", description = "原子创建会话、提示词消息、排队任务和执行 Outbox 事件；任务将在后续队列阶段消费。")
@@ -53,6 +61,16 @@ public class GenerationTaskController {
         CreateGenerationTaskResponse response = creationService.create(
                 currentUserId(authentication), idempotencyKey, request);
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(ResponseUtils.success(response));
+    }
+
+    @Operation(summary = "查询生成任务详情", description = "返回当前用户可见的任务状态和短期图片签名地址")
+    @GetMapping("/{taskId}")
+    public ResponseEntity<ApiResponse<GenerationTaskSnapshotResponse>> get(
+            Authentication authentication, @PathVariable long taskId) {
+        GenerationTaskSnapshotResponse response = queryService.get(currentUserId(authentication), taskId);
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore().cachePrivate())
+                .body(ResponseUtils.success(response));
     }
 
     private long currentUserId(Authentication authentication) {
