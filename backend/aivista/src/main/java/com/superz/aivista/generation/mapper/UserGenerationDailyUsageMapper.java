@@ -34,4 +34,13 @@ public interface UserGenerationDailyUsageMapper extends BaseMapper<UserGeneratio
             @Param("imageCount") int imageCount,
             @Param("dailyQuota") int dailyQuota,
             @Param("updatedAt") java.time.Instant updatedAt);
+
+    @Update("""
+            UPDATE user_generation_daily_usage
+            SET requested_image_count = requested_image_count - #{imageCount}, updated_at = #{updatedAt}
+            WHERE user_id = #{userId} AND usage_date = #{usageDate}
+              AND requested_image_count >= #{imageCount}
+            """)
+    int refund(@Param("userId") long userId, @Param("usageDate") LocalDate usageDate,
+            @Param("imageCount") int imageCount, @Param("updatedAt") java.time.Instant updatedAt);
 }
