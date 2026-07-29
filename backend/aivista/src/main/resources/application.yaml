@@ -1,6 +1,18 @@
 spring:
   application:
     name: aivista
+  rabbitmq:
+    # 填写 RabbitMQ 服务器公网 IP 或域名；填写完成后再将 app.generation.queue.enabled 改为 true。
+    host: "118.31.236.251"
+    port: 5672
+    # 当前约定使用 RabbitMQ 独立业务账号；如服务端账号不同，请一并修改。
+    username: aivista
+    # 密码含 #、: 等 YAML 特殊字符时必须保留引号。
+    password: "8bm4OU6W5DqnaT0YteR+x999A+j7/ZHWCysvM4nsVzE="
+    # RabbitMQ 的逻辑隔离空间，需与服务器上创建的业务虚拟主机完全一致。
+    virtual-host: /aivista
+    connection-timeout: 5s
+    publisher-confirm-type: correlated
   datasource:
     url: ${AIVISTA_DB_URL:jdbc:mysql://localhost:3306/aivista?serverTimezone=UTC&connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true&characterEncoding=UTF-8}
     username: ${AIVISTA_DB_USERNAME:root}
@@ -48,6 +60,38 @@ app:
       max-batches: 10
       fixed-delay-ms: 3600000
   generation:
+    queue:
+      # 当前所有开发配置统一维护在本文件；未配置 RabbitMQ 时保持 false，避免启动分发器。
+      enabled: true
+      name: generation.task.execute
+      consumer-concurrency: 30
+      dispatcher-fixed-delay: 1s
+      dispatcher-batch-size: 20
+      delivery-max-retries: 5
+      delivery-retry-delay: 5s
+      queue-timeout: 5m
+      queue-timeout-fixed-delay: 30s
+    bailian:
+      # 填写百炼目标业务空间的完整 HTTPS Endpoint，不在代码中拼接 WorkspaceId。
+      endpoint: "https://ws-e17x0nhbbkvjv0it.cn-beijing.maas.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
+      # 仅后端使用，不得记录到日志、文档或返回给客户端。
+      api-key: "sk-ws-H.EIEREEL.r6Qd.MEUCIQCb41rZsCH4cO5-eykkaGMvFBJ_0s9Y5RgRBIqzoC_rlgIgHVRVWXsIMoic3NOUmhlOwET5ieeQDgGSsbCmWPavAgA"
+      connect-timeout: 5s
+      read-timeout: 300s
+      max-concurrent-calls: 30
+      rate-limit-per-second: 2
+    oss:
+      # 开发环境的地域 Endpoint；请按实际 Bucket 所在地域填写。
+      endpoint: "oss-cn-hangzhou.aliyuncs.com"
+      bucket: "zdy-aivista-dev"
+      # 使用独立 RAM 身份的凭证，仅后端使用。
+      access-key-id: "LTAI5t9XpzVAbcHo2dhrJsST"
+      access-key-secret: "RlmVzjxIycLqQrzsEHriD0dhJpVhbq"
+      object-prefix: users
+      signed-url-ttl: 10m
+      connect-timeout: 5s
+      read-timeout: 60s
+      max-object-size: 30MiB
     task:
       model: bailian/qwen-image-2.0
       max-active-tasks-per-user: 4
