@@ -48,9 +48,19 @@ public class GenerationTaskQueryService {
         if (task == null) {
             throw new BusinessException(ErrorCode.GENERATION_RESOURCE_NOT_FOUND);
         }
+        List<GenerationImage> taskImages = isTerminal(task.getStatus())
+                ? imageMapper.selectByTaskId(task.getId())
+                : List.of();
+        return snapshot(task, taskImages);
+    }
+
+    /**
+     * 将已查询出的任务及图片组装为响应快照，供批量历史查询复用，避免为每条消息重复查询图片。
+     */
+    GenerationTaskSnapshotResponse snapshot(GenerationTask task, List<GenerationImage> taskImages) {
         Instant urlExpiresAt = clock.instant().plus(ossProperties.signedUrlTtl());
         List<GenerationImageResponse> images = isTerminal(task.getStatus())
-                ? imageMapper.selectByTaskId(task.getId()).stream()
+                ? taskImages.stream()
                         .map(image -> imageResponse(image, urlExpiresAt))
                         .toList()
                 : List.of();

@@ -20,6 +20,7 @@ public enum ErrorCode {
     IDEMPOTENCY_KEY_CONFLICT(40906, "幂等键与此前请求不一致", HttpStatus.CONFLICT),
     GENERATION_RESOURCE_NOT_FOUND(40401, "生成资源不存在", HttpStatus.NOT_FOUND),
     VALIDATION_ERROR(42200, "请求参数校验失败", HttpStatus.UNPROCESSABLE_CONTENT),
+    INVALID_CURSOR(42201, "分页游标无效", HttpStatus.UNPROCESSABLE_CONTENT),
     RATE_LIMITED(42900, "请求过于频繁，请稍后重试", HttpStatus.TOO_MANY_REQUESTS),
     DAILY_GENERATION_QUOTA_EXCEEDED(42901, "今日生成图片额度已用尽", HttpStatus.TOO_MANY_REQUESTS),
     SYSTEM_ERROR(50000, "系统繁忙，请稍后重试", HttpStatus.INTERNAL_SERVER_ERROR);

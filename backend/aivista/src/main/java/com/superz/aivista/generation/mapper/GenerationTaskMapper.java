@@ -38,6 +38,39 @@ public interface GenerationTaskMapper extends BaseMapper<GenerationTask> {
     GenerationTask selectOwnedById(@Param("userId") long userId, @Param("taskId") long taskId);
 
     @Select("""
+            <script>
+            SELECT id, session_id, status, task_version
+            FROM (
+                SELECT id, session_id, status, task_version,
+                       ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY created_at DESC, id DESC) AS row_number
+                FROM generation_tasks
+                WHERE session_id IN
+                <foreach collection="sessionIds" item="sessionId" open="(" separator="," close=")">
+                    #{sessionId}
+                </foreach>
+            ) latest_tasks
+            WHERE row_number = 1
+            </script>
+            """)
+    List<GenerationTask> selectLatestBySessionIds(@Param("sessionIds") List<Long> sessionIds);
+
+    @Select("""
+            <script>
+            SELECT id, user_id, session_id, source_message_id, model, status, task_version,
+                   attempt_count, provider_call_started_at, final_prompt, final_negative_prompt,
+                   width, height, requested_image_count, completed_image_count, quota_refunded_at,
+                   provider_request_id, provider_result_snapshot, idempotency_key, request_fingerprint,
+                   failure_code, created_at, updated_at, started_at, completed_at
+            FROM generation_tasks
+            WHERE source_message_id IN
+            <foreach collection="messageIds" item="messageId" open="(" separator="," close=")">
+                #{messageId}
+            </foreach>
+            </script>
+            """)
+    List<GenerationTask> selectBySourceMessageIds(@Param("messageIds") List<Long> messageIds);
+
+    @Select("""
             SELECT COUNT(*)
             FROM generation_tasks
             WHERE user_id = #{userId}
