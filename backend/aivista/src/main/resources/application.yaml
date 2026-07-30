@@ -56,6 +56,12 @@ app:
       max-batches: 10
       fixed-delay-ms: 3600000
   generation:
+    sse:
+      max-connections-per-user: 3
+      max-connections: 1000
+      heartbeat-interval: 15s
+      dispatcher-fixed-delay: 1s
+      dispatcher-batch-size: 100
     queue:
       # 当前所有开发配置统一维护在本文件；未配置 RabbitMQ 时保持 false，避免启动分发器。
       enabled: true

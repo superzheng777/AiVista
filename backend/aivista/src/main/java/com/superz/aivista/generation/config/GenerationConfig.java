@@ -13,6 +13,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @EnableConfigurationProperties({
         GenerationConsentProperties.class,
         GenerationTaskProperties.class,
+        GenerationSseProperties.class,
         GenerationQueueProperties.class,
         GenerationBailianProperties.class,
         GenerationOssProperties.class

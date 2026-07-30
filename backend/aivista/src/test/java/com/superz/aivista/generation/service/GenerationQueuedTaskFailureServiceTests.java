@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.superz.aivista.generation.entity.GenerationTask;
+import com.superz.aivista.generation.entity.OutboxEvent;
 import com.superz.aivista.generation.mapper.GenerationTaskMapper;
 import com.superz.aivista.generation.mapper.OutboxEventMapper;
 import com.superz.aivista.generation.mapper.UserGenerationDailyUsageMapper;
@@ -17,6 +18,7 @@ import com.superz.aivista.generation.model.GenerationFailureCode;
 import java.time.Instant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 class GenerationQueuedTaskFailureServiceTests {
     private static final Instant NOW = Instant.parse("2026-07-29T01:00:00Z");
@@ -44,6 +46,9 @@ class GenerationQueuedTaskFailureServiceTests {
         assertThat(changed).isTrue();
         verify(taskMapper).failQueued(11L, 3, "QUEUE_TIMEOUT", NOW, NOW);
         verify(dailyUsageMapper).refund(7L, java.time.LocalDate.of(2026, 7, 29), 2, NOW);
+        ArgumentCaptor<OutboxEvent> event = ArgumentCaptor.forClass(OutboxEvent.class);
+        verify(outboxEventMapper).insertSelective(event.capture());
+        assertThat(event.getValue().getTaskVersion()).isEqualTo(4);
     }
 
     @Test

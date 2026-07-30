@@ -50,6 +50,7 @@ public class AccessTokenAuthenticationFilter extends OncePerRequestFilter {
             if (SecurityContextHolder.getContext().getAuthentication() == null) {
                 var authentication = UsernamePasswordAuthenticationToken.authenticated(
                         claims.userId(), null, List.of());
+                authentication.setDetails(claims);
                 SecurityContextHolder.getContext().setAuthentication(authentication);
             }
             filterChain.doFilter(request, response);

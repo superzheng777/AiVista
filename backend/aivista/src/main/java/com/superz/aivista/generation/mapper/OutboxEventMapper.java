@@ -22,6 +22,18 @@ public interface OutboxEventMapper extends BaseMapper<OutboxEvent> {
             """)
     List<OutboxEvent> selectAvailableTaskExecutions(@Param("now") Instant now, @Param("limit") int limit);
 
+    @Select("""
+            SELECT id, event_type, task_id, task_version, status, retry_count,
+                   available_at, locked_at, published_at, last_error, created_at
+            FROM outbox_events
+            WHERE event_type = 'TASK_STATUS_CHANGED'
+              AND status = 'PENDING'
+              AND available_at <= #{now}
+            ORDER BY id
+            LIMIT #{limit}
+            """)
+    List<OutboxEvent> selectAvailableTaskStatusChanges(@Param("now") Instant now, @Param("limit") int limit);
+
     @Update("""
             UPDATE outbox_events
             SET status = 'PROCESSING', locked_at = #{lockedAt}
