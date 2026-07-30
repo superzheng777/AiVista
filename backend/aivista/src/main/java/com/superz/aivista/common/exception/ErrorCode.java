@@ -18,6 +18,7 @@ public enum ErrorCode {
     SESSION_ACTIVE_TASK_EXISTS(40904, "当前会话存在未完成的生成任务", HttpStatus.CONFLICT),
     USER_GENERATION_CONCURRENCY_LIMIT(40905, "未完成的生成任务数量已达上限", HttpStatus.CONFLICT),
     IDEMPOTENCY_KEY_CONFLICT(40906, "幂等键与此前请求不一致", HttpStatus.CONFLICT),
+    TASK_ALREADY_FINISHED(40907, "任务已结束，无法取消", HttpStatus.CONFLICT),
     GENERATION_RESOURCE_NOT_FOUND(40401, "生成资源不存在", HttpStatus.NOT_FOUND),
     VALIDATION_ERROR(42200, "请求参数校验失败", HttpStatus.UNPROCESSABLE_CONTENT),
     INVALID_CURSOR(42201, "分页游标无效", HttpStatus.UNPROCESSABLE_CONTENT),

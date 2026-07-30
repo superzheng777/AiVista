@@ -3,6 +3,7 @@ package com.superz.aivista.generation.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -39,6 +40,8 @@ class GenerationTaskExecutionServiceTests {
         GenerationTask runningTask = task("RUNNING", 1);
         when(taskMapper.selectByIdForUpdate(301L)).thenReturn(queuedTask, runningTask);
         when(taskMapper.claimQueuedForExecution(301L, 0, NOW)).thenReturn(1);
+        when(taskMapper.markProviderCallStarted(301L, NOW)).thenReturn(1);
+        when(taskMapper.saveProviderResult(301L, "request-1", "snapshot", NOW)).thenReturn(1);
         GenerationBailianClient.ProviderResult providerResult = new GenerationBailianClient.ProviderResult(
                 "request-1", List.of("https://provider.example/image.png"), 1, 2048, 2048, "snapshot");
         when(bailianClient.generate(queuedTask)).thenReturn(providerResult);
@@ -67,6 +70,25 @@ class GenerationTaskExecutionServiceTests {
         assertThat(event.getValue().getEventType()).isEqualTo("TASK_STATUS_CHANGED");
         assertThat(event.getValue().getTaskId()).isEqualTo(301L);
         assertThat(event.getValue().getTaskVersion()).isEqualTo(2);
+    }
+
+    @Test
+    void doesNotCallProviderWhenCancellationWinsBeforeCallStarts() {
+        GenerationTaskMapper taskMapper = mock(GenerationTaskMapper.class);
+        GenerationBailianClient bailianClient = mock(GenerationBailianClient.class);
+        GenerationTask queuedTask = task("QUEUED", 0);
+        when(taskMapper.selectByIdForUpdate(301L)).thenReturn(queuedTask);
+        when(taskMapper.claimQueuedForExecution(301L, 0, NOW)).thenReturn(1);
+        when(taskMapper.markProviderCallStarted(301L, NOW)).thenReturn(0);
+
+        GenerationTaskExecutionService service = new GenerationTaskExecutionService(taskMapper,
+                mock(GenerationImageMapper.class), mock(OutboxEventMapper.class),
+                mock(UserGenerationDailyUsageMapper.class), bailianClient,
+                mock(GenerationImageTransferService.class), transactionManager(), Clock.fixed(NOW, ZoneOffset.UTC));
+
+        assertThat(service.execute(new TaskExecuteMessage(11L, 301L, 0))).isTrue();
+
+        verify(bailianClient, never()).generate(queuedTask);
     }
 
     private static PlatformTransactionManager transactionManager() {

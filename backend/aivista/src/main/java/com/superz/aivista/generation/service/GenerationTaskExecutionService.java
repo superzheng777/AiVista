@@ -59,25 +59,27 @@ public class GenerationTaskExecutionService {
         GenerationBailianClient.ProviderResult result;
         try {
             if (plan.kind() == PlanKind.CALL_PROVIDER) {
-                inTransaction(() -> {
-                    taskMapper.markProviderCallStarted(plan.task().getId(), clock.instant());
-                    return null;
-                });
+                boolean callStarted = inTransaction(() -> taskMapper.markProviderCallStarted(
+                        plan.task().getId(), clock.instant()) == 1);
+                if (!callStarted) {
+                    return true;
+                }
                 result = bailianClient.generate(plan.task());
                 GenerationBailianClient.ProviderResult saved = result;
-                inTransaction(() -> {
-                    taskMapper.saveProviderResult(plan.task().getId(), saved.requestId(), saved.snapshot(), clock.instant());
-                    return null;
-                });
+                boolean snapshotSaved = inTransaction(() -> taskMapper.saveProviderResult(
+                        plan.task().getId(), saved.requestId(), saved.snapshot(), clock.instant()) == 1);
+                if (!snapshotSaved) {
+                    return true;
+                }
             } else {
                 result = bailianClient.restore(plan.task().getProviderResultSnapshot());
             }
             List<GenerationImageTransferService.TransferredImage> images = imageTransferService.transfer(plan.task(), result.imageUrls());
             GenerationBailianClient.ProviderResult completedResult = result;
-            inTransaction(() -> {
-                complete(plan.task(), images, completedResult, clock.instant());
-                return null;
-            });
+            boolean completed = inTransaction(() -> complete(plan.task(), images, completedResult, clock.instant()));
+            if (!completed) {
+                imageTransferService.deleteTransferred(images);
+            }
         } catch (BailianProviderException exception) {
             inTransaction(() -> {
                 fail(plan.task(), failureCodeOf(exception), exception.requestId(), clock.instant());
@@ -120,11 +122,11 @@ public class GenerationTaskExecutionService {
     }
 
     /** 在同一事务中保存成功图片、写入终态并创建状态变化 Outbox 事件。 */
-    private void complete(GenerationTask task, List<GenerationImageTransferService.TransferredImage> images,
+    private boolean complete(GenerationTask task, List<GenerationImageTransferService.TransferredImage> images,
             GenerationBailianClient.ProviderResult result, Instant now) {
         GenerationTask current = taskMapper.selectByIdForUpdate(task.getId());
         if (current == null || !"RUNNING".equals(current.getStatus())) {
-            return;
+            return false;
         }
         for (GenerationImageTransferService.TransferredImage image : images) {
             if ((result.declaredWidth() != null && image.width() != result.declaredWidth())
@@ -163,6 +165,7 @@ public class GenerationTaskExecutionService {
         event.setAvailableAt(now);
         event.setCreatedAt(now);
         outboxEventMapper.insertSelective(event);
+        return true;
     }
 
     /** 按稳定失败码终止仍在运行的任务；仅结果未知等平台失败返还一次额度。 */

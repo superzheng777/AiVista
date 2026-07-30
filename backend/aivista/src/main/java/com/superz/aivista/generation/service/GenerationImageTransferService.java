@@ -50,6 +50,17 @@ public class GenerationImageTransferService {
         return result;
     }
 
+    /** 尽力删除因取消或终态竞争而未写入数据库的对象；失败由后续孤儿清理兜底。 */
+    public void deleteTransferred(List<TransferredImage> images) {
+        for (TransferredImage image : images) {
+            try {
+                ossClient.deleteObject(properties.bucket(), image.objectKey());
+            } catch (Exception ignored) {
+                // 外部删除失败不改变任务终态；后续孤儿对象清理负责兜底。
+            }
+        }
+    }
+
     /** 下载并校验单张服务商临时图片，返回已限制大小的 PNG 字节和实际尺寸。 */
     private ImageBytes downloadPng(String url) throws Exception {
         URI uri = URI.create(url);
