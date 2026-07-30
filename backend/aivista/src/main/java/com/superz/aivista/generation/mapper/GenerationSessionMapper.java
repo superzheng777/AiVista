@@ -52,4 +52,12 @@ public interface GenerationSessionMapper extends BaseMapper<GenerationSession> {
             """)
     int updateLastMessageAt(@Param("sessionId") long sessionId,
             @Param("lastMessageAt") java.time.Instant lastMessageAt);
+
+    @Update("""
+            UPDATE generation_sessions
+            SET title = #{title}
+            WHERE id = #{sessionId} AND user_id = #{userId}
+            """)
+    int updateTitle(@Param("sessionId") long sessionId, @Param("userId") long userId,
+            @Param("title") String title);
 }

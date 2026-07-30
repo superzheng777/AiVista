@@ -5,16 +5,22 @@ import com.superz.aivista.common.exception.ErrorCode;
 import com.superz.aivista.common.response.ApiResponse;
 import com.superz.aivista.common.response.ResponseUtils;
 import com.superz.aivista.generation.dto.GenerationMessagePageResponse;
+import com.superz.aivista.generation.dto.GenerationSessionResponse;
 import com.superz.aivista.generation.dto.GenerationSessionPageResponse;
+import com.superz.aivista.generation.dto.UpdateGenerationSessionTitleRequest;
 import com.superz.aivista.generation.service.GenerationSessionMessageQueryService;
 import com.superz.aivista.generation.service.GenerationSessionQueryService;
+import com.superz.aivista.generation.service.GenerationSessionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -27,11 +33,13 @@ import org.springframework.web.bind.annotation.RestController;
 public class GenerationSessionController {
     private final GenerationSessionQueryService queryService;
     private final GenerationSessionMessageQueryService messageQueryService;
+    private final GenerationSessionService sessionService;
 
     public GenerationSessionController(GenerationSessionQueryService queryService,
-            GenerationSessionMessageQueryService messageQueryService) {
+            GenerationSessionMessageQueryService messageQueryService, GenerationSessionService sessionService) {
         this.queryService = queryService;
         this.messageQueryService = messageQueryService;
+        this.sessionService = sessionService;
     }
 
     @Operation(summary = "获取生成会话列表", description = "按最近提示词时间倒序，使用不透明游标分页返回当前用户已有内容的会话。")
@@ -51,6 +59,14 @@ public class GenerationSessionController {
             @Parameter(description = "当前页最早消息返回的不透明游标") @RequestParam(required = false) String before,
             @Parameter(description = "每页数量，默认 30，范围 1 到 100") @RequestParam(required = false) Integer limit) {
         return ResponseUtils.success(messageQueryService.list(currentUserId(authentication), sessionId, before, limit));
+    }
+
+    @Operation(summary = "修改生成会话标题", description = "仅允许当前用户修改自己的会话标题，不改变会话侧栏排序。")
+    @PatchMapping("/{sessionId}")
+    public ApiResponse<GenerationSessionResponse> updateTitle(
+            Authentication authentication, @PathVariable long sessionId,
+            @Valid @RequestBody UpdateGenerationSessionTitleRequest request) {
+        return ResponseUtils.success(sessionService.updateTitle(currentUserId(authentication), sessionId, request.title()));
     }
 
     private long currentUserId(Authentication authentication) {

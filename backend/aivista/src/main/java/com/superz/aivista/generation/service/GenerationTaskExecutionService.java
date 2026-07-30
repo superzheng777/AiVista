@@ -95,7 +95,7 @@ public class GenerationTaskExecutionService {
     /** 在行锁内判断消息是否过期，并决定调用百炼、恢复转存或直接确认。 */
     private ExecutionPlan prepare(TaskExecuteMessage message, Instant now) {
         GenerationTask task = taskMapper.selectByIdForUpdate(message.taskId());
-        if (task == null || isTerminal(task.getStatus()) || "CANCEL_REQUESTED".equals(task.getStatus())) {
+        if (task == null || isTerminal(task.getStatus())) {
             return new ExecutionPlan(PlanKind.ACK, task);
         }
         if ("QUEUED".equals(task.getStatus())) {

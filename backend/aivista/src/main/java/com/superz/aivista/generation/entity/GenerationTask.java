@@ -21,7 +21,7 @@ public class GenerationTask {
     private Long sourceMessageId;
     private String model;
     /**
-     * QUEUED、RUNNING、CANCEL_REQUESTED、SUCCEEDED、PARTIALLY_SUCCEEDED、FAILED 或 CANCELLED。
+     * QUEUED、RUNNING、SUCCEEDED、PARTIALLY_SUCCEEDED、FAILED 或 CANCELLED。
      * 仅允许由任务状态机按既定方向迁移。
      */
     private String status;

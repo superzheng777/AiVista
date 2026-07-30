@@ -6,8 +6,6 @@ public enum GenerationTaskStatus {
     QUEUED,
     /** 工作器已通过条件更新领取任务。 */
     RUNNING,
-    /** 服务商调用已开始后的取消请求，调用结束后收敛为 CANCELLED。 */
-    CANCEL_REQUESTED,
     SUCCEEDED,
     PARTIALLY_SUCCEEDED,
     FAILED,

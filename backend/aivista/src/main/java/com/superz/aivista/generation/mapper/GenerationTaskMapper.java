@@ -74,7 +74,7 @@ public interface GenerationTaskMapper extends BaseMapper<GenerationTask> {
             SELECT COUNT(*)
             FROM generation_tasks
             WHERE user_id = #{userId}
-              AND status IN ('QUEUED', 'RUNNING', 'CANCEL_REQUESTED')
+              AND status IN ('QUEUED', 'RUNNING')
             """)
     int countActiveByUserId(@Param("userId") long userId);
 
@@ -82,7 +82,7 @@ public interface GenerationTaskMapper extends BaseMapper<GenerationTask> {
             SELECT COUNT(*)
             FROM generation_tasks
             WHERE session_id = #{sessionId}
-              AND status IN ('QUEUED', 'RUNNING', 'CANCEL_REQUESTED')
+              AND status IN ('QUEUED', 'RUNNING')
             """)
     int countActiveBySessionId(@Param("sessionId") long sessionId);
 
