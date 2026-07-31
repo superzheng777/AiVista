@@ -5,10 +5,14 @@ import com.superz.aivista.generation.config.GenerationBailianProperties;
 import com.superz.aivista.generation.entity.GenerationTask;
 import java.util.List;
 import java.util.Map;
+import java.net.ConnectException;
+import java.net.UnknownHostException;
+import javax.net.ssl.SSLHandshakeException;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
+import org.springframework.web.client.ResourceAccessException;
 
 /** 按百炼 Qwen-Image 同步接口发起一次生成并提取临时图片 URL。 */
 @Service
@@ -53,6 +57,11 @@ public class GenerationBailianClient {
             return result;
         } catch (RestClientResponseException exception) {
             throw providerException(exception.getStatusCode().value(), exception.getResponseBodyAsString());
+        } catch (ResourceAccessException exception) {
+            if (isConnectionNotEstablished(exception)) {
+                throw new BailianConnectionException(exception);
+            }
+            throw exception;
         }
     }
 
@@ -105,6 +114,16 @@ public class GenerationBailianClient {
         } catch (Exception ignored) {
             return new BailianProviderException(httpStatus, null, null, "Unparseable Bailian error response");
         }
+    }
+
+    private static boolean isConnectionNotEstablished(Throwable exception) {
+        for (Throwable current = exception; current != null; current = current.getCause()) {
+            if (current instanceof UnknownHostException || current instanceof ConnectException
+                    || current instanceof SSLHandshakeException) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public record ProviderResult(String requestId, List<String> imageUrls, Integer declaredImageCount,

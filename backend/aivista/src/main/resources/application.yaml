@@ -66,7 +66,7 @@ app:
       # 当前所有开发配置统一维护在本文件；未配置 RabbitMQ 时保持 false，避免启动分发器。
       enabled: true
       name: generation.task.execute
-      consumer-concurrency: 30
+      consumer-concurrency: 40
       dispatcher-fixed-delay: 1s
       dispatcher-batch-size: 20
       delivery-max-retries: 5
@@ -78,7 +78,7 @@ app:
       api-key: ${AIVISTA_BAILIAN_API_KEY:}
       connect-timeout: 5s
       read-timeout: 330s
-      max-concurrent-calls: 30
+      max-concurrent-calls: 25
       rate-limit-per-second: 2
     oss:
       endpoint: ${AIVISTA_OSS_ENDPOINT:}

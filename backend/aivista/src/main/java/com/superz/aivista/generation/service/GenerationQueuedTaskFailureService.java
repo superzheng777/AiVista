@@ -40,6 +40,18 @@ public class GenerationQueuedTaskFailureService {
         return failIfStillQueued(taskId, null, failureCode, now);
     }
 
+    @Transactional
+    public boolean failIfStillRunningBeforeProviderCall(long taskId, Instant now) {
+        GenerationTask task = taskMapper.selectByIdForUpdate(taskId);
+        if (task == null || !"RUNNING".equals(task.getStatus()) || task.getProviderCallStartedAt() != null
+                || taskMapper.failRunningBeforeProviderCall(taskId,
+                GenerationFailureCode.QUEUE_CONSUMPTION_FAILED.name(), now, now) != 1) {
+            return false;
+        }
+        refundAndPublish(task, now);
+        return true;
+    }
+
     /**
      * 仅当任务仍处于 {@code QUEUED} 时收敛失败。
      *
@@ -53,16 +65,21 @@ public class GenerationQueuedTaskFailureService {
                 || (expectedTaskVersion != null && !expectedTaskVersion.equals(task.getTaskVersion()))) {
             return false;
         }
-        // true：任务标记“失败”成功，下一步退还额度； false：任务标记“失败” 失败。
+
         if (taskMapper.failQueued(taskId, task.getTaskVersion(), failureCode.name(), now, now) != 1) {
             return false;
         }
         // null意味着任务未被退回过额度
+        refundAndPublish(task, now);
+        return true;
+    }
+
+    private void refundAndPublish(GenerationTask task, Instant now) {
         if (task.getQuotaRefundedAt() == null) {
             LocalDate usageDate = LocalDate.ofInstant(task.getCreatedAt(), QUOTA_ZONE);
             if (dailyUsageMapper.refund(task.getUserId(), usageDate,
                     task.getRequestedImageCount(), now) != 1) {
-                throw new IllegalStateException("Generation quota refund record is missing for task " + taskId);
+                throw new IllegalStateException("Generation quota refund record is missing for task " + task.getId());
             }
         }
         OutboxEvent event = new OutboxEvent();
@@ -74,7 +91,6 @@ public class GenerationQueuedTaskFailureService {
         event.setAvailableAt(now);
         event.setCreatedAt(now);
         outboxEventMapper.insertSelective(event);
-        return true;
     }
 
     /**

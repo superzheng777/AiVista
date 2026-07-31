@@ -212,4 +212,13 @@ public interface GenerationTaskMapper extends BaseMapper<GenerationTask> {
             """)
     int failRunning(@Param("taskId") long taskId, @Param("failureCode") String failureCode,
             @Param("quotaRefundedAt") Instant quotaRefundedAt, @Param("now") Instant now);
+
+    @Update("""
+            UPDATE generation_tasks
+            SET status = 'FAILED', task_version = task_version + 1, failure_code = #{failureCode},
+                quota_refunded_at = COALESCE(#{quotaRefundedAt}, quota_refunded_at), completed_at = #{now}, updated_at = #{now}
+            WHERE id = #{taskId} AND status = 'RUNNING' AND provider_call_started_at IS NULL
+            """)
+    int failRunningBeforeProviderCall(@Param("taskId") long taskId, @Param("failureCode") String failureCode,
+            @Param("quotaRefundedAt") Instant quotaRefundedAt, @Param("now") Instant now);
 }

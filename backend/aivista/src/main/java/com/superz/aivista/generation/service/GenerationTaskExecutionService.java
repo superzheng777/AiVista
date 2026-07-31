@@ -97,6 +97,14 @@ public class GenerationTaskExecutionService {
                 fail(plan.task(), failureCodeOf(exception), exception.requestId(), clock.instant());
                 return null;
             });
+        } catch (BailianConnectionException exception) {
+            if (inTransaction(() -> retry(plan.task().getId(), clock.instant()))) {
+                return true;
+            }
+            inTransaction(() -> {
+                fail(plan.task(), GenerationFailureCode.PROVIDER_CONNECTION_FAILED, null, clock.instant());
+                return null;
+            });
         } catch (Exception exception) {
             inTransaction(() -> {
                 fail(plan.task(), GenerationFailureCode.PROVIDER_CALL_OUTCOME_UNKNOWN, null, clock.instant());

@@ -20,6 +20,7 @@ import com.superz.aivista.generation.message.TaskExecuteMessage;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.net.ConnectException;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -103,6 +104,37 @@ class GenerationTaskExecutionServiceTests {
     }
 
     @Test
+    void restoresSavedProviderSnapshotWithoutCallingBailianAgain() throws Exception {
+        GenerationTaskMapper taskMapper = mock(GenerationTaskMapper.class);
+        GenerationImageMapper imageMapper = mock(GenerationImageMapper.class);
+        OutboxEventMapper outboxEventMapper = mock(OutboxEventMapper.class);
+        GenerationBailianClient bailianClient = mock(GenerationBailianClient.class);
+        GenerationImageTransferService imageTransferService = mock(GenerationImageTransferService.class);
+        GenerationTask recoveredTask = task("RUNNING", 1);
+        recoveredTask.setProviderResultSnapshot("saved-snapshot");
+        GenerationTask currentTask = task("RUNNING", 1);
+        when(taskMapper.selectByIdForUpdate(301L)).thenReturn(recoveredTask, currentTask);
+        GenerationBailianClient.ProviderResult providerResult = new GenerationBailianClient.ProviderResult(
+                "request-1", List.of("https://provider.example/image.png"), 1, 2048, 2048, "saved-snapshot");
+        when(bailianClient.restore("saved-snapshot")).thenReturn(providerResult);
+        when(imageTransferService.transfer(recoveredTask, providerResult.imageUrls())).thenReturn(List.of(
+                new GenerationImageTransferService.TransferredImage(0,
+                        "users/7/tasks/301/0.png", 1024, 2048, 2048)));
+        when(taskMapper.completeRunning(301L, "SUCCEEDED", 1, null, NOW)).thenReturn(1);
+
+        GenerationTaskExecutionService service = new GenerationTaskExecutionService(taskMapper, imageMapper,
+                outboxEventMapper, mock(UserGenerationDailyUsageMapper.class), bailianClient,
+                mock(GenerationProviderCallGate.class), imageTransferService, transactionManager(),
+                Clock.fixed(NOW, ZoneOffset.UTC));
+
+        assertThat(service.execute(new TaskExecuteMessage(11L, 301L, 1))).isTrue();
+
+        verify(bailianClient).restore("saved-snapshot");
+        verify(bailianClient, never()).generate(any());
+        verify(taskMapper).completeRunning(301L, "SUCCEEDED", 1, null, NOW);
+    }
+
+    @Test
     void requeuesMessageWhenInterruptedWhileWaitingForProviderPermit() throws Exception {
         GenerationTaskMapper taskMapper = mock(GenerationTaskMapper.class);
         GenerationProviderCallGate providerCallGate = mock(GenerationProviderCallGate.class);
@@ -119,6 +151,50 @@ class GenerationTaskExecutionServiceTests {
         assertThat(service.execute(new TaskExecuteMessage(11L, 301L, 0))).isFalse();
         assertThat(Thread.interrupted()).isTrue();
         verify(taskMapper, never()).markProviderCallStarted(anyLong(), any());
+    }
+
+    @Test
+    void requeuesOnProviderRateLimitWithDelayedExecutionEvent() throws Exception {
+        assertRetryableFailure(new BailianProviderException(429, "Throttling", "request-1", "limited"));
+    }
+
+    @Test
+    void requeuesOnProviderServerErrorWithDelayedExecutionEvent() throws Exception {
+        assertRetryableFailure(new BailianProviderException(503, null, "request-1", "unavailable"));
+    }
+
+    @Test
+    void requeuesWhenConnectionWasNotEstablished() throws Exception {
+        assertRetryableFailure(new BailianConnectionException(new ConnectException("refused")));
+    }
+
+    private static void assertRetryableFailure(RuntimeException failure) throws Exception {
+        GenerationTaskMapper taskMapper = mock(GenerationTaskMapper.class);
+        OutboxEventMapper outboxEventMapper = mock(OutboxEventMapper.class);
+        GenerationBailianClient bailianClient = mock(GenerationBailianClient.class);
+        GenerationProviderCallGate providerCallGate = mock(GenerationProviderCallGate.class);
+        when(providerCallGate.acquire()).thenReturn(mock(GenerationProviderCallGate.Permit.class));
+        GenerationTask queuedTask = task("QUEUED", 0);
+        GenerationTask runningTask = task("RUNNING", 1);
+        runningTask.setAttemptCount(0);
+        when(taskMapper.selectByIdForUpdate(301L)).thenReturn(queuedTask, runningTask);
+        when(taskMapper.claimQueuedForExecution(301L, 0, NOW)).thenReturn(1);
+        when(taskMapper.markProviderCallStarted(301L, NOW)).thenReturn(1);
+        when(bailianClient.generate(queuedTask)).thenThrow(failure);
+        when(taskMapper.requeueRunningForRetry(301L, 1, NOW)).thenReturn(1);
+
+        GenerationTaskExecutionService service = new GenerationTaskExecutionService(taskMapper,
+                mock(GenerationImageMapper.class), outboxEventMapper, mock(UserGenerationDailyUsageMapper.class),
+                bailianClient, providerCallGate, mock(GenerationImageTransferService.class), transactionManager(),
+                Clock.fixed(NOW, ZoneOffset.UTC));
+
+        assertThat(service.execute(new TaskExecuteMessage(11L, 301L, 0))).isTrue();
+        verify(taskMapper).requeueRunningForRetry(301L, 1, NOW);
+        ArgumentCaptor<OutboxEvent> event = ArgumentCaptor.forClass(OutboxEvent.class);
+        verify(outboxEventMapper).insertSelective(event.capture());
+        assertThat(event.getValue().getEventType()).isEqualTo("TASK_EXECUTE");
+        assertThat(event.getValue().getTaskVersion()).isEqualTo(2);
+        assertThat(event.getValue().getAvailableAt()).isBetween(NOW.plusSeconds(1), NOW.plusSeconds(2));
     }
 
     private static PlatformTransactionManager transactionManager() {
