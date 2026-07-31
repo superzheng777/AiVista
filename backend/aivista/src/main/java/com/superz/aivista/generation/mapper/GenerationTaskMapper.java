@@ -125,8 +125,8 @@ public interface GenerationTaskMapper extends BaseMapper<GenerationTask> {
                    provider_request_id, provider_result_snapshot, idempotency_key, request_fingerprint,
                    failure_code, created_at, updated_at, started_at, completed_at
             FROM generation_tasks
-            WHERE status = 'QUEUED' AND created_at < #{before}
-            ORDER BY created_at, id
+            WHERE status = 'QUEUED' AND updated_at < #{before}
+            ORDER BY updated_at, id
             LIMIT #{limit}
             """)
     List<GenerationTask> selectQueuedBefore(@Param("before") Instant before, @Param("limit") int limit);
@@ -155,6 +155,15 @@ public interface GenerationTaskMapper extends BaseMapper<GenerationTask> {
             WHERE id = #{taskId} AND status = 'RUNNING' AND provider_call_started_at IS NULL
             """)
     int markProviderCallStarted(@Param("taskId") long taskId, @Param("now") Instant now);
+
+    @Update("""
+            UPDATE generation_tasks
+            SET status = 'QUEUED', task_version = task_version + 1, attempt_count = attempt_count + 1,
+                provider_call_started_at = NULL, updated_at = #{now}
+            WHERE id = #{taskId} AND status = 'RUNNING' AND task_version = #{taskVersion}
+            """)
+    int requeueRunningForRetry(@Param("taskId") long taskId, @Param("taskVersion") int taskVersion,
+            @Param("now") Instant now);
 
     @Update("""
             UPDATE generation_tasks

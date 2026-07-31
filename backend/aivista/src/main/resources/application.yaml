@@ -71,13 +71,13 @@ app:
       dispatcher-batch-size: 20
       delivery-max-retries: 5
       delivery-retry-delay: 5s
-      queue-timeout: 5m
+      queue-timeout: 3m
       queue-timeout-fixed-delay: 30s
     bailian:
       endpoint: ${AIVISTA_BAILIAN_ENDPOINT:}
       api-key: ${AIVISTA_BAILIAN_API_KEY:}
       connect-timeout: 5s
-      read-timeout: 300s
+      read-timeout: 330s
       max-concurrent-calls: 30
       rate-limit-per-second: 2
     oss:

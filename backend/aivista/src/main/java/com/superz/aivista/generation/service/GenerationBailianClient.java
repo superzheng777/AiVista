@@ -41,6 +41,7 @@ public class GenerationBailianClient {
             BailianGenerationResponse response = restClient.post()
                     .contentType(MediaType.APPLICATION_JSON)
                     .header("Authorization", "Bearer " + properties.apiKey())
+                    .header("X-DashScope-Wait-Timeout", "30")
                     .body(request)
                     .retrieve()
                     .body(BailianGenerationResponse.class);

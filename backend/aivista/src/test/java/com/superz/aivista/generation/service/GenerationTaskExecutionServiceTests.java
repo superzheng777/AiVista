@@ -2,6 +2,8 @@ package com.superz.aivista.generation.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -21,6 +23,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.SimpleTransactionStatus;
 
@@ -28,12 +31,14 @@ class GenerationTaskExecutionServiceTests {
     private static final Instant NOW = Instant.parse("2026-07-29T02:00:00Z");
 
     @Test
-    void executesOneImageTaskThenPersistsImageTerminalStateAndStatusEvent() {
+    void executesOneImageTaskThenPersistsImageTerminalStateAndStatusEvent() throws Exception {
         GenerationTaskMapper taskMapper = mock(GenerationTaskMapper.class);
         GenerationImageMapper imageMapper = mock(GenerationImageMapper.class);
         OutboxEventMapper outboxEventMapper = mock(OutboxEventMapper.class);
         UserGenerationDailyUsageMapper dailyUsageMapper = mock(UserGenerationDailyUsageMapper.class);
         GenerationBailianClient bailianClient = mock(GenerationBailianClient.class);
+        GenerationProviderCallGate providerCallGate = mock(GenerationProviderCallGate.class);
+        when(providerCallGate.acquire()).thenReturn(mock(GenerationProviderCallGate.Permit.class));
         GenerationImageTransferService imageTransferService = mock(GenerationImageTransferService.class);
         PlatformTransactionManager transactionManager = transactionManager();
         GenerationTask queuedTask = task("QUEUED", 0);
@@ -51,12 +56,16 @@ class GenerationTaskExecutionServiceTests {
         when(taskMapper.completeRunning(301L, "SUCCEEDED", 1, null, NOW)).thenReturn(1);
 
         GenerationTaskExecutionService service = new GenerationTaskExecutionService(taskMapper, imageMapper,
-                outboxEventMapper, dailyUsageMapper, bailianClient, imageTransferService,
+                outboxEventMapper, dailyUsageMapper, bailianClient, providerCallGate, imageTransferService,
                 transactionManager, Clock.fixed(NOW, ZoneOffset.UTC));
 
         boolean canAcknowledge = service.execute(new TaskExecuteMessage(11L, 301L, 0));
 
         assertThat(canAcknowledge).isTrue();
+        InOrder callOrder = inOrder(providerCallGate, taskMapper, bailianClient);
+        callOrder.verify(providerCallGate).acquire();
+        callOrder.verify(taskMapper).markProviderCallStarted(301L, NOW);
+        callOrder.verify(bailianClient).generate(queuedTask);
         verify(taskMapper).markProviderCallStarted(301L, NOW);
         verify(taskMapper).saveProviderResult(301L, "request-1", "snapshot", NOW);
         verify(taskMapper).completeRunning(301L, "SUCCEEDED", 1, null, NOW);
@@ -73,9 +82,11 @@ class GenerationTaskExecutionServiceTests {
     }
 
     @Test
-    void doesNotCallProviderWhenCancellationWinsBeforeCallStarts() {
+    void doesNotCallProviderWhenCancellationWinsBeforeCallStarts() throws Exception {
         GenerationTaskMapper taskMapper = mock(GenerationTaskMapper.class);
         GenerationBailianClient bailianClient = mock(GenerationBailianClient.class);
+        GenerationProviderCallGate providerCallGate = mock(GenerationProviderCallGate.class);
+        when(providerCallGate.acquire()).thenReturn(mock(GenerationProviderCallGate.Permit.class));
         GenerationTask queuedTask = task("QUEUED", 0);
         when(taskMapper.selectByIdForUpdate(301L)).thenReturn(queuedTask);
         when(taskMapper.claimQueuedForExecution(301L, 0, NOW)).thenReturn(1);
@@ -83,12 +94,31 @@ class GenerationTaskExecutionServiceTests {
 
         GenerationTaskExecutionService service = new GenerationTaskExecutionService(taskMapper,
                 mock(GenerationImageMapper.class), mock(OutboxEventMapper.class),
-                mock(UserGenerationDailyUsageMapper.class), bailianClient,
+                mock(UserGenerationDailyUsageMapper.class), bailianClient, providerCallGate,
                 mock(GenerationImageTransferService.class), transactionManager(), Clock.fixed(NOW, ZoneOffset.UTC));
 
         assertThat(service.execute(new TaskExecuteMessage(11L, 301L, 0))).isTrue();
 
         verify(bailianClient, never()).generate(queuedTask);
+    }
+
+    @Test
+    void requeuesMessageWhenInterruptedWhileWaitingForProviderPermit() throws Exception {
+        GenerationTaskMapper taskMapper = mock(GenerationTaskMapper.class);
+        GenerationProviderCallGate providerCallGate = mock(GenerationProviderCallGate.class);
+        GenerationTask queuedTask = task("QUEUED", 0);
+        when(taskMapper.selectByIdForUpdate(301L)).thenReturn(queuedTask);
+        when(taskMapper.claimQueuedForExecution(301L, 0, NOW)).thenReturn(1);
+        when(providerCallGate.acquire()).thenThrow(new InterruptedException("stopping"));
+
+        GenerationTaskExecutionService service = new GenerationTaskExecutionService(taskMapper,
+                mock(GenerationImageMapper.class), mock(OutboxEventMapper.class),
+                mock(UserGenerationDailyUsageMapper.class), mock(GenerationBailianClient.class), providerCallGate,
+                mock(GenerationImageTransferService.class), transactionManager(), Clock.fixed(NOW, ZoneOffset.UTC));
+
+        assertThat(service.execute(new TaskExecuteMessage(11L, 301L, 0))).isFalse();
+        assertThat(Thread.interrupted()).isTrue();
+        verify(taskMapper, never()).markProviderCallStarted(anyLong(), any());
     }
 
     private static PlatformTransactionManager transactionManager() {

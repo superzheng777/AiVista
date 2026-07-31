@@ -9,11 +9,13 @@ public enum GenerationFailureCode {
     /** 队列消费者持续失败且已达到消费重试上限。 */
     QUEUE_CONSUMPTION_FAILED,
     /** 调用可能已发出但无法确认结果，禁止自动重试以避免重复生成。 */
-    PROVIDER_RESULT_UNKNOWN,
+    PROVIDER_CALL_OUTCOME_UNKNOWN,
     /** 可确认服务商请求尚未发出时的连接失败。 */
     PROVIDER_CONNECTION_FAILED,
     /** 服务商明确返回的短时限流，重试耗尽后使用。 */
     PROVIDER_RATE_LIMITED,
+    /** 服务商明确返回 HTTP 5xx，重试耗尽后使用。 */
+    PROVIDER_SERVICE_UNAVAILABLE,
     /** 服务商配额、计费或商品不可用。 */
     PROVIDER_QUOTA_UNAVAILABLE,
     /** 服务商内容安全拒绝。 */

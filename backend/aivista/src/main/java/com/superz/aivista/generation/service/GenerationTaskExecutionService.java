@@ -17,6 +17,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.concurrent.ThreadLocalRandom;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -31,6 +32,7 @@ public class GenerationTaskExecutionService {
     private final OutboxEventMapper outboxEventMapper;
     private final UserGenerationDailyUsageMapper dailyUsageMapper;
     private final GenerationBailianClient bailianClient;
+    private final GenerationProviderCallGate providerCallGate;
     private final GenerationImageTransferService imageTransferService;
     private final TransactionTemplate transactions;
     private final Clock clock;
@@ -38,13 +40,15 @@ public class GenerationTaskExecutionService {
     /** 注入状态持久化、外部执行器与事务模板；网络调用始终不持有数据库事务。 */
     public GenerationTaskExecutionService(GenerationTaskMapper taskMapper, GenerationImageMapper imageMapper,
             OutboxEventMapper outboxEventMapper, UserGenerationDailyUsageMapper dailyUsageMapper,
-            GenerationBailianClient bailianClient, GenerationImageTransferService imageTransferService,
-            PlatformTransactionManager transactionManager, Clock clock) {
+            GenerationBailianClient bailianClient, GenerationProviderCallGate providerCallGate,
+            GenerationImageTransferService imageTransferService, PlatformTransactionManager transactionManager,
+            Clock clock) {
         this.taskMapper = taskMapper;
         this.imageMapper = imageMapper;
         this.outboxEventMapper = outboxEventMapper;
         this.dailyUsageMapper = dailyUsageMapper;
         this.bailianClient = bailianClient;
+        this.providerCallGate = providerCallGate;
         this.imageTransferService = imageTransferService;
         this.transactions = new TransactionTemplate(transactionManager);
         this.clock = clock;
@@ -59,12 +63,14 @@ public class GenerationTaskExecutionService {
         GenerationBailianClient.ProviderResult result;
         try {
             if (plan.kind() == PlanKind.CALL_PROVIDER) {
-                boolean callStarted = inTransaction(() -> taskMapper.markProviderCallStarted(
-                        plan.task().getId(), clock.instant()) == 1);
-                if (!callStarted) {
-                    return true;
+                try (GenerationProviderCallGate.Permit ignored = providerCallGate.acquire()) {
+                    boolean callStarted = inTransaction(() -> taskMapper.markProviderCallStarted(
+                            plan.task().getId(), clock.instant()) == 1);
+                    if (!callStarted) {
+                        return true;
+                    }
+                    result = bailianClient.generate(plan.task());
                 }
-                result = bailianClient.generate(plan.task());
                 GenerationBailianClient.ProviderResult saved = result;
                 boolean snapshotSaved = inTransaction(() -> taskMapper.saveProviderResult(
                         plan.task().getId(), saved.requestId(), saved.snapshot(), clock.instant()) == 1);
@@ -80,14 +86,20 @@ public class GenerationTaskExecutionService {
             if (!completed) {
                 imageTransferService.deleteTransferred(images);
             }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            return false;
         } catch (BailianProviderException exception) {
+            if (isRetryable(exception) && inTransaction(() -> retry(plan.task().getId(), clock.instant()))) {
+                return true;
+            }
             inTransaction(() -> {
                 fail(plan.task(), failureCodeOf(exception), exception.requestId(), clock.instant());
                 return null;
             });
         } catch (Exception exception) {
             inTransaction(() -> {
-                fail(plan.task(), GenerationFailureCode.PROVIDER_RESULT_UNKNOWN, null, clock.instant());
+                fail(plan.task(), GenerationFailureCode.PROVIDER_CALL_OUTCOME_UNKNOWN, null, clock.instant());
                 return null;
             });
         }
@@ -115,7 +127,7 @@ public class GenerationTaskExecutionService {
             return new ExecutionPlan(PlanKind.TRANSFER_SNAPSHOT, task);
         }
         if (task.getProviderCallStartedAt() != null) {
-            fail(task, GenerationFailureCode.PROVIDER_RESULT_UNKNOWN, null, now);
+            fail(task, GenerationFailureCode.PROVIDER_CALL_OUTCOME_UNKNOWN, null, now);
             return new ExecutionPlan(PlanKind.ACK, task);
         }
         return new ExecutionPlan(PlanKind.CALL_PROVIDER, task);
@@ -177,7 +189,10 @@ public class GenerationTaskExecutionService {
         if (providerRequestId != null && !providerRequestId.isBlank()) {
             taskMapper.saveProviderRequestId(current.getId(), providerRequestId, now);
         }
-        boolean refund = failureCode == GenerationFailureCode.PROVIDER_RESULT_UNKNOWN;
+        boolean refund = failureCode == GenerationFailureCode.PROVIDER_CALL_OUTCOME_UNKNOWN
+                || failureCode == GenerationFailureCode.PROVIDER_CONNECTION_FAILED
+                || failureCode == GenerationFailureCode.PROVIDER_RATE_LIMITED
+                || failureCode == GenerationFailureCode.PROVIDER_SERVICE_UNAVAILABLE;
         if (refund && current.getQuotaRefundedAt() == null && dailyUsageMapper.refund(current.getUserId(),
                 LocalDate.ofInstant(current.getCreatedAt(), QUOTA_ZONE), current.getRequestedImageCount(), now) != 1) {
             throw new IllegalStateException("Generation quota refund record is missing for task " + current.getId());
@@ -198,11 +213,39 @@ public class GenerationTaskExecutionService {
         if ("Throttling.AllocationQuota".equals(code) || "CommodityNotPurchased".equals(code)) {
             return GenerationFailureCode.PROVIDER_QUOTA_UNAVAILABLE;
         }
+        if (exception.httpStatus() >= 500) {
+            return GenerationFailureCode.PROVIDER_SERVICE_UNAVAILABLE;
+        }
         if (exception.httpStatus() == 400 || exception.httpStatus() == 401
                 || exception.httpStatus() == 403 || exception.httpStatus() == 404) {
             return GenerationFailureCode.PROVIDER_CONFIGURATION_ERROR;
         }
-        return GenerationFailureCode.PROVIDER_RESULT_UNKNOWN;
+        return GenerationFailureCode.PROVIDER_CALL_OUTCOME_UNKNOWN;
+    }
+
+    private boolean retry(long taskId, Instant now) {
+        GenerationTask current = taskMapper.selectByIdForUpdate(taskId);
+        if (current == null || !"RUNNING".equals(current.getStatus()) || current.getAttemptCount() >= 3
+                || taskMapper.requeueRunningForRetry(current.getId(), current.getTaskVersion(), now) != 1) {
+            return false;
+        }
+        OutboxEvent event = new OutboxEvent();
+        event.setEventType(OutboxEventType.TASK_EXECUTE.name());
+        event.setTaskId(current.getId());
+        event.setTaskVersion(current.getTaskVersion() + 1);
+        event.setStatus(OutboxStatus.PENDING.name());
+        event.setRetryCount(0);
+        event.setAvailableAt(now.plusSeconds(1L << current.getAttemptCount())
+                .plusMillis(ThreadLocalRandom.current().nextLong(1001)));
+        event.setCreatedAt(now);
+        outboxEventMapper.insertSelective(event);
+        return true;
+    }
+
+    private static boolean isRetryable(BailianProviderException exception) {
+        String code = exception.providerCode();
+        return exception.httpStatus() >= 500 || "Throttling".equals(code)
+                || "Throttling.RateQuota".equals(code) || "Throttling.BurstRate".equals(code);
     }
 
     /** 执行一个短数据库事务，确保远程调用不占用数据库连接和行锁。 */
