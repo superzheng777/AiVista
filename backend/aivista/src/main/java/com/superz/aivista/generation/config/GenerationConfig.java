@@ -15,6 +15,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
         GenerationTaskProperties.class,
         GenerationSseProperties.class,
         GenerationQueueProperties.class,
+        GenerationAssetCleanupProperties.class,
         GenerationBailianProperties.class,
         GenerationOssProperties.class
 })

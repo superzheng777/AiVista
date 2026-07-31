@@ -79,4 +79,36 @@ public interface GenerationImageMapper extends BaseMapper<GenerationImage> {
             @Param("userId") long userId,
             @Param("imageIds") List<Long> imageIds,
             @Param("deletedAt") Instant deletedAt);
+
+    @Select("""
+            SELECT id, object_key, oss_cleanup_attempt_count
+            FROM generation_images
+            WHERE oss_cleanup_status = 'PENDING'
+              AND oss_cleanup_available_at <= #{availableAt}
+            ORDER BY oss_cleanup_available_at ASC, id ASC
+            LIMIT #{limit}
+            """)
+    List<GenerationImage> selectPendingOssCleanup(
+            @Param("availableAt") Instant availableAt, @Param("limit") int limit);
+
+    @Update("""
+            UPDATE generation_images
+            SET oss_cleanup_status = 'SUCCEEDED',
+                oss_cleanup_available_at = NULL,
+                oss_cleanup_last_error = NULL
+            WHERE id = #{imageId}
+              AND oss_cleanup_status = 'PENDING'
+            """)
+    int markOssCleanupSucceeded(@Param("imageId") long imageId);
+
+    @Update("""
+            UPDATE generation_images
+            SET oss_cleanup_attempt_count = oss_cleanup_attempt_count + 1,
+                oss_cleanup_available_at = #{availableAt},
+                oss_cleanup_last_error = #{lastError}
+            WHERE id = #{imageId}
+              AND oss_cleanup_status = 'PENDING'
+            """)
+    int rescheduleOssCleanup(@Param("imageId") long imageId,
+            @Param("availableAt") Instant availableAt, @Param("lastError") String lastError);
 }

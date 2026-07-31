@@ -90,6 +90,10 @@ app:
       connect-timeout: 5s
       read-timeout: 60s
       max-object-size: 30MiB
+    asset-cleanup:
+      fixed-delay: 1m
+      retry-delay: 10m
+      batch-size: 100
     task:
       model: bailian/qwen-image-2.0
       max-active-tasks-per-user: 4
