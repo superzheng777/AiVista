@@ -46,11 +46,37 @@ class GenerationTaskQueryServiceTests {
         assertThat(response.failedImageCount()).isZero();
         assertThat(response.images()).singleElement().satisfies(result -> {
             assertThat(result.imageId()).isEqualTo("901");
+            assertThat(result.sourceIndex()).isZero();
             assertThat(result.url()).isEqualTo("https://oss.example/signed-image");
             assertThat(result.urlExpiresAt()).isEqualTo(NOW.plusSeconds(600));
             assertThat(result.width()).isEqualTo(2048);
         });
         verify(imageMapper).selectByTaskId(301L);
+    }
+
+    @Test
+    void keepsDeletedImagePositionWithoutSigningItsUrl() {
+        GenerationTaskMapper taskMapper = mock(GenerationTaskMapper.class);
+        GenerationImageMapper imageMapper = mock(GenerationImageMapper.class);
+        OSS ossClient = mock(OSS.class);
+        GenerationTask task = task("SUCCEEDED");
+        task.setCompletedImageCount(1);
+        GenerationImage image = image();
+        image.setDeletedAt(NOW.minusSeconds(1));
+        when(taskMapper.selectOwnedById(7L, 301L)).thenReturn(task);
+        when(imageMapper.selectByTaskId(301L)).thenReturn(List.of(image));
+
+        GenerationTaskSnapshotResponse response = service(taskMapper, imageMapper, ossClient).get(7L, 301L);
+
+        assertThat(response.images()).singleElement().satisfies(result -> {
+            assertThat(result.imageId()).isEqualTo("901");
+            assertThat(result.sourceIndex()).isZero();
+            assertThat(result.url()).isNull();
+            assertThat(result.urlExpiresAt()).isNull();
+        });
+        verify(ossClient, org.mockito.Mockito.never()).generatePresignedUrl(
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any());
     }
 
     @Test

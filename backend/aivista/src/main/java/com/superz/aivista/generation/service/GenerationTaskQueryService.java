@@ -72,10 +72,14 @@ public class GenerationTaskQueryService {
                 failureCode, failureMessage(failureCode), images, task.getCreatedAt(), task.getCompletedAt());
     }
 
-    /** 将已转存的私有图片转换为带固定过期时间的展示响应。 */
+    /** 将已转存图片转换为任务快照；已删除资产只保留其原始结果位置。 */
     private GenerationImageResponse imageResponse(GenerationImage image, Instant expiresAt) {
+        if (image.getDeletedAt() != null) {
+            return new GenerationImageResponse(String.valueOf(image.getId()), image.getSourceIndex(), null, null,
+                    image.getWidth(), image.getHeight());
+        }
         URL url = ossClient.generatePresignedUrl(ossProperties.bucket(), image.getObjectKey(), Date.from(expiresAt));
-        return new GenerationImageResponse(String.valueOf(image.getId()), url.toString(), expiresAt,
+        return new GenerationImageResponse(String.valueOf(image.getId()), image.getSourceIndex(), url.toString(), expiresAt,
                 image.getWidth(), image.getHeight());
     }
 
