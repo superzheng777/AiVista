@@ -3,12 +3,10 @@ package com.superz.aivista.generation.service;
 import com.superz.aivista.common.exception.BusinessException;
 import com.superz.aivista.common.exception.ErrorCode;
 import com.superz.aivista.generation.entity.GenerationTask;
-import com.superz.aivista.generation.entity.OutboxEvent;
 import com.superz.aivista.generation.mapper.GenerationTaskMapper;
 import com.superz.aivista.generation.mapper.OutboxEventMapper;
 import com.superz.aivista.generation.mapper.UserGenerationDailyUsageMapper;
-import com.superz.aivista.generation.model.OutboxEventType;
-import com.superz.aivista.generation.model.OutboxStatus;
+import com.superz.aivista.generation.model.GenerationTaskStatus;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -63,15 +61,9 @@ public class GenerationTaskCancellationService {
         if (taskMapper.cancelActive(task.getId(), task.getStatus(), task.getTaskVersion(), refundedAt, now) != 1) {
             throw new IllegalStateException("Cannot cancel generation task " + taskId);
         }
-        OutboxEvent event = new OutboxEvent();
-        event.setEventType(OutboxEventType.TASK_STATUS_CHANGED.name());
-        event.setTaskId(task.getId());
-        event.setTaskVersion(task.getTaskVersion() + 1);
-        event.setStatus(OutboxStatus.PENDING.name());
-        event.setRetryCount(0);
-        event.setAvailableAt(now);
-        event.setCreatedAt(now);
-        outboxEventMapper.insertSelective(event);
+        outboxEventMapper.insertSelective(GenerationStatusOutboxEvent.create(
+                task.getId(), task.getTaskVersion() + 1, GenerationTaskStatus.CANCELLED.name(),
+                task.getAttemptCount() == null ? 0 : task.getAttemptCount(), now));
     }
 
     private static boolean isFinished(String status) {

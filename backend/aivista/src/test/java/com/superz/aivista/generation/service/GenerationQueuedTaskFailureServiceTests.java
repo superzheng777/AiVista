@@ -49,6 +49,7 @@ class GenerationQueuedTaskFailureServiceTests {
         ArgumentCaptor<OutboxEvent> event = ArgumentCaptor.forClass(OutboxEvent.class);
         verify(outboxEventMapper).insertSelective(event.capture());
         assertThat(event.getValue().getTaskVersion()).isEqualTo(4);
+        assertThat(event.getValue().getTaskStatus()).isEqualTo("FAILED");
     }
 
     @Test

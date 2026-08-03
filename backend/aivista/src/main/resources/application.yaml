@@ -80,6 +80,7 @@ app:
       read-timeout: 330s
       max-concurrent-calls: 25
       rate-limit-per-second: 2
+      max-retries: 3
     oss:
       endpoint: ${AIVISTA_OSS_ENDPOINT:}
       bucket: ${AIVISTA_OSS_BUCKET:}

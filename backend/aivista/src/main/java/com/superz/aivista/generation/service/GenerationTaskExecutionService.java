@@ -1,6 +1,7 @@
 package com.superz.aivista.generation.service;
 
 import com.superz.aivista.generation.entity.GenerationImage;
+import com.superz.aivista.generation.config.GenerationBailianProperties;
 import com.superz.aivista.generation.entity.GenerationTask;
 import com.superz.aivista.generation.entity.OutboxEvent;
 import com.superz.aivista.generation.mapper.GenerationImageMapper;
@@ -34,6 +35,7 @@ public class GenerationTaskExecutionService {
     private final GenerationBailianClient bailianClient;
     private final GenerationProviderCallGate providerCallGate;
     private final GenerationImageTransferService imageTransferService;
+    private final GenerationBailianProperties bailianProperties;
     private final TransactionTemplate transactions;
     private final Clock clock;
 
@@ -42,7 +44,7 @@ public class GenerationTaskExecutionService {
             OutboxEventMapper outboxEventMapper, UserGenerationDailyUsageMapper dailyUsageMapper,
             GenerationBailianClient bailianClient, GenerationProviderCallGate providerCallGate,
             GenerationImageTransferService imageTransferService, PlatformTransactionManager transactionManager,
-            Clock clock) {
+            GenerationBailianProperties bailianProperties, Clock clock) {
         this.taskMapper = taskMapper;
         this.imageMapper = imageMapper;
         this.outboxEventMapper = outboxEventMapper;
@@ -50,6 +52,7 @@ public class GenerationTaskExecutionService {
         this.bailianClient = bailianClient;
         this.providerCallGate = providerCallGate;
         this.imageTransferService = imageTransferService;
+        this.bailianProperties = bailianProperties;
         this.transactions = new TransactionTemplate(transactionManager);
         this.clock = clock;
     }
@@ -126,6 +129,9 @@ public class GenerationTaskExecutionService {
                 return new ExecutionPlan(PlanKind.ACK, task);
             }
             task.setStatus(GenerationTaskStatus.RUNNING.name());
+            task.setTaskVersion(task.getTaskVersion() + 1);
+            outboxEventMapper.insertSelective(GenerationStatusOutboxEvent.create(
+                    task.getId(), task.getTaskVersion(), task.getStatus(), modelRetryCount(task), now));
             return new ExecutionPlan(PlanKind.CALL_PROVIDER, task);
         }
         if (!"RUNNING".equals(task.getStatus())) {
@@ -176,15 +182,8 @@ public class GenerationTaskExecutionService {
         if (taskMapper.completeRunning(current.getId(), status, images.size(), failureCode, now) != 1) {
             throw new IllegalStateException("Cannot complete generation task " + current.getId());
         }
-        OutboxEvent event = new OutboxEvent();
-        event.setEventType(OutboxEventType.TASK_STATUS_CHANGED.name());
-        event.setTaskId(current.getId());
-        event.setTaskVersion(current.getTaskVersion() + 1);
-        event.setStatus(OutboxStatus.PENDING.name());
-        event.setRetryCount(0);
-        event.setAvailableAt(now);
-        event.setCreatedAt(now);
-        outboxEventMapper.insertSelective(event);
+        outboxEventMapper.insertSelective(GenerationStatusOutboxEvent.create(
+                current.getId(), current.getTaskVersion() + 1, status, modelRetryCount(current), now));
         return true;
     }
 
@@ -205,7 +204,12 @@ public class GenerationTaskExecutionService {
                 LocalDate.ofInstant(current.getCreatedAt(), QUOTA_ZONE), current.getRequestedImageCount(), now) != 1) {
             throw new IllegalStateException("Generation quota refund record is missing for task " + current.getId());
         }
-        taskMapper.failRunning(current.getId(), failureCode.name(), refund ? now : null, now);
+        if (taskMapper.failRunning(current.getId(), failureCode.name(), refund ? now : null, now) != 1) {
+            throw new IllegalStateException("Cannot fail generation task " + current.getId());
+        }
+        outboxEventMapper.insertSelective(GenerationStatusOutboxEvent.create(
+                current.getId(), current.getTaskVersion() + 1, GenerationTaskStatus.FAILED.name(),
+                modelRetryCount(current), now));
     }
 
     /** 按官方错误码和 HTTP 状态映射为任务层稳定失败码，不暴露原始服务商文案。 */
@@ -233,7 +237,8 @@ public class GenerationTaskExecutionService {
 
     private boolean retry(long taskId, Instant now) {
         GenerationTask current = taskMapper.selectByIdForUpdate(taskId);
-        if (current == null || !"RUNNING".equals(current.getStatus()) || current.getAttemptCount() >= 3
+        if (current == null || !"RUNNING".equals(current.getStatus())
+                || modelRetryCount(current) >= bailianProperties.maxRetries()
                 || taskMapper.requeueRunningForRetry(current.getId(), current.getTaskVersion(), now) != 1) {
             return false;
         }
@@ -243,10 +248,13 @@ public class GenerationTaskExecutionService {
         event.setTaskVersion(current.getTaskVersion() + 1);
         event.setStatus(OutboxStatus.PENDING.name());
         event.setRetryCount(0);
-        event.setAvailableAt(now.plusSeconds(1L << current.getAttemptCount())
+        event.setAvailableAt(now.plusSeconds(1L << modelRetryCount(current))
                 .plusMillis(ThreadLocalRandom.current().nextLong(1001)));
         event.setCreatedAt(now);
         outboxEventMapper.insertSelective(event);
+        outboxEventMapper.insertSelective(GenerationStatusOutboxEvent.create(
+                current.getId(), current.getTaskVersion() + 1, GenerationTaskStatus.QUEUED.name(),
+                modelRetryCount(current) + 1, now));
         return true;
     }
 
@@ -265,6 +273,10 @@ public class GenerationTaskExecutionService {
     private static boolean isTerminal(String status) {
         return "SUCCEEDED".equals(status) || "PARTIALLY_SUCCEEDED".equals(status)
                 || "FAILED".equals(status) || "CANCELLED".equals(status);
+    }
+
+    private static int modelRetryCount(GenerationTask task) {
+        return task.getAttemptCount() == null ? 0 : task.getAttemptCount();
     }
 
     private enum PlanKind { ACK, CALL_PROVIDER, TRANSFER_SNAPSHOT }

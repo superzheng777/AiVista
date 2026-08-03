@@ -1,6 +1,7 @@
 package com.superz.aivista.auth.security;
 
 import com.superz.aivista.auth.token.JwtService;
+import jakarta.servlet.DispatcherType;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -35,6 +36,8 @@ public class SecurityConfig {
                         .authenticationEntryPoint(authenticationFailureHandler)
                         .accessDeniedHandler(accessDeniedHandler))
                 .authorizeHttpRequests(authorize -> authorize
+                        .dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR)
+                        .permitAll()
                         .requestMatchers(
                                 "/health",
                                 "/auth/register",

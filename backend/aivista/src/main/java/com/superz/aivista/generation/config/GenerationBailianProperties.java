@@ -11,7 +11,8 @@ public record GenerationBailianProperties(
         Duration connectTimeout,
         Duration readTimeout,
         int maxConcurrentCalls,
-        int rateLimitPerSecond) {
+        int rateLimitPerSecond,
+        int maxRetries) {
 
     public GenerationBailianProperties {
         requireConfigured("app.generation.bailian.endpoint", endpoint);
@@ -20,6 +21,7 @@ public record GenerationBailianProperties(
         requirePositive("app.generation.bailian.read-timeout", readTimeout);
         requirePositive("app.generation.bailian.max-concurrent-calls", maxConcurrentCalls);
         requirePositive("app.generation.bailian.rate-limit-per-second", rateLimitPerSecond);
+        requirePositive("app.generation.bailian.max-retries", maxRetries);
     }
 
     private static void requireConfigured(String name, String value) {

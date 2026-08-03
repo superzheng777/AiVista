@@ -1,13 +1,11 @@
 package com.superz.aivista.generation.service;
 
 import com.superz.aivista.generation.entity.GenerationTask;
-import com.superz.aivista.generation.entity.OutboxEvent;
 import com.superz.aivista.generation.mapper.GenerationTaskMapper;
 import com.superz.aivista.generation.mapper.OutboxEventMapper;
 import com.superz.aivista.generation.mapper.UserGenerationDailyUsageMapper;
 import com.superz.aivista.generation.model.GenerationFailureCode;
-import com.superz.aivista.generation.model.OutboxEventType;
-import com.superz.aivista.generation.model.OutboxStatus;
+import com.superz.aivista.generation.model.GenerationTaskStatus;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -82,15 +80,9 @@ public class GenerationQueuedTaskFailureService {
                 throw new IllegalStateException("Generation quota refund record is missing for task " + task.getId());
             }
         }
-        OutboxEvent event = new OutboxEvent();
-        event.setEventType(OutboxEventType.TASK_STATUS_CHANGED.name());
-        event.setTaskId(task.getId());
-        event.setTaskVersion(task.getTaskVersion() + 1);
-        event.setStatus(OutboxStatus.PENDING.name());
-        event.setRetryCount(0);
-        event.setAvailableAt(now);
-        event.setCreatedAt(now);
-        outboxEventMapper.insertSelective(event);
+        outboxEventMapper.insertSelective(GenerationStatusOutboxEvent.create(
+                task.getId(), task.getTaskVersion() + 1, GenerationTaskStatus.FAILED.name(),
+                task.getAttemptCount() == null ? 0 : task.getAttemptCount(), now));
     }
 
     /**

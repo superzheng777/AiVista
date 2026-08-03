@@ -5,5 +5,7 @@ public record GenerationTaskStatusEvent(
         String sessionId,
         String taskId,
         int taskVersion,
-        String status) {
+        String status,
+        int retryCount,
+        int maxRetryCount) {
 }

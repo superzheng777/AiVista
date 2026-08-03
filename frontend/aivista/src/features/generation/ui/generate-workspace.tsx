@@ -10,17 +10,19 @@ import { useEffect, useRef, useState } from "react";
 import type { GenerationMessage, GenerationSession, GenerationTask } from "@/entities/generation/model/generation";
 import { cancelGenerationTask, getGenerationTask, generationQueryKeys, listGenerationMessages, listGenerationSessions } from "@/features/generation/api/generation-api";
 import { GenerationComposer } from "@/features/generation/ui/generation-composer";
-import { useGenerationEventStream } from "@/features/generation/model/use-generation-event-stream";
 import { cn } from "@/lib/utils";
 import { getApiErrorCode } from "@/shared/api/api-response";
 
-function taskStatusText(status: string): string {
-  if (status === "QUEUED") return "已排队，正在等待生成";
-  if (status === "RUNNING") return "正在生成中";
-  if (status === "SUCCEEDED") return "生成已完成";
-  if (status === "PARTIALLY_SUCCEEDED") return "部分图片已生成";
-  if (status === "FAILED") return "生成失败";
-  if (status === "CANCELLED") return "任务已取消";
+function taskStatusText(task: Pick<GenerationTask, "status" | "retryCount" | "maxRetryCount">): string {
+  const retryProgress = `${task.retryCount}/${task.maxRetryCount}`;
+  if (task.status === "QUEUED" && task.retryCount > 0) return `模型调用失败，正在重试（${retryProgress}）`;
+  if (task.status === "QUEUED") return "已排队，正在等待生成";
+  if (task.status === "RUNNING" && task.retryCount > 0) return `正在处理中（已重试 ${retryProgress}）`;
+  if (task.status === "RUNNING") return "正在处理中";
+  if (task.status === "SUCCEEDED") return "生成已完成";
+  if (task.status === "PARTIALLY_SUCCEEDED") return "部分图片已生成";
+  if (task.status === "FAILED") return "生成失败";
+  if (task.status === "CANCELLED") return "任务已取消";
   return "尚未开始生成";
 }
 
@@ -36,7 +38,6 @@ export function GenerateWorkspace() {
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
   });
   const sessions = sessionsQuery.data?.pages.flatMap((page) => page.items);
-  useGenerationEventStream({ enabled: true, sessionId, taskId });
 
   function selectSession(nextSessionId: string): void {
     router.push(`/generate?sessionId=${encodeURIComponent(nextSessionId)}`);
@@ -119,7 +120,9 @@ function ConversationPanel({ sessionId, taskId }: { sessionId: string; taskId: s
     return () => window.clearTimeout(timeout);
   }, [earliestUrlExpiryAt, queryClient, sessionId]);
   const activeMessageTask = messages?.find((message) => message.generation.status === "QUEUED" || message.generation.status === "RUNNING")?.generation;
-  const currentTask = activeMessageTask ?? taskQuery.data;
+  const currentTask = !activeMessageTask || (taskQuery.data && taskQuery.data.version >= activeMessageTask.version)
+    ? taskQuery.data
+    : activeMessageTask;
 
   return (
     <main className="flex min-h-[calc(100dvh-8rem)] min-w-0 flex-col lg:h-dvh lg:min-h-0">
@@ -131,7 +134,7 @@ function ConversationPanel({ sessionId, taskId }: { sessionId: string; taskId: s
           {messagesQuery.hasNextPage ? <div className="mb-5 flex justify-center"><button type="button" onClick={() => void messagesQuery.fetchNextPage()} disabled={messagesQuery.isFetchingNextPage} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-border bg-card px-3 text-sm text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60">{messagesQuery.isFetchingNextPage ? <LoaderCircle className="size-4 animate-spin" /> : null}加载更早的对话</button></div> : null}
           {messages?.map((message) => <ConversationMessage key={message.id} message={message} sessionId={sessionId} />)}
           {!messagesQuery.isLoading && !messages?.length && !taskQuery.data ? <div className="flex min-h-56 items-center justify-center"><p className="text-sm text-muted-foreground">这个会话还没有可展示的历史内容。</p></div> : null}
-          {currentTask ? <TaskNotice task={currentTask} isCancelling={cancelTask.isPending} cancellationError={cancelTask.error} onCancel={() => cancelTask.mutate(currentTask.id)} /> : null}
+          {currentTask ? <div className="flex justify-start"><div className="w-full max-w-4xl"><TaskNotice task={currentTask} isCancelling={cancelTask.isPending} cancellationError={cancelTask.error} onCancel={() => cancelTask.mutate(currentTask.id)} /></div></div> : null}
         </div>
       </section>
       <footer className="border-t border-border bg-card px-4 py-4 pb-24 sm:px-8 lg:pb-5"><div className="mx-auto max-w-5xl"><GenerationComposer sessionId={sessionId} /></div></footer>
@@ -154,12 +157,25 @@ function SessionList({ sessions, isLoading, isError, hasNextPage, isFetchingNext
 function ConversationMessage({ message, sessionId }: { message: GenerationMessage; sessionId: string }) {
   return (
     <article className="border-b border-border/70 py-7 first:pt-0">
-      <div className="flex items-start gap-2"><MessageSquare className="mt-0.5 size-4 shrink-0 text-sky-600" aria-hidden="true" /><p className="max-w-4xl text-sm leading-7 text-foreground">{message.prompt}</p></div>
-      {message.negativePrompt ? <p className="mt-2 pl-6 text-xs leading-5 text-muted-foreground">负面提示词：{message.negativePrompt}</p> : null}
-      <p className="mt-2 pl-6 text-xs text-muted-foreground">{taskStatusText(message.generation.status)}</p>
-      <TaskOutcome task={message.generation} />
-      {message.generation.failureMessage ? <p role="alert" className="mt-2 pl-6 text-xs leading-5 text-destructive">{message.generation.failureMessage}</p> : null}
-      {message.generation.images.length ? <div className="mt-4 grid max-w-3xl gap-3 pl-6 sm:grid-cols-2">{message.generation.images.map((image) => <GenerationImageCard key={image.id} image={image} sessionId={sessionId} />)}</div> : null}
+      <div className="flex justify-end" aria-label="用户消息">
+        <div className="max-w-[88%] rounded-2xl rounded-br-md bg-sky-600 px-4 py-3 text-white shadow-sm sm:max-w-[72%]">
+          <p className="whitespace-pre-wrap break-words text-sm leading-7">{message.prompt}</p>
+          {message.negativePrompt ? <p className="mt-2 border-t border-white/20 pt-2 text-xs leading-5 text-sky-100">负面提示词：{message.negativePrompt}</p> : null}
+        </div>
+      </div>
+
+      <div className="mt-5 flex justify-start" aria-label="AI 回复">
+        <div className="flex w-full max-w-4xl items-start gap-3">
+          <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-sky-500 to-violet-500 text-white shadow-sm" aria-hidden="true"><Sparkles className="size-4" /></span>
+          <div className="min-w-0 flex-1 rounded-2xl rounded-tl-md border border-border bg-card px-4 py-3 shadow-sm sm:px-5">
+            <p className="text-xs font-medium text-sky-600 dark:text-sky-400">AiVista</p>
+            <p className="mt-1 text-sm leading-6 text-muted-foreground">{taskStatusText(message.generation)}</p>
+            <TaskOutcome task={message.generation} />
+            {message.generation.failureMessage ? <p role="alert" className="mt-2 text-xs leading-5 text-destructive">{message.generation.failureMessage}</p> : null}
+            {message.generation.images.length ? <div className="mt-4 grid max-w-3xl gap-3 sm:grid-cols-2">{message.generation.images.map((image) => <GenerationImageCard key={image.id} image={image} sessionId={sessionId} />)}</div> : null}
+          </div>
+        </div>
+      </div>
     </article>
   );
 }
@@ -191,7 +207,7 @@ function TaskOutcome({ task }: { task: GenerationTask }) {
     return null;
   }
 
-  return <p className="mt-2 pl-6 text-xs leading-5 text-muted-foreground">结果：成功 {task.completedImageCount} 张 · 失败 {task.failedImageCount} 张 · 已取消 {task.cancelledImageCount} 张</p>;
+  return <p className="mt-2 text-xs leading-5 text-muted-foreground">结果：成功 {task.completedImageCount} 张 · 失败 {task.failedImageCount} 张 · 已取消 {task.cancelledImageCount} 张</p>;
 }
 
 function TaskNotice({ task, isCancelling, cancellationError, onCancel }: { task: GenerationTask; isCancelling: boolean; cancellationError: unknown; onCancel: () => void }) {
@@ -204,7 +220,7 @@ function TaskNotice({ task, isCancelling, cancellationError, onCancel }: { task:
   return (
     <div className="mt-6 rounded-xl border border-sky-100 bg-sky-50/70 px-4 py-3 text-sm text-sky-900 dark:border-sky-900/60 dark:bg-sky-950/30 dark:text-sky-100">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <span className="inline-flex items-center gap-2"><CheckCircle2 className="size-4" />{isCancelling ? "正在取消任务，等待状态确认…" : taskStatusText(task.status)}</span>
+        <span className="inline-flex items-center gap-2"><CheckCircle2 className="size-4" />{isCancelling ? "正在取消任务，等待状态确认…" : taskStatusText(task)}</span>
         {isActive && !isConfirmingCancellation ? <button type="button" onClick={() => setIsConfirmingCancellation(true)} disabled={isCancelling} className="inline-flex min-h-10 items-center rounded-lg border border-sky-200 px-3 text-sm font-medium text-sky-900 transition hover:bg-sky-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60 dark:border-sky-800 dark:text-sky-100">取消生成</button> : null}
       </div>
       <TaskOutcome task={task} />

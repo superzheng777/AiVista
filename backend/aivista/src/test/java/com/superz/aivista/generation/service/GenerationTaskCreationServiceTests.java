@@ -89,13 +89,15 @@ class GenerationTaskCreationServiceTests {
         ArgumentCaptor<OutboxEvent> event = ArgumentCaptor.forClass(OutboxEvent.class);
         verify(dailyUsageMapper).insertSelective(usage.capture());
         verify(taskMapper).insertSelective(task.capture());
-        verify(outboxEventMapper).insertSelective(event.capture());
+        verify(outboxEventMapper, org.mockito.Mockito.times(2)).insertSelective(event.capture());
         assertThat(usage.getValue().getRequestedImageCount()).isEqualTo(2);
         assertThat(task.getValue().getFinalPrompt()).isEqualTo("future city");
         assertThat(task.getValue().getFinalNegativePrompt()).isNull();
         assertThat(task.getValue().getWidth()).isEqualTo(2048);
-        assertThat(event.getValue().getTaskId()).isEqualTo(301L);
-        assertThat(event.getValue().getEventType()).isEqualTo("TASK_EXECUTE");
+        assertThat(event.getAllValues()).extracting(OutboxEvent::getTaskId).containsOnly(301L);
+        assertThat(event.getAllValues()).extracting(OutboxEvent::getEventType)
+                .containsExactly("TASK_EXECUTE", "TASK_STATUS_CHANGED");
+        assertThat(event.getAllValues().get(1).getTaskStatus()).isEqualTo("QUEUED");
     }
 
     @Test

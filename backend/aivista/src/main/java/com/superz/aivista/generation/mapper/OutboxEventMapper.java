@@ -11,8 +11,8 @@ import org.apache.ibatis.annotations.Update;
 /** 图像生成可靠事件数据访问接口。 */
 public interface OutboxEventMapper extends BaseMapper<OutboxEvent> {
     @Select("""
-            SELECT id, event_type, task_id, task_version, status, retry_count,
-                   available_at, locked_at, published_at, last_error, created_at
+            SELECT id, event_type, task_id, task_version, task_status, model_retry_count,
+                   status, retry_count, available_at, locked_at, published_at, last_error, created_at
             FROM outbox_events
             WHERE event_type = 'TASK_EXECUTE'
               AND status = 'PENDING'
@@ -23,8 +23,8 @@ public interface OutboxEventMapper extends BaseMapper<OutboxEvent> {
     List<OutboxEvent> selectAvailableTaskExecutions(@Param("now") Instant now, @Param("limit") int limit);
 
     @Select("""
-            SELECT id, event_type, task_id, task_version, status, retry_count,
-                   available_at, locked_at, published_at, last_error, created_at
+            SELECT id, event_type, task_id, task_version, task_status, model_retry_count,
+                   status, retry_count, available_at, locked_at, published_at, last_error, created_at
             FROM outbox_events
             WHERE event_type = 'TASK_STATUS_CHANGED'
               AND status = 'PENDING'

@@ -10,6 +10,7 @@ import com.aliyun.oss.OSS;
 import com.superz.aivista.common.exception.BusinessException;
 import com.superz.aivista.common.exception.ErrorCode;
 import com.superz.aivista.generation.config.GenerationOssProperties;
+import com.superz.aivista.generation.config.GenerationBailianProperties;
 import com.superz.aivista.generation.dto.GenerationTaskSnapshotResponse;
 import com.superz.aivista.generation.entity.GenerationImage;
 import com.superz.aivista.generation.entity.GenerationTask;
@@ -94,6 +95,23 @@ class GenerationTaskQueryServiceTests {
     }
 
     @Test
+    void listsActiveTasksWithRetryProgressForStreamReconciliation() {
+        GenerationTaskMapper taskMapper = mock(GenerationTaskMapper.class);
+        GenerationTask queued = task("QUEUED");
+        queued.setAttemptCount(2);
+        when(taskMapper.selectActiveOwnedByUserId(7L)).thenReturn(List.of(queued));
+
+        List<GenerationTaskSnapshotResponse> response = service(
+                taskMapper, mock(GenerationImageMapper.class), mock(OSS.class)).listActive(7L);
+
+        assertThat(response).singleElement().satisfies(snapshot -> {
+            assertThat(snapshot.status()).isEqualTo("QUEUED");
+            assertThat(snapshot.retryCount()).isEqualTo(2);
+            assertThat(snapshot.maxRetryCount()).isEqualTo(3);
+        });
+    }
+
+    @Test
     void hidesTasksThatDoNotBelongToCurrentUser() {
         GenerationTaskMapper taskMapper = mock(GenerationTaskMapper.class);
         when(taskMapper.selectOwnedById(7L, 301L)).thenReturn(null);
@@ -108,6 +126,8 @@ class GenerationTaskQueryServiceTests {
         return new GenerationTaskQueryService(taskMapper, imageMapper, ossClient,
                 new GenerationOssProperties("oss.example", "private-bucket", "key-id", "key-secret", "users",
                         Duration.ofMinutes(10), Duration.ofSeconds(5), Duration.ofSeconds(60), "30MiB"),
+                new GenerationBailianProperties("https://example.com", "key", Duration.ofSeconds(5),
+                        Duration.ofSeconds(330), 25, 2, 3),
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 

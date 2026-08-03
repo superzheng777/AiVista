@@ -4,6 +4,7 @@ import com.aliyun.oss.OSS;
 import com.superz.aivista.common.exception.BusinessException;
 import com.superz.aivista.common.exception.ErrorCode;
 import com.superz.aivista.generation.config.GenerationOssProperties;
+import com.superz.aivista.generation.config.GenerationBailianProperties;
 import com.superz.aivista.generation.dto.GenerationImageResponse;
 import com.superz.aivista.generation.dto.GenerationTaskSnapshotResponse;
 import com.superz.aivista.generation.entity.GenerationImage;
@@ -25,15 +26,18 @@ public class GenerationTaskQueryService {
     private final GenerationImageMapper imageMapper;
     private final OSS ossClient;
     private final GenerationOssProperties ossProperties;
+    private final GenerationBailianProperties bailianProperties;
     private final Clock clock;
 
     /** 注入任务、图片读取器及仅用于签发私有对象短期 URL 的 OSS 客户端。 */
     public GenerationTaskQueryService(GenerationTaskMapper taskMapper, GenerationImageMapper imageMapper,
-            OSS generationOssClient, GenerationOssProperties ossProperties, Clock clock) {
+            OSS generationOssClient, GenerationOssProperties ossProperties,
+            GenerationBailianProperties bailianProperties, Clock clock) {
         this.taskMapper = taskMapper;
         this.imageMapper = imageMapper;
         this.ossClient = generationOssClient;
         this.ossProperties = ossProperties;
+        this.bailianProperties = bailianProperties;
         this.clock = clock;
     }
 
@@ -54,6 +58,14 @@ public class GenerationTaskQueryService {
         return snapshot(task, taskImages);
     }
 
+    /** 返回当前用户全部非终态任务，用于 SSE 首次连接和重连后的状态对账。 */
+    @Transactional(readOnly = true)
+    public List<GenerationTaskSnapshotResponse> listActive(long userId) {
+        return taskMapper.selectActiveOwnedByUserId(userId).stream()
+                .map(task -> snapshot(task, List.of()))
+                .toList();
+    }
+
     /**
      * 将已查询出的任务及图片组装为响应快照，供批量历史查询复用，避免为每条消息重复查询图片。
      */
@@ -68,6 +80,7 @@ public class GenerationTaskQueryService {
         String failureCode = isTerminal(task.getStatus()) ? task.getFailureCode() : null;
         return new GenerationTaskSnapshotResponse(
                 String.valueOf(task.getId()), String.valueOf(task.getSessionId()), task.getStatus(), task.getTaskVersion(),
+                task.getAttemptCount() == null ? 0 : task.getAttemptCount(), bailianProperties.maxRetries(),
                 task.getRequestedImageCount(), task.getCompletedImageCount(), counts.failed(), counts.cancelled(),
                 failureCode, failureMessage(failureCode), images, task.getCreatedAt(), task.getCompletedAt());
     }

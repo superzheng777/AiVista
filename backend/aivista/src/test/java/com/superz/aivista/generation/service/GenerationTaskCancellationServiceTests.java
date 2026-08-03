@@ -44,6 +44,7 @@ class GenerationTaskCancellationServiceTests {
         verify(outboxMapper).insertSelective(event.capture());
         assertThat(event.getValue().getEventType()).isEqualTo("TASK_STATUS_CHANGED");
         assertThat(event.getValue().getTaskVersion()).isEqualTo(4);
+        assertThat(event.getValue().getTaskStatus()).isEqualTo("CANCELLED");
     }
 
     @Test

@@ -21,6 +21,7 @@ import {
 import { useAuthDialog } from "@/features/auth/model/auth-dialog-provider";
 import { useSession } from "@/features/auth/model/session-provider";
 import { getApiErrorCode } from "@/shared/api/api-response";
+import { useGenerationEventStream } from "@/features/generation/model/generation-event-stream-provider";
 
 type GenerationComposerProps = {
   sessionId?: string;
@@ -63,9 +64,11 @@ export function GenerationComposer({ sessionId }: GenerationComposerProps) {
   const queryClient = useQueryClient();
   const { status } = useSession();
   const { open: openAuthDialog } = useAuthDialog();
+  const generationStream = useGenerationEventStream();
   const [showOptions, setShowOptions] = useState(false);
   const [showConsent, setShowConsent] = useState(false);
   const [submitFeedback, setSubmitFeedback] = useState<SubmissionFeedback | null>(null);
+  const [isPreparingStream, setIsPreparingStream] = useState(false);
   const pendingSubmission = useRef<PendingSubmission | null>(null);
   const form = useForm<GenerationFormValues>({
     resolver: zodResolver(generationFormSchema),
@@ -90,6 +93,18 @@ export function GenerationComposer({ sessionId }: GenerationComposerProps) {
       ),
     onSuccess: (task) => {
       pendingSubmission.current = null;
+      queryClient.setQueryData(generationQueryKeys.task(task.id), {
+        ...task,
+        retryCount: 0,
+        maxRetryCount: 0,
+        completedImageCount: 0,
+        failedImageCount: 0,
+        cancelledImageCount: 0,
+        failureCode: null,
+        failureMessage: null,
+        images: [],
+        completedAt: null,
+      });
       void queryClient.invalidateQueries({ queryKey: generationQueryKeys.sessions() });
       router.push(`/generate?sessionId=${encodeURIComponent(task.sessionId)}&taskId=${encodeURIComponent(task.id)}`);
     },
@@ -149,11 +164,18 @@ export function GenerationComposer({ sessionId }: GenerationComposerProps) {
     }
 
     setSubmitFeedback(null);
+    setIsPreparingStream(true);
+    const streamReady = await generationStream.ensureReady();
+    setIsPreparingStream(false);
+    if (!streamReady) {
+      setSubmitFeedback({ message: "无法建立实时连接，本次生成尚未开始。", retryable: true });
+      return;
+    }
     createTask.mutate({ values, idempotencyKey: pendingSubmission.current.idempotencyKey });
   }
 
   const isCheckingConsent = status === "authenticated" && consentQuery.isLoading;
-  const isSubmitting = createTask.isPending || confirmConsent.isPending;
+  const isSubmitting = createTask.isPending || confirmConsent.isPending || isPreparingStream;
   const isSubmitDisabled = isSubmitting || isCheckingConsent;
 
   return (
@@ -201,7 +223,7 @@ export function GenerationComposer({ sessionId }: GenerationComposerProps) {
               <span className="hidden sm:inline">更多选项</span>
             </button>
           </div>
-          <button type="submit" disabled={isSubmitDisabled} aria-label={isSubmitting ? "正在创建生成任务" : "开始生成"} className="inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-sky-500 to-violet-500 text-white shadow-[0_8px_18px_-8px_rgba(14,165,233,0.85)] transition hover:from-sky-600 hover:to-violet-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60">
+          <button type="submit" disabled={isSubmitDisabled} aria-label={isPreparingStream ? "正在建立实时连接" : isSubmitting ? "正在创建生成任务" : "开始生成"} className="inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-sky-500 to-violet-500 text-white shadow-[0_8px_18px_-8px_rgba(14,165,233,0.85)] transition hover:from-sky-600 hover:to-violet-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60">
             {isSubmitting || isCheckingConsent ? <LoaderCircle className="size-4 animate-spin" /> : <Send className="size-4" />}
           </button>
         </div>

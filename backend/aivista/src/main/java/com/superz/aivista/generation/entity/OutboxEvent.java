@@ -20,6 +20,10 @@ public class OutboxEvent {
     private Long taskId;
     /** 事件对应的任务状态版本，消费者据此读取权威任务快照。 */
     private Integer taskVersion;
+    /** 状态事件发生时的任务状态；执行事件不填写。 */
+    private String taskStatus;
+    /** 状态事件发生时已安排的模型重试次数；执行事件不填写。 */
+    private Integer modelRetryCount;
     /**
      * PENDING（待领取）、PROCESSING（已领取并投递中）、PUBLISHED（已确认分发）或 FAILED（投递最终失败）。
      */

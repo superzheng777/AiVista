@@ -153,6 +153,8 @@ public class GenerationTaskCreationService {
         event.setAvailableAt(now);
         event.setCreatedAt(now);
         outboxEventMapper.insertSelective(event);
+        outboxEventMapper.insertSelective(GenerationStatusOutboxEvent.create(
+                task.getId(), task.getTaskVersion(), task.getStatus(), task.getAttemptCount(), now));
 
         return responseOf(task);
     }

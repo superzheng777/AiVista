@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.bind.MissingRequestHeaderException;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 
 /** 将控制器层异常转换为统一且不泄露内部细节的 HTTP 响应。 */
 @RestControllerAdvice
@@ -50,6 +51,11 @@ public class GlobalExceptionHandler {
     })
     public ResponseEntity<ApiResponse<Void>> handleBadRequest(Exception exception) {
         return response(ErrorCode.BAD_REQUEST, ErrorCode.BAD_REQUEST.getMessage());
+    }
+
+    @ExceptionHandler(AsyncRequestNotUsableException.class)
+    public void handleDisconnectedClient(AsyncRequestNotUsableException exception) {
+        log.debug("Client disconnected during an asynchronous response", exception);
     }
 
     @ExceptionHandler(Exception.class)

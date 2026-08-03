@@ -61,6 +61,6 @@ class GenerationProviderCallGateTests {
 
     private static GenerationBailianProperties properties(int maxConcurrentCalls, int rateLimitPerSecond) {
         return new GenerationBailianProperties("https://bailian.example", "test-api-key",
-                Duration.ofSeconds(5), Duration.ofMinutes(5), maxConcurrentCalls, rateLimitPerSecond);
+                Duration.ofSeconds(5), Duration.ofMinutes(5), maxConcurrentCalls, rateLimitPerSecond, 3);
     }
 }

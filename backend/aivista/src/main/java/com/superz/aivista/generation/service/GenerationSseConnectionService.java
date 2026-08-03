@@ -40,7 +40,7 @@ public class GenerationSseConnectionService {
         emitter.onCompletion(() -> remove(userId, connectionId, emitter));
         emitter.onTimeout(() -> remove(userId, connectionId, emitter));
         emitter.onError(ignored -> remove(userId, connectionId, emitter));
-        sendComment(userId, connectionId, emitter, "connected");
+        sendReady(userId, connectionId, emitter);
         return emitter;
     }
 
@@ -88,6 +88,14 @@ public class GenerationSseConnectionService {
     private void sendComment(long userId, String connectionId, SseEmitter emitter, String comment) {
         try {
             emitter.send(SseEmitter.event().comment(comment));
+        } catch (IOException | IllegalStateException exception) {
+            remove(userId, connectionId, emitter);
+        }
+    }
+
+    private void sendReady(long userId, String connectionId, SseEmitter emitter) {
+        try {
+            emitter.send(SseEmitter.event().name("generation.stream.ready").data("{}", MediaType.APPLICATION_JSON));
         } catch (IOException | IllegalStateException exception) {
             remove(userId, connectionId, emitter);
         }

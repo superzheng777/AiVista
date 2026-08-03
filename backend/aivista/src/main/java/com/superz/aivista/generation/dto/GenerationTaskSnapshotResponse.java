@@ -9,6 +9,8 @@ public record GenerationTaskSnapshotResponse(
         String sessionId,
         String status,
         int taskVersion,
+        int retryCount,
+        int maxRetryCount,
         int requestedImageCount,
         int completedImageCount,
         int failedImageCount,

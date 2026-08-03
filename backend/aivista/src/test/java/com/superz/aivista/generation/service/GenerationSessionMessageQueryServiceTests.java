@@ -91,7 +91,7 @@ class GenerationSessionMessageQueryServiceTests {
     }
 
     private static GenerationTaskSnapshotResponse snapshot(String taskId) {
-        return new GenerationTaskSnapshotResponse(taskId, "201", "SUCCEEDED", 1, 1, 1,
+        return new GenerationTaskSnapshotResponse(taskId, "201", "SUCCEEDED", 1, 0, 3, 1, 1,
                 0, 0, null, null, List.of(), Instant.parse("2026-07-30T00:00:00Z"), null);
     }
 }

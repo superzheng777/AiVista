@@ -14,6 +14,8 @@ export type GenerationTask = {
   sessionId: string;
   status: GenerationTaskStatus;
   version: number;
+  retryCount: number;
+  maxRetryCount: number;
   requestedImageCount: number;
   completedImageCount: number;
   failedImageCount: number;

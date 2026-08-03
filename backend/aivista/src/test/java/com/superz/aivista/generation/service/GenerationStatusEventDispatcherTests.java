@@ -8,6 +8,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.superz.aivista.generation.config.GenerationSseProperties;
+import com.superz.aivista.generation.config.GenerationBailianProperties;
 import com.superz.aivista.generation.entity.GenerationTask;
 import com.superz.aivista.generation.entity.OutboxEvent;
 import com.superz.aivista.generation.event.GenerationTaskStatusEvent;
@@ -37,12 +38,12 @@ class GenerationStatusEventDispatcherTests {
         dispatcher(outboxMapper, taskMapper, connections).dispatchAvailableEvents();
 
         verify(connections).publish(7L, 99L,
-                new GenerationTaskStatusEvent("201", "301", 4, "CANCELLED"));
+                new GenerationTaskStatusEvent("201", "301", 4, "CANCELLED", 1, 3));
         verify(outboxMapper).markPublished(99L, NOW);
     }
 
     @Test
-    void skipsSupersededStateEventButMarksItPublished() {
+    void publishesStateSnapshotEvenWhenTaskHasAlreadyAdvanced() {
         OutboxEventMapper outboxMapper = mock(OutboxEventMapper.class);
         GenerationTaskMapper taskMapper = mock(GenerationTaskMapper.class);
         GenerationSseConnectionService connections = mock(GenerationSseConnectionService.class);
@@ -53,7 +54,8 @@ class GenerationStatusEventDispatcherTests {
 
         dispatcher(outboxMapper, taskMapper, connections).dispatchAvailableEvents();
 
-        verify(connections, never()).publish(anyLong(), anyLong(), any());
+        verify(connections).publish(7L, 99L,
+                new GenerationTaskStatusEvent("201", "301", 3, "RUNNING", 1, 3));
         verify(outboxMapper).markPublished(99L, NOW);
     }
 
@@ -61,6 +63,8 @@ class GenerationStatusEventDispatcherTests {
             GenerationTaskMapper taskMapper, GenerationSseConnectionService connections) {
         return new GenerationStatusEventDispatcher(outboxMapper, taskMapper, connections,
                 new GenerationSseProperties(3, 1000, Duration.ofSeconds(15), Duration.ofSeconds(1), 100),
+                new GenerationBailianProperties("https://example.com", "key", Duration.ofSeconds(5),
+                        Duration.ofSeconds(330), 25, 2, 3),
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
@@ -69,6 +73,8 @@ class GenerationStatusEventDispatcherTests {
         event.setId(id);
         event.setTaskId(taskId);
         event.setTaskVersion(taskVersion);
+        event.setTaskStatus(taskVersion == 3 ? "RUNNING" : "CANCELLED");
+        event.setModelRetryCount(1);
         return event;
     }
 

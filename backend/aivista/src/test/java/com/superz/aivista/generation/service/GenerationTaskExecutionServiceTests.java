@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.superz.aivista.generation.entity.GenerationImage;
+import com.superz.aivista.generation.config.GenerationBailianProperties;
 import com.superz.aivista.generation.entity.GenerationTask;
 import com.superz.aivista.generation.entity.OutboxEvent;
 import com.superz.aivista.generation.mapper.GenerationImageMapper;
@@ -58,7 +59,7 @@ class GenerationTaskExecutionServiceTests {
 
         GenerationTaskExecutionService service = new GenerationTaskExecutionService(taskMapper, imageMapper,
                 outboxEventMapper, dailyUsageMapper, bailianClient, providerCallGate, imageTransferService,
-                transactionManager, Clock.fixed(NOW, ZoneOffset.UTC));
+                transactionManager, bailianProperties(), Clock.fixed(NOW, ZoneOffset.UTC));
 
         boolean canAcknowledge = service.execute(new TaskExecuteMessage(11L, 301L, 0));
 
@@ -76,10 +77,11 @@ class GenerationTaskExecutionServiceTests {
         assertThat(image.getValue().getObjectKey()).isEqualTo("users/7/tasks/301/0.png");
         assertThat(image.getValue().getWidth()).isEqualTo(2048);
         ArgumentCaptor<OutboxEvent> event = ArgumentCaptor.forClass(OutboxEvent.class);
-        verify(outboxEventMapper).insertSelective(event.capture());
-        assertThat(event.getValue().getEventType()).isEqualTo("TASK_STATUS_CHANGED");
-        assertThat(event.getValue().getTaskId()).isEqualTo(301L);
-        assertThat(event.getValue().getTaskVersion()).isEqualTo(2);
+        verify(outboxEventMapper, org.mockito.Mockito.times(2)).insertSelective(event.capture());
+        assertThat(event.getAllValues()).extracting(OutboxEvent::getTaskStatus)
+                .containsExactly("RUNNING", "SUCCEEDED");
+        assertThat(event.getAllValues()).extracting(OutboxEvent::getTaskVersion)
+                .containsExactly(1, 2);
     }
 
     @Test
@@ -96,7 +98,8 @@ class GenerationTaskExecutionServiceTests {
         GenerationTaskExecutionService service = new GenerationTaskExecutionService(taskMapper,
                 mock(GenerationImageMapper.class), mock(OutboxEventMapper.class),
                 mock(UserGenerationDailyUsageMapper.class), bailianClient, providerCallGate,
-                mock(GenerationImageTransferService.class), transactionManager(), Clock.fixed(NOW, ZoneOffset.UTC));
+                mock(GenerationImageTransferService.class), transactionManager(), bailianProperties(),
+                Clock.fixed(NOW, ZoneOffset.UTC));
 
         assertThat(service.execute(new TaskExecuteMessage(11L, 301L, 0))).isTrue();
 
@@ -124,7 +127,7 @@ class GenerationTaskExecutionServiceTests {
 
         GenerationTaskExecutionService service = new GenerationTaskExecutionService(taskMapper, imageMapper,
                 outboxEventMapper, mock(UserGenerationDailyUsageMapper.class), bailianClient,
-                mock(GenerationProviderCallGate.class), imageTransferService, transactionManager(),
+                mock(GenerationProviderCallGate.class), imageTransferService, transactionManager(), bailianProperties(),
                 Clock.fixed(NOW, ZoneOffset.UTC));
 
         assertThat(service.execute(new TaskExecuteMessage(11L, 301L, 1))).isTrue();
@@ -146,7 +149,8 @@ class GenerationTaskExecutionServiceTests {
         GenerationTaskExecutionService service = new GenerationTaskExecutionService(taskMapper,
                 mock(GenerationImageMapper.class), mock(OutboxEventMapper.class),
                 mock(UserGenerationDailyUsageMapper.class), mock(GenerationBailianClient.class), providerCallGate,
-                mock(GenerationImageTransferService.class), transactionManager(), Clock.fixed(NOW, ZoneOffset.UTC));
+                mock(GenerationImageTransferService.class), transactionManager(), bailianProperties(),
+                Clock.fixed(NOW, ZoneOffset.UTC));
 
         assertThat(service.execute(new TaskExecuteMessage(11L, 301L, 0))).isFalse();
         assertThat(Thread.interrupted()).isTrue();
@@ -168,6 +172,35 @@ class GenerationTaskExecutionServiceTests {
         assertRetryableFailure(new BailianConnectionException(new ConnectException("refused")));
     }
 
+    @Test
+    void publishesFailedStateWhenProviderRejectsContent() throws Exception {
+        GenerationTaskMapper taskMapper = mock(GenerationTaskMapper.class);
+        OutboxEventMapper outboxEventMapper = mock(OutboxEventMapper.class);
+        GenerationBailianClient bailianClient = mock(GenerationBailianClient.class);
+        GenerationProviderCallGate providerCallGate = mock(GenerationProviderCallGate.class);
+        when(providerCallGate.acquire()).thenReturn(mock(GenerationProviderCallGate.Permit.class));
+        GenerationTask queuedTask = task("QUEUED", 0);
+        GenerationTask runningTask = task("RUNNING", 1);
+        runningTask.setAttemptCount(0);
+        when(taskMapper.selectByIdForUpdate(301L)).thenReturn(queuedTask, runningTask);
+        when(taskMapper.claimQueuedForExecution(301L, 0, NOW)).thenReturn(1);
+        when(taskMapper.markProviderCallStarted(301L, NOW)).thenReturn(1);
+        when(bailianClient.generate(queuedTask)).thenThrow(
+                new BailianProviderException(400, "DataInspectionFailed", "request-1", "rejected"));
+        when(taskMapper.failRunning(301L, "PROVIDER_CONTENT_REJECTED", null, NOW)).thenReturn(1);
+
+        GenerationTaskExecutionService service = new GenerationTaskExecutionService(taskMapper,
+                mock(GenerationImageMapper.class), outboxEventMapper, mock(UserGenerationDailyUsageMapper.class),
+                bailianClient, providerCallGate, mock(GenerationImageTransferService.class), transactionManager(),
+                bailianProperties(), Clock.fixed(NOW, ZoneOffset.UTC));
+
+        assertThat(service.execute(new TaskExecuteMessage(11L, 301L, 0))).isTrue();
+        ArgumentCaptor<OutboxEvent> events = ArgumentCaptor.forClass(OutboxEvent.class);
+        verify(outboxEventMapper, org.mockito.Mockito.times(2)).insertSelective(events.capture());
+        assertThat(events.getAllValues()).extracting(OutboxEvent::getTaskStatus)
+                .containsExactly("RUNNING", "FAILED");
+    }
+
     private static void assertRetryableFailure(RuntimeException failure) throws Exception {
         GenerationTaskMapper taskMapper = mock(GenerationTaskMapper.class);
         OutboxEventMapper outboxEventMapper = mock(OutboxEventMapper.class);
@@ -186,21 +219,29 @@ class GenerationTaskExecutionServiceTests {
         GenerationTaskExecutionService service = new GenerationTaskExecutionService(taskMapper,
                 mock(GenerationImageMapper.class), outboxEventMapper, mock(UserGenerationDailyUsageMapper.class),
                 bailianClient, providerCallGate, mock(GenerationImageTransferService.class), transactionManager(),
-                Clock.fixed(NOW, ZoneOffset.UTC));
+                bailianProperties(), Clock.fixed(NOW, ZoneOffset.UTC));
 
         assertThat(service.execute(new TaskExecuteMessage(11L, 301L, 0))).isTrue();
         verify(taskMapper).requeueRunningForRetry(301L, 1, NOW);
         ArgumentCaptor<OutboxEvent> event = ArgumentCaptor.forClass(OutboxEvent.class);
-        verify(outboxEventMapper).insertSelective(event.capture());
-        assertThat(event.getValue().getEventType()).isEqualTo("TASK_EXECUTE");
-        assertThat(event.getValue().getTaskVersion()).isEqualTo(2);
-        assertThat(event.getValue().getAvailableAt()).isBetween(NOW.plusSeconds(1), NOW.plusSeconds(2));
+        verify(outboxEventMapper, org.mockito.Mockito.times(3)).insertSelective(event.capture());
+        assertThat(event.getAllValues()).extracting(OutboxEvent::getEventType)
+                .containsExactly("TASK_STATUS_CHANGED", "TASK_EXECUTE", "TASK_STATUS_CHANGED");
+        assertThat(event.getAllValues().get(1).getTaskVersion()).isEqualTo(2);
+        assertThat(event.getAllValues().get(1).getAvailableAt()).isBetween(NOW.plusSeconds(1), NOW.plusSeconds(2));
+        assertThat(event.getAllValues().get(2).getTaskStatus()).isEqualTo("QUEUED");
+        assertThat(event.getAllValues().get(2).getModelRetryCount()).isEqualTo(1);
     }
 
     private static PlatformTransactionManager transactionManager() {
         PlatformTransactionManager transactionManager = mock(PlatformTransactionManager.class);
         when(transactionManager.getTransaction(any())).thenAnswer(ignored -> new SimpleTransactionStatus());
         return transactionManager;
+    }
+
+    private static GenerationBailianProperties bailianProperties() {
+        return new GenerationBailianProperties("https://example.com", "key", java.time.Duration.ofSeconds(5),
+                java.time.Duration.ofSeconds(330), 25, 2, 3);
     }
 
     private static GenerationTask task(String status, int taskVersion) {

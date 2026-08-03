@@ -1,6 +1,7 @@
 package com.superz.aivista.generation.service;
 
 import com.superz.aivista.generation.config.GenerationSseProperties;
+import com.superz.aivista.generation.config.GenerationBailianProperties;
 import com.superz.aivista.generation.entity.GenerationTask;
 import com.superz.aivista.generation.entity.OutboxEvent;
 import com.superz.aivista.generation.event.GenerationTaskStatusEvent;
@@ -19,14 +20,17 @@ public class GenerationStatusEventDispatcher {
     private final GenerationTaskMapper taskMapper;
     private final GenerationSseConnectionService connectionService;
     private final GenerationSseProperties properties;
+    private final GenerationBailianProperties bailianProperties;
     private final Clock clock;
 
     public GenerationStatusEventDispatcher(OutboxEventMapper outboxEventMapper, GenerationTaskMapper taskMapper,
-            GenerationSseConnectionService connectionService, GenerationSseProperties properties, Clock clock) {
+            GenerationSseConnectionService connectionService, GenerationSseProperties properties,
+            GenerationBailianProperties bailianProperties, Clock clock) {
         this.outboxEventMapper = outboxEventMapper;
         this.taskMapper = taskMapper;
         this.connectionService = connectionService;
         this.properties = properties;
+        this.bailianProperties = bailianProperties;
         this.clock = clock;
     }
 
@@ -41,10 +45,11 @@ public class GenerationStatusEventDispatcher {
                 continue;
             }
             GenerationTask task = taskMapper.selectStatusEventTaskById(event.getTaskId());
-            if (task != null && event.getTaskVersion().equals(task.getTaskVersion())) {
+            if (task != null && event.getTaskStatus() != null && event.getModelRetryCount() != null) {
                 connectionService.publish(task.getUserId(), event.getId(), new GenerationTaskStatusEvent(
                         String.valueOf(task.getSessionId()), String.valueOf(task.getId()),
-                        task.getTaskVersion(), task.getStatus()));
+                        event.getTaskVersion(), event.getTaskStatus(), event.getModelRetryCount(),
+                        bailianProperties.maxRetries()));
             }
             outboxEventMapper.markPublished(event.getId(), clock.instant());
         }
