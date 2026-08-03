@@ -4,6 +4,7 @@ import "./globals.css";
 
 import { AuthProviders } from "@/features/auth/ui/auth-providers";
 import { ThemeProvider } from "@/features/theme/model/theme-provider";
+import { QueryProvider } from "@/shared/api/query-provider";
 
 export const metadata: Metadata = {
   title: "AiVista",
@@ -28,7 +29,9 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col">
         <Script id="theme-bootstrap" strategy="beforeInteractive" dangerouslySetInnerHTML={{ __html: themeBootstrapScript }} />
         <ThemeProvider>
-          <AuthProviders>{children}</AuthProviders>
+          <QueryProvider>
+            <AuthProviders>{children}</AuthProviders>
+          </QueryProvider>
         </ThemeProvider>
       </body>
     </html>

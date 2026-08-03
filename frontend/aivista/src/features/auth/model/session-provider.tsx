@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, type ReactNode, use, useEffect, useMemo } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import type { CurrentUser } from "@/entities/user/model/user";
 import type { LoginInput, RegisterInput, UpdateProfileInput } from "@/features/auth/api/auth-api";
@@ -20,6 +21,7 @@ type SessionContextValue = {
 const SessionContext = createContext<SessionContextValue | null>(null);
 
 export function SessionProvider({ children }: { children: ReactNode }) {
+  const queryClient = useQueryClient();
   const status = useAuthStore((state) => state.status);
   const user = useAuthStore((state) => state.user);
   const login = useAuthStore((state) => state.login);
@@ -39,6 +41,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void restoreSession();
   }, [restoreSession]);
+
+  useEffect(() => {
+    if (status === "anonymous") {
+      queryClient.clear();
+    }
+  }, [queryClient, status]);
 
   const value = useMemo(
     () => ({ status, user, login, register, updateProfile, restoreSession, logout }),
