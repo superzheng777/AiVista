@@ -62,14 +62,14 @@ public interface GenerationTaskMapper extends BaseMapper<GenerationTask> {
             SELECT id, session_id, status, task_version
             FROM (
                 SELECT id, session_id, status, task_version,
-                       ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY created_at DESC, id DESC) AS row_number
+                       ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY created_at DESC, id DESC) AS latest_row_num
                 FROM generation_tasks
                 WHERE session_id IN
                 <foreach collection="sessionIds" item="sessionId" open="(" separator="," close=")">
                     #{sessionId}
                 </foreach>
             ) latest_tasks
-            WHERE row_number = 1
+            WHERE latest_row_num = 1
             </script>
             """)
     List<GenerationTask> selectLatestBySessionIds(@Param("sessionIds") List<Long> sessionIds);

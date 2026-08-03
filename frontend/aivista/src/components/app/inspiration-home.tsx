@@ -1,5 +1,7 @@
-import { ArrowUpRight, ImagePlus, Search, Sparkles } from "lucide-react";
+import { Compass, ImagePlus, Search, Sparkles } from "lucide-react";
 import Link from "next/link";
+
+import { GenerationComposer } from "@/features/generation/ui/generation-composer";
 
 const sampleWorks = [
   {
@@ -27,7 +29,7 @@ const sampleWorks = [
 export function InspirationHome() {
   return (
     <div className="mx-auto max-w-[1720px] px-4 py-4 sm:px-6 sm:py-6 lg:px-8">
-      <section className="relative overflow-hidden rounded-[2rem] border border-border bg-card px-5 py-16 shadow-[0_24px_80px_-60px_rgba(15,23,42,0.42)] sm:px-10 lg:px-16 lg:py-20">
+      <section className="relative overflow-hidden px-5 py-14 sm:px-10 sm:py-16 lg:px-16 lg:py-20">
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(127,232,255,0.28),transparent_32%),radial-gradient(circle_at_85%_100%,rgba(196,181,253,0.22),transparent_35%)]" />
         <div className="relative mx-auto max-w-5xl">
           <p className="mb-4 text-center text-sm font-medium tracking-[0.18em] text-sky-600">AIVISTA · CREATE</p>
@@ -35,49 +37,25 @@ export function InspirationHome() {
             从一个念头，抵达一幅画面。
           </h1>
           <p className="mx-auto mt-4 max-w-xl text-center text-sm leading-6 text-muted-foreground sm:text-base">
-            上传参考图或写下你的想象，开始一段属于自己的视觉创作。
+            写下你的想象，开始一段属于自己的视觉创作。
           </p>
 
-          <Link
-            href="/generate"
-            className="group mt-10 flex min-h-40 items-end rounded-[1.5rem] border border-border bg-card/90 p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-sky-200 hover:shadow-xl hover:shadow-sky-100/60 sm:p-5"
-          >
-            <div className="grid size-12 shrink-0 place-items-center rounded-xl bg-muted text-muted-foreground transition group-hover:bg-sky-50 group-hover:text-sky-600">
-              <ImagePlus className="size-5" />
-            </div>
-            <div className="ml-4 flex flex-1 flex-col justify-between self-stretch">
-              <p className="text-sm text-muted-foreground">描述你想生成的图片，或上传一张参考图</p>
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                  <span className="rounded-lg border border-border px-2.5 py-1.5">图片生成</span>
-                  <span className="rounded-lg border border-border px-2.5 py-1.5">参考图</span>
-                  <span className="rounded-lg border border-border px-2.5 py-1.5">1–6 张结果</span>
-                </div>
-                <span className="flex size-9 items-center justify-center rounded-full bg-primary text-primary-foreground transition group-hover:bg-sky-600">
-                  <ArrowUpRight className="size-4" />
-                </span>
-              </div>
-            </div>
-          </Link>
+          <div className="mx-auto mt-10 max-w-5xl"><GenerationComposer /></div>
 
           <div className="mt-7 grid gap-3 sm:grid-cols-3">
-            {[
-              ["文字生图", "把一句描述变成画面"],
-              ["局部重绘", "针对画面细节继续创作"],
-              ["灵感探索", "从公开作品发现新的方向"],
-            ].map(([title, description]) => (
-              <div key={title} className="rounded-2xl border border-border bg-card/70 p-4">
-                <Sparkles className="mb-5 size-4 text-sky-500" />
-                <p className="font-medium text-card-foreground">{title}</p>
-                <p className="mt-1 text-xs text-muted-foreground">{description}</p>
-              </div>
-            ))}
+            <FeatureCard icon={Sparkles} title="文字生图" description="把一句描述变成画面" />
+            <FeatureCard icon={ImagePlus} title="局部重绘" description="针对画面细节继续创作" comingSoon />
+            <Link href="#inspiration" className="rounded-2xl border border-border bg-card/70 p-4 transition hover:-translate-y-0.5 hover:border-sky-200 hover:shadow-lg hover:shadow-sky-100/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              <Compass className="mb-5 size-4 text-sky-500" />
+              <p className="font-medium text-card-foreground">灵感探索</p>
+              <p className="mt-1 text-xs text-muted-foreground">从公开作品发现新的方向</p>
+            </Link>
           </div>
         </div>
       </section>
 
-      <section className="mt-6 rounded-[2rem] border border-border bg-card p-4 shadow-[0_24px_80px_-60px_rgba(15,23,42,0.42)] sm:p-6">
-        <div className="flex flex-col gap-4 border-b border-border pb-4 sm:flex-row sm:items-center sm:justify-between">
+      <section id="inspiration" className="mt-4">
+        <div className="sticky top-0 z-20 -mx-4 flex min-h-[4.5rem] flex-col gap-4 border-b border-border bg-background/95 px-4 py-4 backdrop-blur sm:-mx-6 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:-mx-8 lg:px-8">
           <div className="flex items-center gap-1 overflow-x-auto">
             <button className="rounded-xl bg-primary px-3 py-2 text-sm font-medium text-primary-foreground">发现</button>
             <button className="rounded-xl px-3 py-2 text-sm text-muted-foreground hover:bg-muted">热门</button>
@@ -102,6 +80,16 @@ export function InspirationHome() {
           ))}
         </div>
       </section>
+    </div>
+  );
+}
+
+function FeatureCard({ icon: Icon, title, description, comingSoon = false }: { icon: typeof Sparkles; title: string; description: string; comingSoon?: boolean }) {
+  return (
+    <div className="rounded-2xl border border-border bg-card/70 p-4">
+      <Icon className="mb-5 size-4 text-sky-500" />
+      <div className="flex items-center gap-2"><p className="font-medium text-card-foreground">{title}</p>{comingSoon ? <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">即将支持</span> : null}</div>
+      <p className="mt-1 text-xs text-muted-foreground">{description}</p>
     </div>
   );
 }
