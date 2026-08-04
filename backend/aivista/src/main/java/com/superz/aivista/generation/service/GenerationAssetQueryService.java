@@ -65,7 +65,8 @@ public class GenerationAssetQueryService {
     private GenerationAssetImageResponse response(GenerationAssetImageRow row, Instant expiresAt) {
         URL url = ossClient.generatePresignedUrl(ossProperties.bucket(), row.getObjectKey(), Date.from(expiresAt));
         return new GenerationAssetImageResponse(String.valueOf(row.getImageId()), url.toString(), expiresAt,
-                row.getWidth(), row.getHeight(), row.getCreatedAt(), row.getFinalPrompt(), row.getFinalNegativePrompt());
+                row.getWidth(), row.getHeight(), row.getCreatedAt(), row.getFinalPrompt(), row.getFinalNegativePrompt(),
+                row.getRequestedImageCount());
     }
 
     private static String encodeCursor(GenerationAssetImageRow row) {

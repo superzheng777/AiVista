@@ -135,6 +135,7 @@ public class GenerationTaskCreationService {
         task.setFinalNegativePrompt(finalNegativePrompt);
         task.setWidth(dimension.width());
         task.setHeight(dimension.height());
+        task.setPromptExtend(command.promptExtend());
         task.setRequestedImageCount(command.imageCount());
         task.setCompletedImageCount(0);
         task.setIdempotencyKey(command.idempotencyKey());
@@ -182,9 +183,10 @@ public class GenerationTaskCreationService {
         Long sessionId = parseSessionId(request.sessionId());
         // 新会话没有数据库 ID，使用稳定标识参与指纹，避免与已有会话请求混淆。
         String sessionIdentity = sessionId == null ? NEW_SESSION_IDENTITY : Long.toString(sessionId);
+        boolean promptExtend = request.promptExtend() == null || request.promptExtend();
         String fingerprint = GenerationRequestFingerprint.sha256(
-                userId, sessionIdentity, request.prompt(), negativePrompt, aspectRatio, request.imageCount());
-        return new CreationCommand(sessionId, request.prompt(), negativePrompt, aspectRatio,
+                userId, sessionIdentity, request.prompt(), negativePrompt, aspectRatio, promptExtend, request.imageCount());
+        return new CreationCommand(sessionId, request.prompt(), negativePrompt, aspectRatio, promptExtend,
                 request.imageCount(), idempotencyKey, fingerprint);
     }
 
@@ -308,6 +310,7 @@ public class GenerationTaskCreationService {
             String prompt,
             String negativePrompt,
             String aspectRatio,
+            boolean promptExtend,
             int imageCount,
             String idempotencyKey,
             String requestFingerprint) {

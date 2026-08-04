@@ -11,5 +11,6 @@ public record GenerationAssetImageResponse(
         int height,
         Instant createdAt,
         String finalPrompt,
-        String finalNegativePrompt) {
+        String finalNegativePrompt,
+        int requestedImageCount) {
 }

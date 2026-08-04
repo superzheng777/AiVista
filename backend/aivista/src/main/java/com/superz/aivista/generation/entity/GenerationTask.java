@@ -36,6 +36,7 @@ public class GenerationTask {
     private String finalNegativePrompt;
     private Integer width;
     private Integer height;
+    private Boolean promptExtend;
     private Integer requestedImageCount;
     private Integer completedImageCount;
     /** 平台侧失败返还每日额度后写入，保证同一任务最多返还一次。 */

@@ -10,6 +10,7 @@ public record CreateGenerationTaskRequest(
         String negativePrompt,
         /** 服务端白名单中的画幅标识，不直接接收宽高。 */
         String aspectRatio,
+        Boolean promptExtend,
         /** 本次请求的图片数量，最终以服务端模型能力配置校验。 */
         Integer imageCount) {
 }

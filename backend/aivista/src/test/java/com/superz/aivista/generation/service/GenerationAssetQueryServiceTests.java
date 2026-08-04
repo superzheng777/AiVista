@@ -49,6 +49,7 @@ class GenerationAssetQueryServiceTests {
             assertThat(item.url()).isEqualTo("https://oss.example/signed");
             assertThat(item.urlExpiresAt()).isEqualTo(NOW.plusSeconds(600));
             assertThat(item.finalPrompt()).isEqualTo("prompt-100");
+            assertThat(item.requestedImageCount()).isEqualTo(4);
         });
 
         ArgumentCaptor<java.util.Date> expiresAt = ArgumentCaptor.forClass(java.util.Date.class);
@@ -99,6 +100,7 @@ class GenerationAssetQueryServiceTests {
         row.setHeight(1024);
         row.setCreatedAt(createdAt);
         row.setFinalPrompt("prompt-" + imageId);
+        row.setRequestedImageCount(4);
         return row;
     }
 }

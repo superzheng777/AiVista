@@ -16,6 +16,7 @@ export const generationFormSchema = z.object({
   prompt: z.string().refine((value) => value.trim().length > 0, "请先描述你想生成的画面。").refine((value) => hasAtMostCodePoints(value, 1_000), "提示词不能超过 1000 个字符。"),
   negativePrompt: z.string().refine((value) => value.trim().length === 0 || hasAtMostCodePoints(value, 500), "负面提示词不能超过 500 个字符。").optional(),
   aspectRatio: z.enum(["1:1", "4:3", "3:4", "16:9", "9:16"]),
+  promptExtend: z.boolean(),
   imageCount: z.number().int().min(1, "至少生成 1 张图片。").max(6, "一次最多生成 6 张图片。"),
 });
 

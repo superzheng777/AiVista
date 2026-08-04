@@ -44,6 +44,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (status === "anonymous") {
+      window.sessionStorage.removeItem("aivista.pending-generation-submission");
       queryClient.clear();
     }
   }, [queryClient, status]);

@@ -17,4 +17,5 @@ public class GenerationAssetImageRow {
     private Instant createdAt;
     private String finalPrompt;
     private String finalNegativePrompt;
+    private Integer requestedImageCount;
 }

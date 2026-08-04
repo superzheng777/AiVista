@@ -4,7 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LoaderCircle, Send, Settings2, Sparkles, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 
 import {
@@ -12,6 +12,7 @@ import {
   createGenerationTask,
   generationQueryKeys,
   getGenerationConsent,
+  type CreateGenerationTaskInput,
 } from "@/features/generation/api/generation-api";
 import {
   aspectRatioOptions,
@@ -25,11 +26,18 @@ import { useGenerationEventStream } from "@/features/generation/model/generation
 
 type GenerationComposerProps = {
   sessionId?: string;
+  hasActiveTask?: boolean;
 };
 
 type PendingSubmission = {
   fingerprint: string;
   idempotencyKey: string;
+};
+
+type StoredPendingSubmission = PendingSubmission & {
+  userId: string;
+  input: CreateGenerationTaskInput;
+  createdAt: number;
 };
 
 type SubmissionFeedback = {
@@ -39,12 +47,42 @@ type SubmissionFeedback = {
   clearPendingSubmission?: boolean;
 };
 
+const PENDING_SUBMISSION_STORAGE_KEY = "aivista.pending-generation-submission";
+const PENDING_SUBMISSION_MAX_AGE_MS = 10 * 60 * 1_000;
+
 function createIdempotencyKey(): string {
   return crypto.randomUUID();
 }
 
 function fingerprintOf(values: GenerationFormValues, sessionId?: string): string {
   return JSON.stringify({ sessionId: sessionId ?? null, ...values });
+}
+
+function inputOf(values: GenerationFormValues, sessionId?: string): CreateGenerationTaskInput {
+  return {
+    sessionId,
+    prompt: values.prompt,
+    negativePrompt: values.negativePrompt || undefined,
+    aspectRatio: values.aspectRatio,
+    promptExtend: values.promptExtend,
+    imageCount: values.imageCount,
+  };
+}
+
+function readStoredPendingSubmission(): StoredPendingSubmission | null {
+  try {
+    const raw = window.sessionStorage.getItem(PENDING_SUBMISSION_STORAGE_KEY);
+    if (!raw) return null;
+    const stored: unknown = JSON.parse(raw);
+    if (!stored || typeof stored !== "object") return null;
+    const value = stored as Partial<StoredPendingSubmission>;
+    if (typeof value.userId !== "string" || typeof value.fingerprint !== "string"
+      || typeof value.idempotencyKey !== "string" || typeof value.createdAt !== "number"
+      || !value.input || typeof value.input !== "object") return null;
+    return value as StoredPendingSubmission;
+  } catch {
+    return null;
+  }
 }
 
 function feedbackFromCreateError(error: unknown): SubmissionFeedback {
@@ -59,10 +97,10 @@ function feedbackFromCreateError(error: unknown): SubmissionFeedback {
   return { message: "创建任务时发生网络或服务异常，请重试。", retryable: true };
 }
 
-export function GenerationComposer({ sessionId }: GenerationComposerProps) {
+export function GenerationComposer({ sessionId, hasActiveTask = false }: GenerationComposerProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { status } = useSession();
+  const { status, user } = useSession();
   const { open: openAuthDialog } = useAuthDialog();
   const generationStream = useGenerationEventStream();
   const [showOptions, setShowOptions] = useState(false);
@@ -70,9 +108,10 @@ export function GenerationComposer({ sessionId }: GenerationComposerProps) {
   const [submitFeedback, setSubmitFeedback] = useState<SubmissionFeedback | null>(null);
   const [isPreparingStream, setIsPreparingStream] = useState(false);
   const pendingSubmission = useRef<PendingSubmission | null>(null);
+  const recoveryStarted = useRef(false);
   const form = useForm<GenerationFormValues>({
     resolver: zodResolver(generationFormSchema),
-    defaultValues: { prompt: "", negativePrompt: "", aspectRatio: "1:1", imageCount: 1 },
+    defaultValues: { prompt: "", negativePrompt: "", aspectRatio: "1:1", promptExtend: true, imageCount: 1 },
   });
   const consentQuery = useQuery({
     queryKey: generationQueryKeys.consent(),
@@ -80,19 +119,11 @@ export function GenerationComposer({ sessionId }: GenerationComposerProps) {
     enabled: status === "authenticated",
   });
   const createTask = useMutation({
-    mutationFn: ({ values, idempotencyKey }: { values: GenerationFormValues; idempotencyKey: string }) =>
-      createGenerationTask(
-        {
-          sessionId,
-          prompt: values.prompt,
-          negativePrompt: values.negativePrompt || undefined,
-          aspectRatio: values.aspectRatio,
-          imageCount: values.imageCount,
-        },
-        idempotencyKey,
-      ),
+    mutationFn: ({ input, idempotencyKey }: { input: CreateGenerationTaskInput; idempotencyKey: string }) =>
+      createGenerationTask(input, idempotencyKey),
     onSuccess: (task) => {
       pendingSubmission.current = null;
+      window.sessionStorage.removeItem(PENDING_SUBMISSION_STORAGE_KEY);
       queryClient.setQueryData(generationQueryKeys.task(task.id), {
         ...task,
         retryCount: 0,
@@ -110,8 +141,9 @@ export function GenerationComposer({ sessionId }: GenerationComposerProps) {
     },
     onError: (error) => {
       const feedback = feedbackFromCreateError(error);
-      if (feedback.clearPendingSubmission) {
+      if (feedback.clearPendingSubmission || getApiErrorCode(error) !== null) {
         pendingSubmission.current = null;
+        window.sessionStorage.removeItem(PENDING_SUBMISSION_STORAGE_KEY);
       }
       setSubmitFeedback(feedback);
       if (feedback.requiresConsent) {
@@ -131,6 +163,31 @@ export function GenerationComposer({ sessionId }: GenerationComposerProps) {
     },
   });
 
+  useEffect(() => {
+    if (status !== "authenticated" || !user || recoveryStarted.current) return;
+    const stored = readStoredPendingSubmission();
+    if (!stored) return;
+    if (stored.userId !== user.id || Date.now() - stored.createdAt > PENDING_SUBMISSION_MAX_AGE_MS) {
+      window.sessionStorage.removeItem(PENDING_SUBMISSION_STORAGE_KEY);
+      return;
+    }
+
+    recoveryStarted.current = true;
+    pendingSubmission.current = { fingerprint: stored.fingerprint, idempotencyKey: stored.idempotencyKey };
+    void (async () => {
+      await Promise.resolve();
+      setSubmitFeedback({ message: "检测到未确认的生成请求，正在恢复任务状态。", retryable: false });
+      setIsPreparingStream(true);
+      const streamReady = await generationStream.ensureReady();
+      setIsPreparingStream(false);
+      if (!streamReady) {
+        setSubmitFeedback({ message: "无法建立实时连接，暂时无法确认上一项生成请求。", retryable: true });
+        return;
+      }
+      createTask.mutate({ input: stored.input, idempotencyKey: stored.idempotencyKey });
+    })();
+  }, [createTask, generationStream, status, user]);
+
   async function submitTask(skipConsent = false): Promise<void> {
     const isValid = await form.trigger();
     if (!isValid) {
@@ -139,6 +196,9 @@ export function GenerationComposer({ sessionId }: GenerationComposerProps) {
 
     if (status !== "authenticated") {
       openAuthDialog();
+      return;
+    }
+    if (!user) {
       return;
     }
 
@@ -171,12 +231,20 @@ export function GenerationComposer({ sessionId }: GenerationComposerProps) {
       setSubmitFeedback({ message: "无法建立实时连接，本次生成尚未开始。", retryable: true });
       return;
     }
-    createTask.mutate({ values, idempotencyKey: pendingSubmission.current.idempotencyKey });
+    const input = inputOf(values, sessionId);
+    window.sessionStorage.setItem(PENDING_SUBMISSION_STORAGE_KEY, JSON.stringify({
+      userId: user.id,
+      fingerprint,
+      idempotencyKey: pendingSubmission.current.idempotencyKey,
+      input,
+      createdAt: Date.now(),
+    } satisfies StoredPendingSubmission));
+    createTask.mutate({ input, idempotencyKey: pendingSubmission.current.idempotencyKey });
   }
 
   const isCheckingConsent = status === "authenticated" && consentQuery.isLoading;
   const isSubmitting = createTask.isPending || confirmConsent.isPending || isPreparingStream;
-  const isSubmitDisabled = isSubmitting || isCheckingConsent;
+  const isSubmitDisabled = hasActiveTask || isSubmitting || isCheckingConsent;
 
   return (
     <>
@@ -206,6 +274,10 @@ export function GenerationComposer({ sessionId }: GenerationComposerProps) {
                 {[1, 2, 3, 4, 5, 6].map((count) => <option key={count} value={count}>{count} 张</option>)}
               </select>
             </label>
+            <label className="flex min-h-10 items-center justify-between gap-3 rounded-lg border border-input bg-background px-3 text-sm font-medium text-foreground">
+              <span>提示词优化</span>
+              <input type="checkbox" {...form.register("promptExtend")} disabled={isSubmitDisabled} className="size-4 accent-primary" />
+            </label>
             <label className="grid gap-1.5 text-sm font-medium text-foreground sm:col-span-3">
               负面提示词 <span className="font-normal text-muted-foreground">（可选）</span>
               <input {...form.register("negativePrompt")} disabled={isSubmitDisabled} className="h-10 rounded-lg border border-input bg-background px-3 text-sm font-normal outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring" placeholder="例如：模糊、低清晰度" />
@@ -223,7 +295,7 @@ export function GenerationComposer({ sessionId }: GenerationComposerProps) {
               <span className="hidden sm:inline">更多选项</span>
             </button>
           </div>
-          <button type="submit" disabled={isSubmitDisabled} aria-label={isPreparingStream ? "正在建立实时连接" : isSubmitting ? "正在创建生成任务" : "开始生成"} className="inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-sky-500 to-violet-500 text-white shadow-[0_8px_18px_-8px_rgba(14,165,233,0.85)] transition hover:from-sky-600 hover:to-violet-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60">
+          <button type="submit" disabled={isSubmitDisabled} aria-label={hasActiveTask ? "当前会话正在生成" : isPreparingStream ? "正在建立实时连接" : isSubmitting ? "正在创建生成任务" : "开始生成"} className="inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-sky-500 to-violet-500 text-white shadow-[0_8px_18px_-8px_rgba(14,165,233,0.85)] transition hover:from-sky-600 hover:to-violet-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60">
             {isSubmitting || isCheckingConsent ? <LoaderCircle className="size-4 animate-spin" /> : <Send className="size-4" />}
           </button>
         </div>

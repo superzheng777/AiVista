@@ -10,12 +10,13 @@ final class GenerationRequestFingerprint {
     }
 
     static String sha256(long userId, String sessionIdentity, String prompt,
-            String negativePrompt, String aspectRatio, int imageCount) {
+            String negativePrompt, String aspectRatio, boolean promptExtend, int imageCount) {
         String canonical = field("userId", Long.toString(userId))
                 + field("session", sessionIdentity)
                 + field("prompt", prompt)
                 + field("negativePrompt", negativePrompt == null ? "" : negativePrompt)
                 + field("aspectRatio", aspectRatio)
+                + field("promptExtend", Boolean.toString(promptExtend))
                 + field("imageCount", Integer.toString(imageCount));
         try {
             return java.util.HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")

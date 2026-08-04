@@ -137,7 +137,7 @@ function ConversationPanel({ sessionId, taskId }: { sessionId: string; taskId: s
           {currentTask ? <div className="flex justify-start"><div className="w-full max-w-4xl"><TaskNotice task={currentTask} isCancelling={cancelTask.isPending} cancellationError={cancelTask.error} onCancel={() => cancelTask.mutate(currentTask.id)} /></div></div> : null}
         </div>
       </section>
-      <footer className="border-t border-border bg-card px-4 py-4 pb-24 sm:px-8 lg:pb-5"><div className="mx-auto max-w-5xl"><GenerationComposer sessionId={sessionId} /></div></footer>
+      <footer className="border-t border-border bg-card px-4 py-4 pb-24 sm:px-8 lg:pb-5"><div className="mx-auto max-w-5xl"><GenerationComposer sessionId={sessionId} hasActiveTask={Boolean(activeMessageTask)} /></div></footer>
     </main>
   );
 }

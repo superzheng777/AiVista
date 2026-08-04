@@ -42,9 +42,9 @@ class GenerationPromptComposerTests {
 
     @Test
     void requestFingerprintUsesUtf8LengthPrefixAndStableFieldOrder() {
-        String first = GenerationRequestFingerprint.sha256(7L, "NEW", "你好", null, "1:1", 2);
-        String second = GenerationRequestFingerprint.sha256(7L, "NEW", "你好", null, "1:1", 2);
-        String changed = GenerationRequestFingerprint.sha256(7L, "NEW", "你好!", null, "1:1", 2);
+        String first = GenerationRequestFingerprint.sha256(7L, "NEW", "你好", null, "1:1", true, 2);
+        String second = GenerationRequestFingerprint.sha256(7L, "NEW", "你好", null, "1:1", true, 2);
+        String changed = GenerationRequestFingerprint.sha256(7L, "NEW", "你好!", null, "1:1", true, 2);
 
         assertThat(first).isEqualTo(second).isNotEqualTo(changed).hasSize(64);
     }

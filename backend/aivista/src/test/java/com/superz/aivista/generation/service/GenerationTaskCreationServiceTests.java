@@ -77,7 +77,7 @@ class GenerationTaskCreationServiceTests {
     @Test
     void createsNewSessionTaskUsageAndOutboxInOneCommand() {
         var response = service.create(USER_ID, IDEMPOTENCY_KEY,
-                new CreateGenerationTaskRequest(null, "future city", " ", "1:1", 2));
+                new CreateGenerationTaskRequest(null, "future city", " ", "1:1", null, 2));
 
         assertThat(response.taskId()).isEqualTo("301");
         assertThat(response.sessionId()).isEqualTo("101");
@@ -94,6 +94,7 @@ class GenerationTaskCreationServiceTests {
         assertThat(task.getValue().getFinalPrompt()).isEqualTo("future city");
         assertThat(task.getValue().getFinalNegativePrompt()).isNull();
         assertThat(task.getValue().getWidth()).isEqualTo(2048);
+        assertThat(task.getValue().getPromptExtend()).isTrue();
         assertThat(event.getAllValues()).extracting(OutboxEvent::getTaskId).containsOnly(301L);
         assertThat(event.getAllValues()).extracting(OutboxEvent::getEventType)
                 .containsExactly("TASK_EXECUTE", "TASK_STATUS_CHANGED");
@@ -110,11 +111,11 @@ class GenerationTaskCreationServiceTests {
         existing.setRequestedImageCount(2);
         existing.setCreatedAt(NOW);
         existing.setRequestFingerprint(GenerationRequestFingerprint.sha256(
-                USER_ID, "NEW", "future city", null, "1:1", 2));
+                USER_ID, "NEW", "future city", null, "1:1", true, 2));
         when(taskMapper.selectByUserIdAndIdempotencyKey(USER_ID, IDEMPOTENCY_KEY)).thenReturn(existing);
 
         var response = service.create(USER_ID, IDEMPOTENCY_KEY,
-                new CreateGenerationTaskRequest(null, "future city", null, "1:1", 2));
+                new CreateGenerationTaskRequest(null, "future city", null, "1:1", null, 2));
 
         assertThat(response.taskId()).isEqualTo("301");
         verify(sessionMapper, never()).insertSelective(any());
@@ -129,7 +130,7 @@ class GenerationTaskCreationServiceTests {
         when(taskMapper.selectByUserIdAndIdempotencyKey(USER_ID, IDEMPOTENCY_KEY)).thenReturn(existing);
 
         assertThatThrownBy(() -> service.create(USER_ID, IDEMPOTENCY_KEY,
-                new CreateGenerationTaskRequest(null, "future city", null, "1:1", 2)))
+                new CreateGenerationTaskRequest(null, "future city", null, "1:1", null, 2)))
                 .isInstanceOfSatisfying(BusinessException.class,
                         exception -> assertThat(exception.getErrorCode())
                                 .isEqualTo(ErrorCode.IDEMPOTENCY_KEY_CONFLICT));
@@ -141,7 +142,7 @@ class GenerationTaskCreationServiceTests {
                 .thenReturn(new GenerationConsentResponse("v1", "policy", false, null));
 
         assertThatThrownBy(() -> service.create(USER_ID, IDEMPOTENCY_KEY,
-                new CreateGenerationTaskRequest(null, "future city", null, "1:1", 2)))
+                new CreateGenerationTaskRequest(null, "future city", null, "1:1", null, 2)))
                 .isInstanceOfSatisfying(BusinessException.class,
                         exception -> assertThat(exception.getErrorCode())
                                 .isEqualTo(ErrorCode.GENERATION_CONSENT_REQUIRED));

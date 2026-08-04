@@ -59,6 +59,7 @@ export type GenerationAsset = {
   createdAt: string;
   finalPrompt: string;
   finalNegativePrompt: string | null;
+  requestedImageCount: number;
 };
 
 export type CursorPage<T> = {

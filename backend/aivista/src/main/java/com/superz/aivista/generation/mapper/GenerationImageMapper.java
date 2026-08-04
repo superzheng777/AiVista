@@ -40,7 +40,7 @@ public interface GenerationImageMapper extends BaseMapper<GenerationImage> {
     @Select("""
             <script>
             SELECT i.id AS image_id, i.object_key, i.width, i.height, i.created_at,
-                   t.final_prompt, t.final_negative_prompt
+                   t.final_prompt, t.final_negative_prompt, t.requested_image_count
             FROM generation_images i
             INNER JOIN generation_tasks t ON t.id = i.task_id
             WHERE i.user_id = #{userId}

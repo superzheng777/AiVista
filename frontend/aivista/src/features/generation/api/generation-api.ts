@@ -18,7 +18,7 @@ type GenerationMessageDto = { message: { messageId: string; sequenceNo: number; 
 type GenerationConsentDto = { policyVersion: string; policyContent: string; consented: boolean; consentedAt: string | null };
 type CreatedGenerationTaskDto = Pick<GenerationTaskDto, "taskId" | "sessionId" | "status" | "taskVersion" | "requestedImageCount" | "createdAt">;
 
-export type CreateGenerationTaskInput = { sessionId?: string; prompt: string; negativePrompt?: string; aspectRatio: string; imageCount: number };
+export type CreateGenerationTaskInput = { sessionId?: string; prompt: string; negativePrompt?: string; aspectRatio: string; promptExtend: boolean; imageCount: number };
 export type UpdatedGenerationSession = { id: string; title: string; createdAt: string; lastMessageAt: string };
 
 export const generationQueryKeys = {

@@ -39,7 +39,7 @@ public class GenerationBailianClient {
                         "negative_prompt", task.getFinalNegativePrompt() == null ? "" : task.getFinalNegativePrompt(),
                         "size", task.getWidth() + "*" + task.getHeight(),
                         "n", task.getRequestedImageCount(),
-                        "prompt_extend", false,
+                        "prompt_extend", task.getPromptExtend(),
                         "watermark", false));
         try {
             BailianGenerationResponse response = restClient.post()
