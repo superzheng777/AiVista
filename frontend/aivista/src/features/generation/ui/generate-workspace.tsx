@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from "react";
 import type { GenerationMessage, GenerationSession, GenerationTask } from "@/entities/generation/model/generation";
 import { cancelGenerationTask, getGenerationTask, generationQueryKeys, listGenerationMessages, listGenerationSessions } from "@/features/generation/api/generation-api";
 import { GenerationComposer } from "@/features/generation/ui/generation-composer";
+import { useGenerationEventStream, type GenerationSessionIndicator } from "@/features/generation/model/generation-event-stream-provider";
 import { cn } from "@/lib/utils";
 import { getApiErrorCode } from "@/shared/api/api-response";
 
@@ -31,6 +32,7 @@ export function GenerateWorkspace() {
   const searchParams = useSearchParams();
   const sessionId = searchParams.get("sessionId");
   const taskId = searchParams.get("taskId");
+  const { sessionIndicators } = useGenerationEventStream();
   const sessionsQuery = useInfiniteQuery({
     queryKey: generationQueryKeys.sessions(),
     queryFn: ({ pageParam }) => listGenerationSessions(pageParam),
@@ -51,7 +53,7 @@ export function GenerateWorkspace() {
             <div className="flex items-center justify-between"><p className="text-sm font-semibold text-foreground">开启创作</p><Sparkles className="size-4 text-muted-foreground" aria-hidden="true" /></div>
             <div className="mt-4 flex gap-2 overflow-x-auto pb-1 lg:block lg:space-y-1 lg:overflow-visible lg:pb-0">
               <button type="button" onClick={() => router.push("/generate")} className={cn("inline-flex min-h-10 min-w-32 items-center gap-2 rounded-lg px-3 text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:flex lg:w-full", !sessionId ? "bg-muted font-medium text-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground")}><PencilLine className="size-4" />新对话</button>
-              <SessionList sessions={sessions} isLoading={sessionsQuery.isLoading} isError={sessionsQuery.isError} hasNextPage={sessionsQuery.hasNextPage} isFetchingNextPage={sessionsQuery.isFetchingNextPage} activeSessionId={sessionId} onSelect={selectSession} onLoadMore={() => void sessionsQuery.fetchNextPage()} onRetry={() => void sessionsQuery.refetch()} />
+              <SessionList sessions={sessions} indicators={sessionIndicators} isLoading={sessionsQuery.isLoading} isError={sessionsQuery.isError} hasNextPage={sessionsQuery.hasNextPage} isFetchingNextPage={sessionsQuery.isFetchingNextPage} activeSessionId={sessionId} onSelect={selectSession} onLoadMore={() => void sessionsQuery.fetchNextPage()} onRetry={() => void sessionsQuery.refetch()} />
             </div>
           </div>
         </aside>
@@ -75,6 +77,7 @@ function NewConversationPanel() {
 
 function ConversationPanel({ sessionId, taskId }: { sessionId: string; taskId: string | null }) {
   const queryClient = useQueryClient();
+  const { acknowledgeSession, sessionIndicators } = useGenerationEventStream();
   const messagesQuery = useInfiniteQuery({
     queryKey: generationQueryKeys.messages(sessionId),
     queryFn: ({ pageParam }) => listGenerationMessages(sessionId, pageParam),
@@ -119,6 +122,11 @@ function ConversationPanel({ sessionId, taskId }: { sessionId: string; taskId: s
     }, refreshAfterMs);
     return () => window.clearTimeout(timeout);
   }, [earliestUrlExpiryAt, queryClient, sessionId]);
+  useEffect(() => {
+    if (sessionIndicators[sessionId] === "COMPLETED" || sessionIndicators[sessionId] === "ATTENTION") {
+      acknowledgeSession(sessionId);
+    }
+  }, [acknowledgeSession, sessionId, sessionIndicators]);
   const activeMessageTask = messages?.find((message) => message.generation.status === "QUEUED" || message.generation.status === "RUNNING")?.generation;
   const currentTask = !activeMessageTask || (taskQuery.data && taskQuery.data.version >= activeMessageTask.version)
     ? taskQuery.data
@@ -142,16 +150,27 @@ function ConversationPanel({ sessionId, taskId }: { sessionId: string; taskId: s
   );
 }
 
-function SessionList({ sessions, isLoading, isError, hasNextPage, isFetchingNextPage, activeSessionId, onSelect, onLoadMore, onRetry }: { sessions: GenerationSession[] | undefined; isLoading: boolean; isError: boolean; hasNextPage: boolean; isFetchingNextPage: boolean; activeSessionId: string | null; onSelect: (sessionId: string) => void; onLoadMore: () => void; onRetry: () => void }) {
+function SessionList({ sessions, indicators, isLoading, isError, hasNextPage, isFetchingNextPage, activeSessionId, onSelect, onLoadMore, onRetry }: { sessions: GenerationSession[] | undefined; indicators: Record<string, GenerationSessionIndicator>; isLoading: boolean; isError: boolean; hasNextPage: boolean; isFetchingNextPage: boolean; activeSessionId: string | null; onSelect: (sessionId: string) => void; onLoadMore: () => void; onRetry: () => void }) {
   return (
     <div className="flex gap-2 lg:mt-1 lg:block lg:space-y-1">
       {isLoading ? <SessionSkeleton /> : null}
       {isError ? <div role="alert" className="px-2 py-3 text-sm text-destructive"><p>会话加载失败，请重试。</p><button type="button" onClick={onRetry} className="mt-1 font-medium underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">重试</button></div> : null}
-      {sessions?.map((session) => <button key={session.id} type="button" onClick={() => onSelect(session.id)} className={cn("inline-flex min-h-10 min-w-36 items-center gap-2 rounded-lg px-3 text-left text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:flex lg:w-full", activeSessionId === session.id ? "bg-muted font-medium text-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground")}><MessageSquare className="size-4 shrink-0" /><span className="truncate">{session.title}</span></button>)}
+      {sessions?.map((session) => <SessionListItem key={session.id} session={session} indicator={activeSessionId === session.id ? undefined : indicators[session.id]} active={activeSessionId === session.id} onSelect={onSelect} />)}
       {hasNextPage ? <button type="button" onClick={onLoadMore} disabled={isFetchingNextPage} className="inline-flex min-h-10 min-w-36 items-center justify-center gap-2 rounded-lg px-3 text-sm text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60 lg:flex lg:w-full">{isFetchingNextPage ? <LoaderCircle className="size-4 animate-spin" /> : null}加载更多会话</button> : null}
       {!isLoading && !sessions?.length ? <p className="px-2 py-2 text-xs leading-5 text-muted-foreground">尚无历史会话。</p> : null}
     </div>
   );
+}
+
+function SessionListItem({ session, indicator, active, onSelect }: { session: GenerationSession; indicator?: GenerationSessionIndicator; active: boolean; onSelect: (sessionId: string) => void }) {
+  const statusIndicator = indicator === "ACTIVE"
+    ? <LoaderCircle aria-label="正在生成" className="ml-auto size-3.5 shrink-0 animate-spin text-sky-600" />
+    : indicator === "ATTENTION"
+      ? <span aria-label="生成失败或已取消" className="ml-auto size-2 shrink-0 rounded-full bg-destructive" />
+      : indicator === "COMPLETED"
+        ? <span aria-label="有新的生成结果" className="ml-auto size-2 shrink-0 rounded-full bg-sky-500" />
+        : null;
+  return <button type="button" onClick={() => onSelect(session.id)} className={cn("inline-flex min-h-10 min-w-36 items-center gap-2 rounded-lg px-3 text-left text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:flex lg:w-full", active ? "bg-muted font-medium text-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground")}><MessageSquare className="size-4 shrink-0" /><span className="truncate">{session.title}</span>{statusIndicator}</button>;
 }
 
 function ConversationMessage({ message, sessionId }: { message: GenerationMessage; sessionId: string }) {

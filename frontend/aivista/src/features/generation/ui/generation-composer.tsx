@@ -122,6 +122,7 @@ export function GenerationComposer({ sessionId, hasActiveTask = false }: Generat
     mutationFn: ({ input, idempotencyKey }: { input: CreateGenerationTaskInput; idempotencyKey: string }) =>
       createGenerationTask(input, idempotencyKey),
     onSuccess: (task) => {
+      generationStream.registerSubmittedTask(task);
       pendingSubmission.current = null;
       window.sessionStorage.removeItem(PENDING_SUBMISSION_STORAGE_KEY);
       queryClient.setQueryData(generationQueryKeys.task(task.id), {
@@ -140,8 +141,10 @@ export function GenerationComposer({ sessionId, hasActiveTask = false }: Generat
       router.push(`/generate?sessionId=${encodeURIComponent(task.sessionId)}&taskId=${encodeURIComponent(task.id)}`);
     },
     onError: (error) => {
+      const apiErrorCode = getApiErrorCode(error);
+      if (apiErrorCode !== null) generationStream.abandonSubmission();
       const feedback = feedbackFromCreateError(error);
-      if (feedback.clearPendingSubmission || getApiErrorCode(error) !== null) {
+      if (feedback.clearPendingSubmission || apiErrorCode !== null) {
         pendingSubmission.current = null;
         window.sessionStorage.removeItem(PENDING_SUBMISSION_STORAGE_KEY);
       }

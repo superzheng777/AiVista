@@ -23,7 +23,19 @@ type GenerationEventStreamContextValue = {
   reconnectAttempt: number;
   maxReconnectAttempts: number;
   ensureReady: () => Promise<boolean>;
+  activeTaskCount: number;
+  sessionIndicators: Record<string, GenerationSessionIndicator>;
+  hasCompletedResults: boolean;
+  hasAttention: boolean;
+  acknowledgeSession: (sessionId: string) => void;
+  acknowledgeCompletedResults: () => void;
+  registerSubmittedTask: (task: Pick<GenerationTask, "id" | "sessionId" | "status" | "version">) => void;
+  abandonSubmission: () => void;
 };
+
+export type GenerationSessionIndicator = "ACTIVE" | "COMPLETED" | "ATTENTION";
+
+type TrackedTask = Pick<GenerationTask, "sessionId" | "status" | "version">;
 
 const TASK_EVENT_NAME = "generation.task.updated";
 const READY_EVENT_NAME = "generation.stream.ready";
@@ -113,6 +125,9 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
   const authStatus = useAuthStore((state) => state.status);
   const [status, setStatus] = useState<GenerationStreamStatus>("DISCONNECTED");
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
+  const [trackedTasks, setTrackedTasks] = useState<Record<string, TrackedTask>>({});
+  const [completedSessionIds, setCompletedSessionIds] = useState<Set<string>>(() => new Set());
+  const [attentionSessionIds, setAttentionSessionIds] = useState<Set<string>>(() => new Set());
   const readyRef = useRef(false);
   const everReadyRef = useRef(false);
   const lifecycleControllerRef = useRef<AbortController | null>(null);
@@ -121,8 +136,30 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
   const batchRef = useRef<Promise<boolean> | null>(null);
   const startBatchRef = useRef<() => Promise<boolean>>(() => Promise.resolve(false));
   const knownTaskIdsRef = useRef(new Set<string>());
+  const taskVersionsRef = useRef(new Map<string, number>());
+  const maintainStreamRef = useRef(false);
+  const submissionHoldRef = useRef(false);
+
+  const trackTask = useCallback((task: Pick<GenerationTask, "id" | "sessionId" | "status" | "version">) => {
+    const knownVersion = taskVersionsRef.current.get(task.id);
+    if (knownVersion !== undefined && task.version < knownVersion) return;
+    taskVersionsRef.current.set(task.id, task.version);
+    if (!isTerminalStatus(task.status)) maintainStreamRef.current = true;
+    setTrackedTasks((current) => {
+      const previous = current[task.id];
+      if (previous && previous.version > task.version) return current;
+      return { ...current, [task.id]: { sessionId: task.sessionId, status: task.status, version: task.version } };
+    });
+    if (task.status === "SUCCEEDED" || task.status === "PARTIALLY_SUCCEEDED") {
+      setCompletedSessionIds((current) => current.has(task.sessionId) ? current : new Set(current).add(task.sessionId));
+    }
+    if (task.status === "FAILED" || task.status === "CANCELLED") {
+      setAttentionSessionIds((current) => current.has(task.sessionId) ? current : new Set(current).add(task.sessionId));
+    }
+  }, []);
 
   const mergeTaskSnapshot = useCallback((task: GenerationTask) => {
+    trackTask(task);
     queryClient.setQueryData<GenerationTask>(generationQueryKeys.task(task.id), (current) =>
       !current || task.version >= current.version ? task : current);
     if (isTerminalStatus(task.status)) {
@@ -130,10 +167,11 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
     } else {
       knownTaskIdsRef.current.add(task.id);
     }
-  }, [queryClient]);
+  }, [queryClient, trackTask]);
 
   const applyTaskUpdate = useCallback((event: GenerationTaskUpdateEvent) => {
     knownTaskIdsRef.current.add(event.taskId);
+    trackTask({ id: event.taskId, sessionId: event.sessionId, status: event.status, version: event.taskVersion });
     const taskKey = generationQueryKeys.task(event.taskId);
     void (async () => {
       await queryClient.cancelQueries({ queryKey: taskKey });
@@ -147,6 +185,9 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
         queryClient.invalidateQueries({ queryKey: generationQueryKeys.messages(event.sessionId) }),
       ]);
       if (isTerminalStatus(event.status)) {
+        if (event.status === "SUCCEEDED" || event.status === "PARTIALLY_SUCCEEDED") {
+          await queryClient.invalidateQueries({ queryKey: ["assets"] });
+        }
         try {
           mergeTaskSnapshot(await getGenerationTask(event.taskId));
         } catch {
@@ -154,7 +195,7 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
         }
       }
     })();
-  }, [mergeTaskSnapshot, queryClient]);
+  }, [mergeTaskSnapshot, queryClient, trackTask]);
 
   const reconcile = useCallback(async () => {
     const taskIdsToReview = new Set(knownTaskIdsRef.current);
@@ -186,7 +227,8 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
     const batch = (async () => {
       for (let index = 0; index < MAX_RECONNECT_ATTEMPTS; index += 1) {
         await wait(RECONNECT_DELAYS_MS[index], lifecycleController.signal);
-        if (lifecycleController.signal.aborted || useAuthStore.getState().status !== "authenticated") return false;
+        if (lifecycleController.signal.aborted || !maintainStreamRef.current
+          || useAuthStore.getState().status !== "authenticated") return false;
 
         const attempt = index + 1;
         setReconnectAttempt(attempt);
@@ -222,7 +264,7 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
               if (connectionSequenceRef.current !== sequence || lifecycleController.signal.aborted) return;
               streamController.abort();
               readyRef.current = false;
-              if (connectionAccepted) {
+              if (connectionAccepted && maintainStreamRef.current) {
                 setStatus("RECONNECTING");
                 window.setTimeout(() => { void startBatchRef.current(); }, 0);
               }
@@ -260,6 +302,17 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
     return batch;
   }, [applyTaskUpdate, reconcile]);
 
+  const ensureReady = useCallback(async (): Promise<boolean> => {
+    submissionHoldRef.current = true;
+    maintainStreamRef.current = true;
+    const ready = await startBatch();
+    if (!ready) {
+      submissionHoldRef.current = false;
+      maintainStreamRef.current = false;
+    }
+    return ready;
+  }, [startBatch]);
+
   useEffect(() => {
     startBatchRef.current = startBatch;
   }, [startBatch]);
@@ -272,6 +325,14 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
       readyRef.current = false;
       everReadyRef.current = false;
       knownTaskIdsRef.current.clear();
+      taskVersionsRef.current.clear();
+      maintainStreamRef.current = false;
+      submissionHoldRef.current = false;
+      queueMicrotask(() => {
+        setTrackedTasks({});
+        setCompletedSessionIds(new Set());
+        setAttentionSessionIds(new Set());
+      });
       return;
     }
 
@@ -300,10 +361,73 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
     };
   }, [authStatus, mergeTaskSnapshot, startBatch]);
 
+  const activeTaskCount = Object.values(trackedTasks)
+    .filter((task) => task.status === "QUEUED" || task.status === "RUNNING").length;
+  const sessionIndicators = Object.values(trackedTasks).reduce<Record<string, GenerationSessionIndicator>>((indicators, task) => {
+    if (task.status === "QUEUED" || task.status === "RUNNING") {
+      indicators[task.sessionId] = "ACTIVE";
+    }
+    return indicators;
+  }, {});
+  for (const sessionId of completedSessionIds) {
+    if (!sessionIndicators[sessionId]) sessionIndicators[sessionId] = "COMPLETED";
+  }
+  for (const sessionId of attentionSessionIds) {
+    if (!sessionIndicators[sessionId]) sessionIndicators[sessionId] = "ATTENTION";
+  }
+
+  const stopStream = useCallback(() => {
+    if (!readyRef.current && !streamControllerRef.current) return;
+    maintainStreamRef.current = false;
+    readyRef.current = false;
+    connectionSequenceRef.current += 1;
+    streamControllerRef.current?.abort();
+    streamControllerRef.current = null;
+    queueMicrotask(() => {
+      setReconnectAttempt(0);
+      setStatus("DISCONNECTED");
+    });
+  }, []);
+
+  useEffect(() => {
+    if (activeTaskCount === 0 && !submissionHoldRef.current) stopStream();
+  }, [activeTaskCount, stopStream]);
+
+  const registerSubmittedTask = useCallback((task: Pick<GenerationTask, "id" | "sessionId" | "status" | "version">) => {
+    trackTask(task);
+    submissionHoldRef.current = false;
+    maintainStreamRef.current = true;
+  }, [trackTask]);
+
+  const abandonSubmission = useCallback(() => {
+    submissionHoldRef.current = false;
+    if (activeTaskCount === 0) stopStream();
+  }, [activeTaskCount, stopStream]);
+
+  const acknowledgeSession = useCallback((sessionId: string) => {
+    setCompletedSessionIds((current) => {
+      if (!current.has(sessionId)) return current;
+      const next = new Set(current);
+      next.delete(sessionId);
+      return next;
+    });
+    setAttentionSessionIds((current) => {
+      if (!current.has(sessionId)) return current;
+      const next = new Set(current);
+      next.delete(sessionId);
+      return next;
+    });
+  }, []);
+
+  const acknowledgeCompletedResults = useCallback(() => setCompletedSessionIds(new Set()), []);
+
   return (
     <GenerationEventStreamContext value={{ status: authStatus === "authenticated" ? status : "DISCONNECTED",
       reconnectAttempt: authStatus === "authenticated" ? reconnectAttempt : 0,
-      maxReconnectAttempts: MAX_RECONNECT_ATTEMPTS, ensureReady: startBatch }}>
+      maxReconnectAttempts: MAX_RECONNECT_ATTEMPTS, ensureReady, activeTaskCount,
+      sessionIndicators, hasCompletedResults: completedSessionIds.size > 0,
+      hasAttention: attentionSessionIds.size > 0, acknowledgeSession, acknowledgeCompletedResults,
+      registerSubmittedTask, abandonSubmission }}>
       {children}
     </GenerationEventStreamContext>
   );

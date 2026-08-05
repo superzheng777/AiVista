@@ -13,6 +13,10 @@ spring:
     password: "<your-db-password>"
 
 app:
+  auth:
+    jwt:
+      # 至少 32 个 UTF-8 字节；application-local.yaml 已被 Git 忽略。
+      secret: "<your-local-jwt-secret-at-least-32-bytes>"
   generation:
     bailian:
       endpoint: "<your-bailian-endpoint>"

@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { CursorPage, GenerationAsset } from "@/entities/generation/model/generation";
 import { assetQueryKeys, deleteGenerationAssets, listGenerationAssets } from "@/features/assets/api/asset-api";
+import { useGenerationEventStream } from "@/features/generation/model/generation-event-stream-provider";
 import { cn } from "@/lib/utils";
 
 type AssetPages = InfiniteData<CursorPage<GenerationAsset>, string | undefined>;
@@ -56,6 +57,8 @@ function downloadAsset(asset: GenerationAsset): void {
 
 export function AssetsWorkspace() {
   const queryClient = useQueryClient();
+  const { hasCompletedResults, acknowledgeCompletedResults } = useGenerationEventStream();
+  const lastAcknowledgedAssetUpdateRef = useRef(0);
   const [isManaging, setIsManaging] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [detailAsset, setDetailAsset] = useState<GenerationAsset | null>(null);
@@ -81,6 +84,12 @@ export function AssetsWorkspace() {
     }, Math.max(0, earliestExpiry - Date.now() - 30_000));
     return () => window.clearTimeout(timeout);
   }, [earliestExpiry, queryClient]);
+
+  useEffect(() => {
+    if (!assetsQuery.dataUpdatedAt || assetsQuery.dataUpdatedAt <= lastAcknowledgedAssetUpdateRef.current) return;
+    lastAcknowledgedAssetUpdateRef.current = assetsQuery.dataUpdatedAt;
+    if (hasCompletedResults) acknowledgeCompletedResults();
+  }, [acknowledgeCompletedResults, assetsQuery.dataUpdatedAt, hasCompletedResults]);
 
   const deleteMutation = useMutation({
     mutationFn: deleteGenerationAssets,
