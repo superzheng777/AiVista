@@ -89,7 +89,7 @@ app:
       object-prefix: users
       signed-url-ttl: 10m
       connect-timeout: 5s
-      read-timeout: 60s
+      read-timeout: 30s
       max-object-size: 30MiB
     asset-cleanup:
       fixed-delay: 1m
