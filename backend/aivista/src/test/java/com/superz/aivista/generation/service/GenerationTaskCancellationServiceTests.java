@@ -42,9 +42,10 @@ class GenerationTaskCancellationServiceTests {
         verify(taskMapper).cancelActive(301L, "QUEUED", 3, NOW, NOW);
         ArgumentCaptor<OutboxEvent> event = ArgumentCaptor.forClass(OutboxEvent.class);
         verify(outboxMapper).insertSelective(event.capture());
-        assertThat(event.getValue().getEventType()).isEqualTo("TASK_STATUS_CHANGED");
-        assertThat(event.getValue().getTaskVersion()).isEqualTo(4);
-        assertThat(event.getValue().getTaskStatus()).isEqualTo("CANCELLED");
+        assertThat(event.getValue().getEventType()).isEqualTo("GENERATION_TASK_STATUS_CHANGED");
+        assertThat(event.getValue().getAggregateVersion()).isEqualTo(4L);
+        assertThat(event.getValue().getPayloadJson())
+                .isEqualTo("{\"status\":\"CANCELLED\",\"modelRetryCount\":0}");
     }
 
     @Test

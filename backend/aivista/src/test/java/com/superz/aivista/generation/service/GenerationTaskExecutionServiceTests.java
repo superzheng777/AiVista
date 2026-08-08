@@ -78,10 +78,11 @@ class GenerationTaskExecutionServiceTests {
         assertThat(image.getValue().getWidth()).isEqualTo(2048);
         ArgumentCaptor<OutboxEvent> event = ArgumentCaptor.forClass(OutboxEvent.class);
         verify(outboxEventMapper, org.mockito.Mockito.times(2)).insertSelective(event.capture());
-        assertThat(event.getAllValues()).extracting(OutboxEvent::getTaskStatus)
-                .containsExactly("RUNNING", "SUCCEEDED");
-        assertThat(event.getAllValues()).extracting(OutboxEvent::getTaskVersion)
-                .containsExactly(1, 2);
+        assertThat(event.getAllValues()).extracting(OutboxEvent::getPayloadJson)
+                .containsExactly("{\"status\":\"RUNNING\",\"modelRetryCount\":0}",
+                        "{\"status\":\"SUCCEEDED\",\"modelRetryCount\":0}");
+        assertThat(event.getAllValues()).extracting(OutboxEvent::getAggregateVersion)
+                .containsExactly(1L, 2L);
     }
 
     @Test
@@ -197,8 +198,9 @@ class GenerationTaskExecutionServiceTests {
         assertThat(service.execute(new TaskExecuteMessage(11L, 301L, 0))).isTrue();
         ArgumentCaptor<OutboxEvent> events = ArgumentCaptor.forClass(OutboxEvent.class);
         verify(outboxEventMapper, org.mockito.Mockito.times(2)).insertSelective(events.capture());
-        assertThat(events.getAllValues()).extracting(OutboxEvent::getTaskStatus)
-                .containsExactly("RUNNING", "FAILED");
+        assertThat(events.getAllValues()).extracting(OutboxEvent::getPayloadJson)
+                .containsExactly("{\"status\":\"RUNNING\",\"modelRetryCount\":0}",
+                        "{\"status\":\"FAILED\",\"modelRetryCount\":0}");
     }
 
     private static void assertRetryableFailure(RuntimeException failure) throws Exception {
@@ -226,11 +228,12 @@ class GenerationTaskExecutionServiceTests {
         ArgumentCaptor<OutboxEvent> event = ArgumentCaptor.forClass(OutboxEvent.class);
         verify(outboxEventMapper, org.mockito.Mockito.times(3)).insertSelective(event.capture());
         assertThat(event.getAllValues()).extracting(OutboxEvent::getEventType)
-                .containsExactly("TASK_STATUS_CHANGED", "TASK_EXECUTE", "TASK_STATUS_CHANGED");
-        assertThat(event.getAllValues().get(1).getTaskVersion()).isEqualTo(2);
+                .containsExactly("GENERATION_TASK_STATUS_CHANGED", "GENERATION_TASK_EXECUTE",
+                        "GENERATION_TASK_STATUS_CHANGED");
+        assertThat(event.getAllValues().get(1).getAggregateVersion()).isEqualTo(2L);
         assertThat(event.getAllValues().get(1).getAvailableAt()).isBetween(NOW.plusSeconds(1), NOW.plusSeconds(2));
-        assertThat(event.getAllValues().get(2).getTaskStatus()).isEqualTo("QUEUED");
-        assertThat(event.getAllValues().get(2).getModelRetryCount()).isEqualTo(1);
+        assertThat(event.getAllValues().get(2).getPayloadJson())
+                .isEqualTo("{\"status\":\"QUEUED\",\"modelRetryCount\":1}");
     }
 
     private static PlatformTransactionManager transactionManager() {

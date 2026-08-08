@@ -11,6 +11,9 @@ import static org.mockito.Mockito.when;
 
 import com.superz.aivista.common.exception.BusinessException;
 import com.superz.aivista.common.exception.ErrorCode;
+import com.superz.aivista.common.idempotency.IdempotencyRecord;
+import com.superz.aivista.common.idempotency.IdempotencyRecordMapper;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.superz.aivista.generation.config.GenerationTaskProperties;
 import com.superz.aivista.generation.dto.CreateGenerationTaskRequest;
 import com.superz.aivista.generation.dto.GenerationConsentResponse;
@@ -44,6 +47,7 @@ class GenerationTaskCreationServiceTests {
     private final GenerationTaskMapper taskMapper = mock(GenerationTaskMapper.class);
     private final UserGenerationDailyUsageMapper dailyUsageMapper = mock(UserGenerationDailyUsageMapper.class);
     private final OutboxEventMapper outboxEventMapper = mock(OutboxEventMapper.class);
+    private final IdempotencyRecordMapper idempotencyRecordMapper = mock(IdempotencyRecordMapper.class);
     private final GenerationConsentService consentService = mock(GenerationConsentService.class);
     private GenerationTaskCreationService service;
 
@@ -53,8 +57,8 @@ class GenerationTaskCreationServiceTests {
                 "bailian/qwen-image-2.0", 4, 12, 1000, 500, 1, 6,
                 Map.of("1:1", "2048*2048"));
         service = new GenerationTaskCreationService(userMapper, sessionMapper, messageMapper, taskMapper,
-                dailyUsageMapper, outboxEventMapper, consentService, properties,
-                Clock.fixed(NOW, ZoneOffset.UTC));
+                dailyUsageMapper, outboxEventMapper, idempotencyRecordMapper, consentService, properties,
+                Clock.fixed(NOW, ZoneOffset.UTC), new ObjectMapper().findAndRegisterModules());
         when(consentService.getCurrentConsent(USER_ID))
                 .thenReturn(new GenerationConsentResponse("v1", "policy", true, NOW));
         when(userMapper.selectIdForUpdate(USER_ID)).thenReturn(USER_ID);
@@ -95,24 +99,19 @@ class GenerationTaskCreationServiceTests {
         assertThat(task.getValue().getFinalNegativePrompt()).isNull();
         assertThat(task.getValue().getWidth()).isEqualTo(2048);
         assertThat(task.getValue().getPromptExtend()).isTrue();
-        assertThat(event.getAllValues()).extracting(OutboxEvent::getTaskId).containsOnly(301L);
+        assertThat(event.getAllValues()).extracting(OutboxEvent::getAggregateId).containsOnly(301L);
         assertThat(event.getAllValues()).extracting(OutboxEvent::getEventType)
-                .containsExactly("TASK_EXECUTE", "TASK_STATUS_CHANGED");
-        assertThat(event.getAllValues().get(1).getTaskStatus()).isEqualTo("QUEUED");
+                .containsExactly("GENERATION_TASK_EXECUTE", "GENERATION_TASK_STATUS_CHANGED");
+        assertThat(event.getAllValues().get(1).getPayloadJson())
+                .isEqualTo("{\"status\":\"QUEUED\",\"modelRetryCount\":0}");
     }
 
     @Test
     void returnsExistingTaskForSameIdempotencyKeyWithoutAdditionalWrites() {
-        GenerationTask existing = new GenerationTask();
-        existing.setId(301L);
-        existing.setSessionId(101L);
-        existing.setStatus("QUEUED");
-        existing.setTaskVersion(0);
-        existing.setRequestedImageCount(2);
-        existing.setCreatedAt(NOW);
-        existing.setRequestFingerprint(GenerationRequestFingerprint.sha256(
+        IdempotencyRecord existing = idempotencyRecord(GenerationRequestFingerprint.sha256(
                 USER_ID, "NEW", "future city", null, "1:1", true, 2));
-        when(taskMapper.selectByUserIdAndIdempotencyKey(USER_ID, IDEMPOTENCY_KEY)).thenReturn(existing);
+        when(idempotencyRecordMapper.selectByOwnerScopeAndKey(USER_ID, "GENERATION_TASK_CREATE", IDEMPOTENCY_KEY))
+                .thenReturn(existing);
 
         var response = service.create(USER_ID, IDEMPOTENCY_KEY,
                 new CreateGenerationTaskRequest(null, "future city", null, "1:1", null, 2));
@@ -125,15 +124,21 @@ class GenerationTaskCreationServiceTests {
 
     @Test
     void rejectsSameIdempotencyKeyWhenFingerprintDiffers() {
-        GenerationTask existing = new GenerationTask();
-        existing.setRequestFingerprint("different");
-        when(taskMapper.selectByUserIdAndIdempotencyKey(USER_ID, IDEMPOTENCY_KEY)).thenReturn(existing);
+        when(idempotencyRecordMapper.selectByOwnerScopeAndKey(USER_ID, "GENERATION_TASK_CREATE", IDEMPOTENCY_KEY))
+                .thenReturn(idempotencyRecord("different"));
 
         assertThatThrownBy(() -> service.create(USER_ID, IDEMPOTENCY_KEY,
                 new CreateGenerationTaskRequest(null, "future city", null, "1:1", null, 2)))
                 .isInstanceOfSatisfying(BusinessException.class,
                         exception -> assertThat(exception.getErrorCode())
                                 .isEqualTo(ErrorCode.IDEMPOTENCY_KEY_CONFLICT));
+    }
+
+    private static IdempotencyRecord idempotencyRecord(String fingerprint) {
+        IdempotencyRecord record = new IdempotencyRecord();
+        record.setRequestFingerprint(fingerprint);
+        record.setResponseBody("{\"taskId\":\"301\",\"sessionId\":\"101\",\"status\":\"QUEUED\",\"taskVersion\":0,\"requestedImageCount\":2,\"createdAt\":\"2026-07-28T01:02:03Z\"}");
+        return record;
     }
 
     @Test

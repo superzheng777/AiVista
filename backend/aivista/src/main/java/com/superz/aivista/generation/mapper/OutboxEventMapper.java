@@ -8,31 +8,20 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
-/** 图像生成可靠事件数据访问接口。 */
+/** Project-wide reliable event data access. */
 public interface OutboxEventMapper extends BaseMapper<OutboxEvent> {
     @Select("""
-            SELECT id, event_type, task_id, task_version, task_status, model_retry_count,
-                   status, retry_count, available_at, locked_at, published_at, last_error, created_at
+            SELECT id, event_type, aggregate_type, aggregate_id, aggregate_version, payload_json,
+                   status, retry_count, available_at, locked_at, published_at, last_error, created_at, updated_at
             FROM outbox_events
-            WHERE event_type = 'TASK_EXECUTE'
+            WHERE event_type = #{eventType}
               AND status = 'PENDING'
               AND available_at <= #{now}
             ORDER BY id
             LIMIT #{limit}
             """)
-    List<OutboxEvent> selectAvailableTaskExecutions(@Param("now") Instant now, @Param("limit") int limit);
-
-    @Select("""
-            SELECT id, event_type, task_id, task_version, task_status, model_retry_count,
-                   status, retry_count, available_at, locked_at, published_at, last_error, created_at
-            FROM outbox_events
-            WHERE event_type = 'TASK_STATUS_CHANGED'
-              AND status = 'PENDING'
-              AND available_at <= #{now}
-            ORDER BY id
-            LIMIT #{limit}
-            """)
-    List<OutboxEvent> selectAvailableTaskStatusChanges(@Param("now") Instant now, @Param("limit") int limit);
+    List<OutboxEvent> selectAvailableByEventType(@Param("eventType") String eventType,
+            @Param("now") Instant now, @Param("limit") int limit);
 
     @Update("""
             UPDATE outbox_events

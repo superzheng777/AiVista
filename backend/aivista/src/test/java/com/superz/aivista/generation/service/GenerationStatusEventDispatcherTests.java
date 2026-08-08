@@ -14,6 +14,7 @@ import com.superz.aivista.generation.entity.OutboxEvent;
 import com.superz.aivista.generation.event.GenerationTaskStatusEvent;
 import com.superz.aivista.generation.mapper.GenerationTaskMapper;
 import com.superz.aivista.generation.mapper.OutboxEventMapper;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -31,7 +32,7 @@ class GenerationStatusEventDispatcherTests {
         GenerationSseConnectionService connections = mock(GenerationSseConnectionService.class);
         OutboxEvent event = event(99L, 301L, 4);
         GenerationTask task = task(301L, 7L, 201L, 4, "CANCELLED");
-        when(outboxMapper.selectAvailableTaskStatusChanges(NOW, 100)).thenReturn(List.of(event));
+        when(outboxMapper.selectAvailableByEventType("GENERATION_TASK_STATUS_CHANGED", NOW, 100)).thenReturn(List.of(event));
         when(outboxMapper.claimPending(99L, NOW, NOW)).thenReturn(1);
         when(taskMapper.selectStatusEventTaskById(301L)).thenReturn(task);
 
@@ -48,7 +49,7 @@ class GenerationStatusEventDispatcherTests {
         GenerationTaskMapper taskMapper = mock(GenerationTaskMapper.class);
         GenerationSseConnectionService connections = mock(GenerationSseConnectionService.class);
         OutboxEvent event = event(99L, 301L, 3);
-        when(outboxMapper.selectAvailableTaskStatusChanges(NOW, 100)).thenReturn(List.of(event));
+        when(outboxMapper.selectAvailableByEventType("GENERATION_TASK_STATUS_CHANGED", NOW, 100)).thenReturn(List.of(event));
         when(outboxMapper.claimPending(99L, NOW, NOW)).thenReturn(1);
         when(taskMapper.selectStatusEventTaskById(301L)).thenReturn(task(301L, 7L, 201L, 4, "CANCELLED"));
 
@@ -65,16 +66,17 @@ class GenerationStatusEventDispatcherTests {
                 new GenerationSseProperties(3, 1000, Duration.ofSeconds(15), Duration.ofSeconds(1), 100),
                 new GenerationBailianProperties("https://example.com", "key", Duration.ofSeconds(5),
                         Duration.ofSeconds(330), 25, 2, 3),
-                Clock.fixed(NOW, ZoneOffset.UTC));
+                Clock.fixed(NOW, ZoneOffset.UTC), new ObjectMapper());
     }
 
     private static OutboxEvent event(long id, long taskId, int taskVersion) {
         OutboxEvent event = new OutboxEvent();
         event.setId(id);
-        event.setTaskId(taskId);
-        event.setTaskVersion(taskVersion);
-        event.setTaskStatus(taskVersion == 3 ? "RUNNING" : "CANCELLED");
-        event.setModelRetryCount(1);
+        event.setAggregateType("GENERATION_TASK");
+        event.setAggregateId(taskId);
+        event.setAggregateVersion((long) taskVersion);
+        event.setPayloadJson("{\"status\":\"" + (taskVersion == 3 ? "RUNNING" : "CANCELLED")
+                + "\",\"modelRetryCount\":1}");
         return event;
     }
 

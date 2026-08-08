@@ -1,5 +1,9 @@
 package com.superz.aivista.generation.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.superz.aivista.common.idempotency.IdempotencyRecord;
+import com.superz.aivista.common.idempotency.IdempotencyRecordMapper;
 import com.superz.aivista.common.exception.BusinessException;
 import com.superz.aivista.common.exception.ErrorCode;
 import com.superz.aivista.generation.config.GenerationTaskProperties;
@@ -21,6 +25,7 @@ import com.superz.aivista.generation.model.OutboxEventType;
 import com.superz.aivista.generation.model.OutboxStatus;
 import com.superz.aivista.user.mapper.UserMapper;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -36,6 +41,7 @@ public class GenerationTaskCreationService {
     private static final String NEW_SESSION_IDENTITY = "NEW";
     private static final int HISTORY_FETCH_LIMIT = 1000;
     private static final ZoneId QUOTA_ZONE = ZoneId.of("Asia/Shanghai");
+    private static final String IDEMPOTENCY_SCOPE = "GENERATION_TASK_CREATE";
 
     private final UserMapper userMapper;
     private final GenerationSessionMapper sessionMapper;
@@ -43,9 +49,11 @@ public class GenerationTaskCreationService {
     private final GenerationTaskMapper taskMapper;
     private final UserGenerationDailyUsageMapper dailyUsageMapper;
     private final OutboxEventMapper outboxEventMapper;
+    private final IdempotencyRecordMapper idempotencyRecordMapper;
     private final GenerationConsentService consentService;
     private final GenerationTaskProperties properties;
     private final Clock clock;
+    private final ObjectMapper objectMapper;
 
     public GenerationTaskCreationService(
             UserMapper userMapper,
@@ -54,18 +62,21 @@ public class GenerationTaskCreationService {
             GenerationTaskMapper taskMapper,
             UserGenerationDailyUsageMapper dailyUsageMapper,
             OutboxEventMapper outboxEventMapper,
+            IdempotencyRecordMapper idempotencyRecordMapper,
             GenerationConsentService consentService,
             GenerationTaskProperties properties,
-            Clock clock) {
+            Clock clock, ObjectMapper objectMapper) {
         this.userMapper = userMapper;
         this.sessionMapper = sessionMapper;
         this.messageMapper = messageMapper;
         this.taskMapper = taskMapper;
         this.dailyUsageMapper = dailyUsageMapper;
         this.outboxEventMapper = outboxEventMapper;
+        this.idempotencyRecordMapper = idempotencyRecordMapper;
         this.consentService = consentService;
         this.properties = properties;
         this.clock = clock;
+        this.objectMapper = objectMapper;
     }
 
     @Transactional
@@ -82,7 +93,8 @@ public class GenerationTaskCreationService {
             throw new BusinessException(ErrorCode.UNAUTHORIZED);
         }
 
-        GenerationTask existing = taskMapper.selectByUserIdAndIdempotencyKey(userId, command.idempotencyKey());
+        IdempotencyRecord existing = idempotencyRecordMapper.selectByOwnerScopeAndKey(
+                userId, IDEMPOTENCY_SCOPE, command.idempotencyKey());
         if (existing != null) {
             return idempotentResponse(existing, command.requestFingerprint());
         }
@@ -138,26 +150,28 @@ public class GenerationTaskCreationService {
         task.setPromptExtend(command.promptExtend());
         task.setRequestedImageCount(command.imageCount());
         task.setCompletedImageCount(0);
-        task.setIdempotencyKey(command.idempotencyKey());
-        task.setRequestFingerprint(command.requestFingerprint());
         task.setCreatedAt(now);
         task.setUpdatedAt(now);
         taskMapper.insertSelective(task);
 
         // 与任务同事务写入；提交后由后续 Outbox 分发器投递 RabbitMQ，避免“任务已创建但消息丢失”。
         OutboxEvent event = new OutboxEvent();
-        event.setEventType(OutboxEventType.TASK_EXECUTE.name());
-        event.setTaskId(task.getId());
-        event.setTaskVersion(task.getTaskVersion());
+        event.setEventType(OutboxEventType.GENERATION_TASK_EXECUTE.name());
+        event.setAggregateType("GENERATION_TASK");
+        event.setAggregateId(task.getId());
+        event.setAggregateVersion(task.getTaskVersion().longValue());
         event.setStatus(OutboxStatus.PENDING.name());
         event.setRetryCount(0);
         event.setAvailableAt(now);
         event.setCreatedAt(now);
+        event.setUpdatedAt(now);
         outboxEventMapper.insertSelective(event);
         outboxEventMapper.insertSelective(GenerationStatusOutboxEvent.create(
                 task.getId(), task.getTaskVersion(), task.getStatus(), task.getAttemptCount(), now));
 
-        return responseOf(task);
+        CreateGenerationTaskResponse response = responseOf(task);
+        saveIdempotencyRecord(userId, command, task.getId(), response, now);
+        return response;
     }
 
     private CreationCommand validateAndNormalize(long userId, String idempotencyKey,
@@ -233,11 +247,35 @@ public class GenerationTaskCreationService {
     }
 
     // 幂等响应
-    private CreateGenerationTaskResponse idempotentResponse(GenerationTask task, String fingerprint) {
-        if (!fingerprint.equals(task.getRequestFingerprint())) {
+    private CreateGenerationTaskResponse idempotentResponse(IdempotencyRecord record, String fingerprint) {
+        if (!fingerprint.equals(record.getRequestFingerprint())) {
             throw new BusinessException(ErrorCode.IDEMPOTENCY_KEY_CONFLICT);
         }
-        return responseOf(task);
+        try {
+            return objectMapper.readValue(record.getResponseBody(), CreateGenerationTaskResponse.class);
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("Invalid persisted idempotency response", exception);
+        }
+    }
+
+    private void saveIdempotencyRecord(long userId, CreationCommand command, long taskId,
+            CreateGenerationTaskResponse response, Instant now) {
+        try {
+            IdempotencyRecord record = new IdempotencyRecord();
+            record.setOwnerId(userId);
+            record.setScope(IDEMPOTENCY_SCOPE);
+            record.setIdempotencyKey(command.idempotencyKey());
+            record.setRequestFingerprint(command.requestFingerprint());
+            record.setResourceType("GENERATION_TASK");
+            record.setResourceId(taskId);
+            record.setResponseStatus(202);
+            record.setResponseBody(objectMapper.writeValueAsString(response));
+            record.setCreatedAt(now);
+            record.setExpiresAt(now.plus(Duration.ofMinutes(30)));
+            idempotencyRecordMapper.insertSelective(record);
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("Cannot persist idempotency response", exception);
+        }
     }
 
     private CreateGenerationTaskResponse responseOf(GenerationTask task) {

@@ -45,9 +45,7 @@ public class GenerationTask {
     /** 仅供崩溃后恢复 OSS 转存的临时服务商结果快照，转存结束后清除。 */
     private String providerResultSnapshot;
     /** 同一用户的一次主动提交及其网络重试使用同一个 UUID v4。 */
-    private String idempotencyKey;
     /** 规范化创建参数的 SHA-256 摘要，用于识别相同幂等键的冲突请求。 */
-    private String requestFingerprint;
     /** 仅在 FAILED 或 PARTIALLY_SUCCEEDED 时保存稳定失败分类。 */
     private String failureCode;
     private Instant createdAt;

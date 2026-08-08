@@ -48,8 +48,9 @@ class GenerationQueuedTaskFailureServiceTests {
         verify(dailyUsageMapper).refund(7L, java.time.LocalDate.of(2026, 7, 29), 2, NOW);
         ArgumentCaptor<OutboxEvent> event = ArgumentCaptor.forClass(OutboxEvent.class);
         verify(outboxEventMapper).insertSelective(event.capture());
-        assertThat(event.getValue().getTaskVersion()).isEqualTo(4);
-        assertThat(event.getValue().getTaskStatus()).isEqualTo("FAILED");
+        assertThat(event.getValue().getAggregateVersion()).isEqualTo(4L);
+        assertThat(event.getValue().getPayloadJson())
+                .isEqualTo("{\"status\":\"FAILED\",\"modelRetryCount\":0}");
     }
 
     @Test

@@ -243,14 +243,16 @@ public class GenerationTaskExecutionService {
             return false;
         }
         OutboxEvent event = new OutboxEvent();
-        event.setEventType(OutboxEventType.TASK_EXECUTE.name());
-        event.setTaskId(current.getId());
-        event.setTaskVersion(current.getTaskVersion() + 1);
+        event.setEventType(OutboxEventType.GENERATION_TASK_EXECUTE.name());
+        event.setAggregateType("GENERATION_TASK");
+        event.setAggregateId(current.getId());
+        event.setAggregateVersion((long) current.getTaskVersion() + 1);
         event.setStatus(OutboxStatus.PENDING.name());
         event.setRetryCount(0);
         event.setAvailableAt(now.plusSeconds(1L << modelRetryCount(current))
                 .plusMillis(ThreadLocalRandom.current().nextLong(1001)));
         event.setCreatedAt(now);
+        event.setUpdatedAt(now);
         outboxEventMapper.insertSelective(event);
         outboxEventMapper.insertSelective(GenerationStatusOutboxEvent.create(
                 current.getId(), current.getTaskVersion() + 1, GenerationTaskStatus.QUEUED.name(),

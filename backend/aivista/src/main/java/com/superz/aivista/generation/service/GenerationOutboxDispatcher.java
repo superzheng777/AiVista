@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.superz.aivista.generation.config.GenerationQueueProperties;
 import com.superz.aivista.generation.entity.OutboxEvent;
 import com.superz.aivista.generation.mapper.OutboxEventMapper;
+import com.superz.aivista.generation.model.OutboxEventType;
 import com.superz.aivista.generation.message.TaskExecuteMessage;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
@@ -56,8 +57,8 @@ public class GenerationOutboxDispatcher {
     @Scheduled(fixedDelayString = "${app.generation.queue.dispatcher-fixed-delay}")
     public void dispatchAvailableEvents() {
         Instant now = clock.instant();
-        List<OutboxEvent> events = outboxEventMapper.selectAvailableTaskExecutions(
-                now, properties.dispatcherBatchSize());
+        List<OutboxEvent> events = outboxEventMapper.selectAvailableByEventType(
+                OutboxEventType.GENERATION_TASK_EXECUTE.name(), now, properties.dispatcherBatchSize());
         for (OutboxEvent event : events) {
             if (outboxEventMapper.claimPending(event.getId(), now, now) == 1) {
                 dispatch(event);
@@ -84,7 +85,8 @@ public class GenerationOutboxDispatcher {
 
     private Message taskMessage(OutboxEvent event) throws JsonProcessingException {
         byte[] body = objectMapper.writeValueAsBytes(
-                new TaskExecuteMessage(event.getId(), event.getTaskId(), event.getTaskVersion()));
+                new TaskExecuteMessage(event.getId(), event.getAggregateId(),
+                        Math.toIntExact(event.getAggregateVersion())));
         return MessageBuilder.withBody(body)
                 .setContentType(MessageProperties.CONTENT_TYPE_JSON)
                 .setContentEncoding(StandardCharsets.UTF_8.name())
@@ -100,7 +102,8 @@ public class GenerationOutboxDispatcher {
                     now.plus(properties.deliveryRetryDelay().multipliedBy(retries)), error);
             return;
         }
-        queuedTaskFailureService.failDelivery(event.getId(), event.getTaskId(), event.getTaskVersion(), now, error);
+            queuedTaskFailureService.failDelivery(event.getId(), event.getAggregateId(),
+                    Math.toIntExact(event.getAggregateVersion()), now, error);
     }
 
 
