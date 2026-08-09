@@ -4,5 +4,6 @@ package com.superz.aivista.auth.dto;
 public record TokenResponse(
         String accessToken,
         String tokenType,
-        long expiresIn) {
+        long expiresIn,
+        boolean userAgreementConfirmed) {
 }

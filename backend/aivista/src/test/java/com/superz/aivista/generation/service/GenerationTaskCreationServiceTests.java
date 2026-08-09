@@ -16,7 +16,6 @@ import com.superz.aivista.common.idempotency.IdempotencyRecordMapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.superz.aivista.generation.config.GenerationTaskProperties;
 import com.superz.aivista.generation.dto.CreateGenerationTaskRequest;
-import com.superz.aivista.generation.dto.GenerationConsentResponse;
 import com.superz.aivista.generation.entity.GenerationMessage;
 import com.superz.aivista.generation.entity.GenerationSession;
 import com.superz.aivista.generation.entity.GenerationTask;
@@ -48,7 +47,6 @@ class GenerationTaskCreationServiceTests {
     private final UserGenerationDailyUsageMapper dailyUsageMapper = mock(UserGenerationDailyUsageMapper.class);
     private final OutboxEventMapper outboxEventMapper = mock(OutboxEventMapper.class);
     private final IdempotencyRecordMapper idempotencyRecordMapper = mock(IdempotencyRecordMapper.class);
-    private final GenerationConsentService consentService = mock(GenerationConsentService.class);
     private GenerationTaskCreationService service;
 
     @BeforeEach
@@ -57,10 +55,8 @@ class GenerationTaskCreationServiceTests {
                 "bailian/qwen-image-2.0", 4, 12, 1000, 500, 1, 6,
                 Map.of("1:1", "2048*2048"));
         service = new GenerationTaskCreationService(userMapper, sessionMapper, messageMapper, taskMapper,
-                dailyUsageMapper, outboxEventMapper, idempotencyRecordMapper, consentService, properties,
+                dailyUsageMapper, outboxEventMapper, idempotencyRecordMapper, properties,
                 Clock.fixed(NOW, ZoneOffset.UTC), new ObjectMapper());
-        when(consentService.getCurrentConsent(USER_ID))
-                .thenReturn(new GenerationConsentResponse("v1", "policy", true, NOW));
         when(userMapper.selectIdForUpdate(USER_ID)).thenReturn(USER_ID);
         when(taskMapper.countActiveByUserId(USER_ID)).thenReturn(0);
         when(dailyUsageMapper.selectByUserIdAndUsageDateForUpdate(anyLong(), any())).thenReturn(null);
@@ -161,16 +157,4 @@ class GenerationTaskCreationServiceTests {
         return record;
     }
 
-    @Test
-    void rejectsCreationBeforeAnyWriteWhenConsentIsMissing() {
-        when(consentService.getCurrentConsent(USER_ID))
-                .thenReturn(new GenerationConsentResponse("v1", "policy", false, null));
-
-        assertThatThrownBy(() -> service.create(USER_ID, IDEMPOTENCY_KEY,
-                new CreateGenerationTaskRequest(null, "future city", null, "1:1", null, 2)))
-                .isInstanceOfSatisfying(BusinessException.class,
-                        exception -> assertThat(exception.getErrorCode())
-                                .isEqualTo(ErrorCode.GENERATION_CONSENT_REQUIRED));
-        verify(userMapper, never()).selectIdForUpdate(anyLong());
-    }
 }

@@ -4,6 +4,7 @@ import com.superz.aivista.common.exception.BusinessException;
 import com.superz.aivista.common.exception.ErrorCode;
 import com.superz.aivista.generation.config.GenerationConsentProperties;
 import com.superz.aivista.generation.dto.GenerationConsentResponse;
+import com.superz.aivista.generation.dto.UserAgreementPolicyResponse;
 import com.superz.aivista.generation.entity.UserConsent;
 import com.superz.aivista.generation.mapper.UserConsentMapper;
 import com.superz.aivista.generation.model.ConsentType;
@@ -43,11 +44,19 @@ public class GenerationConsentService {
                 consented ? consent.getConsentedAt() : null);
     }
 
-    @Transactional
-    public GenerationConsentResponse confirmCurrentConsent(long userId, String policyVersion) {
+    public UserAgreementPolicyResponse getCurrentPolicy() {
+        return new UserAgreementPolicyResponse(properties.policyVersion(), properties.policyContent());
+    }
+
+    public void requireCurrentPolicyVersion(String policyVersion) {
         if (!properties.policyVersion().equals(policyVersion)) {
             throw new BusinessException(ErrorCode.GENERATION_CONSENT_VERSION_OUTDATED);
         }
+    }
+
+    @Transactional
+    public GenerationConsentResponse confirmCurrentConsent(long userId, String policyVersion) {
+        requireCurrentPolicyVersion(policyVersion);
 
         Instant consentedAt = clock.instant();
         userConsentMapper.upsert(

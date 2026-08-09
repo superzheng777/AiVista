@@ -1,6 +1,7 @@
 package com.superz.aivista.auth.security;
 
 import com.superz.aivista.auth.token.JwtService;
+import com.superz.aivista.generation.service.GenerationConsentService;
 import jakarta.servlet.DispatcherType;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -21,9 +22,13 @@ public class SecurityConfig {
             HttpSecurity http,
             JwtService jwtService,
             RestAuthenticationFailureHandler authenticationFailureHandler,
-            RestAccessDeniedHandler accessDeniedHandler) throws Exception {
+            RestAccessDeniedHandler accessDeniedHandler,
+            GenerationConsentService consentService,
+            tools.jackson.databind.json.JsonMapper jsonMapper) throws Exception {
         AccessTokenAuthenticationFilter accessTokenFilter =
                 new AccessTokenAuthenticationFilter(jwtService, authenticationFailureHandler);
+        UserAgreementAccessFilter userAgreementAccessFilter =
+                new UserAgreementAccessFilter(consentService, jsonMapper);
 
         return http
                 .csrf(AbstractHttpConfigurer::disable)
@@ -40,6 +45,8 @@ public class SecurityConfig {
                         .permitAll()
                         .requestMatchers(
                                 "/health",
+                                "/inspirations",
+                                "/policies/user-agreement",
                                 "/auth/register",
                                 "/auth/login",
                                 "/auth/refresh",
@@ -53,6 +60,7 @@ public class SecurityConfig {
                         .permitAll()
                         .anyRequest().authenticated())
                 .addFilterBefore(accessTokenFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterAfter(userAgreementAccessFilter, AccessTokenAuthenticationFilter.class)
                 .build();
     }
 }

@@ -62,7 +62,8 @@ public class AuthController {
                                     {
                                       "loginName": "alice_2026",
                                       "password": "Aivista2026",
-                                      "nickname": "Alice"
+                                      "nickname": "Alice",
+                                      "agreementPolicyVersion": "v1"
                                     }
                                     """)))
             @Valid @RequestBody RegisterRequest request) {

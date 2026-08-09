@@ -7,6 +7,7 @@ import com.superz.aivista.auth.security.RestAccessDeniedHandler;
 import com.superz.aivista.auth.security.RestAuthenticationFailureHandler;
 import com.superz.aivista.auth.security.SecurityConfig;
 import com.superz.aivista.auth.token.JwtService;
+import com.superz.aivista.generation.service.GenerationConsentService;
 import jakarta.servlet.DispatcherType;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -70,12 +71,22 @@ class SecurityConfigTests {
 
         @Bean
         RestAuthenticationFailureHandler authenticationFailureHandler() {
-            return new RestAuthenticationFailureHandler(JsonMapper.builder().build());
+            return new RestAuthenticationFailureHandler(jsonMapper());
         }
 
         @Bean
         RestAccessDeniedHandler accessDeniedHandler() {
-            return new RestAccessDeniedHandler(JsonMapper.builder().build());
+            return new RestAccessDeniedHandler(jsonMapper());
+        }
+
+        @Bean
+        JsonMapper jsonMapper() {
+            return JsonMapper.builder().build();
+        }
+
+        @Bean
+        GenerationConsentService consentService() {
+            return mock(GenerationConsentService.class);
         }
     }
 }

@@ -4,5 +4,6 @@ package com.superz.aivista.generation.model;
 public enum OutboxEventType {
     GENERATION_TASK_EXECUTE,
     GENERATION_TASK_STATUS_CHANGED,
-    PUBLICATION_TEXT_REVIEW
+    PUBLICATION_TEXT_REVIEW,
+    PUBLICATION_STATUS_CHANGED
 }

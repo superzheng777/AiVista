@@ -21,6 +21,7 @@ import com.superz.aivista.auth.token.JwtService;
 import com.superz.aivista.auth.token.RefreshTokenService;
 import com.superz.aivista.common.exception.BusinessException;
 import com.superz.aivista.common.exception.ErrorCode;
+import com.superz.aivista.generation.service.GenerationConsentService;
 import com.superz.aivista.user.entity.User;
 import com.superz.aivista.user.mapper.UserMapper;
 import java.time.Clock;
@@ -39,6 +40,7 @@ class AuthServiceTests {
     private final PasswordEncoder passwordEncoder = mock(PasswordEncoder.class);
     private final JwtService jwtService = mock(JwtService.class);
     private final RefreshTokenService refreshTokenService = mock(RefreshTokenService.class);
+    private final GenerationConsentService consentService = mock(GenerationConsentService.class);
     private final AuthService authService = new AuthService(
             userMapper,
             authSessionMapper,
@@ -46,6 +48,7 @@ class AuthServiceTests {
             jwtService,
             refreshTokenService,
             TestAuthProperties.create(),
+            consentService,
             CLOCK);
 
     @Test
@@ -54,14 +57,14 @@ class AuthServiceTests {
                 .when(userMapper).insertSelective(any(User.class));
 
         assertBusinessError(
-                () -> authService.register(new RegisterRequest("  Alice_2026  ", "Aivista2026", "Alice")),
+                () -> authService.register(new RegisterRequest("  Alice_2026  ", "Aivista2026", "Alice", "v1")),
                 ErrorCode.LOGIN_NAME_EXISTS);
     }
 
     @Test
     void registerRejectsInvalidPasswordBeforeWritingUser() {
         assertBusinessError(
-                () -> authService.register(new RegisterRequest("alice_2026", "password", "Alice")),
+                () -> authService.register(new RegisterRequest("alice_2026", "password", "Alice", "v1")),
                 ErrorCode.VALIDATION_ERROR);
 
         verify(userMapper, never()).insertSelective(any(User.class));
@@ -79,12 +82,13 @@ class AuthServiceTests {
         }).when(userMapper).insertSelective(any(User.class));
         when(userMapper.selectOneById(7L)).thenAnswer(invocation -> inserted.get());
 
-        var response = authService.register(new RegisterRequest("  Alice_2026  ", "Aivista2026", "  Alice  "));
+        var response = authService.register(new RegisterRequest("  Alice_2026  ", "Aivista2026", "  Alice  ", "v1"));
 
         assertThat(response.id()).isEqualTo("7");
         assertThat(response.loginName()).isEqualTo("Alice_2026");
         assertThat(response.nickname()).isEqualTo("Alice");
         assertThat(inserted.get().getPasswordHash()).isEqualTo("encoded-password");
+        verify(consentService).confirmCurrentConsent(7L, "v1");
     }
 
     @Test

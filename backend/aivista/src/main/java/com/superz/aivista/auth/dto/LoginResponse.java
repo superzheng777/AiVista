@@ -7,5 +7,6 @@ public record LoginResponse(
         String accessToken,
         String tokenType,
         long expiresIn,
-        UserProfileResponse user) {
+        UserProfileResponse user,
+        boolean userAgreementConfirmed) {
 }

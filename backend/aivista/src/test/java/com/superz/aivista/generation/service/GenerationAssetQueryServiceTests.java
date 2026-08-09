@@ -85,6 +85,31 @@ class GenerationAssetQueryServiceTests {
                         exception -> assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.VALIDATION_ERROR));
     }
 
+    @Test
+    void returnsOneVisibleAssetWithANewSignedUrl() throws Exception {
+        GenerationImageMapper imageMapper = mock(GenerationImageMapper.class);
+        OSS ossClient = mock(OSS.class);
+        when(imageMapper.selectVisibleByUserIdAndId(7L, 41L)).thenReturn(row(41L, NOW));
+        when(ossClient.generatePresignedUrl(anyString(), anyString(), any()))
+                .thenReturn(new URL("https://oss.example/signed-detail"));
+
+        var response = service(imageMapper, ossClient).get(7L, 41L);
+
+        assertThat(response.imageId()).isEqualTo("41");
+        assertThat(response.url()).isEqualTo("https://oss.example/signed-detail");
+        assertThat(response.urlExpiresAt()).isEqualTo(NOW.plusSeconds(600));
+    }
+
+    @Test
+    void hidesDeletedOrOtherUsersAssetAsNotFound() {
+        GenerationImageMapper imageMapper = mock(GenerationImageMapper.class);
+
+        assertThatThrownBy(() -> service(imageMapper, mock(OSS.class)).get(7L, 41L))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getErrorCode())
+                                .isEqualTo(ErrorCode.GENERATION_RESOURCE_NOT_FOUND));
+    }
+
     private static GenerationAssetQueryService service(GenerationImageMapper imageMapper, OSS ossClient) {
         return new GenerationAssetQueryService(imageMapper, ossClient,
                 new GenerationOssProperties("oss.example", "private-bucket", "key-id", "key-secret", "users",

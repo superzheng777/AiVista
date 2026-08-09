@@ -6,6 +6,7 @@ import com.superz.aivista.common.response.ApiResponse;
 import com.superz.aivista.common.response.ResponseUtils;
 import com.superz.aivista.generation.dto.DeleteGenerationImagesRequest;
 import com.superz.aivista.generation.dto.GenerationAssetPageResponse;
+import com.superz.aivista.generation.dto.GenerationAssetImageResponse;
 import com.superz.aivista.generation.service.GenerationAssetDeletionService;
 import com.superz.aivista.generation.service.GenerationAssetQueryService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -17,6 +18,7 @@ import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -47,6 +49,16 @@ public class GenerationAssetController {
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore().cachePrivate())
                 .body(ResponseUtils.success(response));
+    }
+
+    @Operation(summary = "获取单张个人生成资产", description = "仅返回当前用户未删除图片的完整资产项及新签发的短期 URL。")
+    @GetMapping("/{imageId}")
+    public ResponseEntity<ApiResponse<GenerationAssetImageResponse>> get(
+            Authentication authentication,
+            @PathVariable long imageId) {
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore().cachePrivate())
+                .body(ResponseUtils.success(queryService.get(currentUserId(authentication), imageId)));
     }
 
     @Operation(summary = "删除个人生成资产", description = "批量标记当前用户手动勾选的图片，已删除、他人或不存在图片按幂等成功处理。")

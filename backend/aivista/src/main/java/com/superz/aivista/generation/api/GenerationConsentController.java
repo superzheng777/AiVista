@@ -6,6 +6,7 @@ import com.superz.aivista.common.response.ApiResponse;
 import com.superz.aivista.common.response.ResponseUtils;
 import com.superz.aivista.generation.dto.ConfirmGenerationConsentRequest;
 import com.superz.aivista.generation.dto.GenerationConsentResponse;
+import com.superz.aivista.generation.dto.UserAgreementPolicyResponse;
 import com.superz.aivista.generation.service.GenerationConsentService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -19,10 +20,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /** 文生图第三方数据处理规则确认接口。 */
-@Tag(name = "文生图规则确认")
-@SecurityRequirement(name = "bearerAuth")
+@Tag(name = "用户协议")
 @RestController
-@RequestMapping("/users/me/consents/generation")
 public class GenerationConsentController {
     private final GenerationConsentService generationConsentService;
 
@@ -30,14 +29,15 @@ public class GenerationConsentController {
         this.generationConsentService = generationConsentService;
     }
 
-    @Operation(summary = "查询文生图第三方数据处理规则", description = "返回当前规则全文、版本及当前用户的确认状态。")
-    @GetMapping
-    public ApiResponse<GenerationConsentResponse> getCurrentConsent(Authentication authentication) {
-        return ResponseUtils.success(generationConsentService.getCurrentConsent(currentUserId(authentication)));
+    @Operation(summary = "查询当前用户协议", description = "注册与登录后强制确认弹窗使用的公开协议全文及版本。")
+    @GetMapping("/policies/user-agreement")
+    public ApiResponse<UserAgreementPolicyResponse> getCurrentPolicy() {
+        return ResponseUtils.success(generationConsentService.getCurrentPolicy());
     }
 
-    @Operation(summary = "确认文生图第三方数据处理规则", description = "仅接受当前有效规则版本；版本更新后需重新确认。")
-    @PostMapping
+    @Operation(summary = "确认当前用户协议", description = "仅接受当前有效规则版本；版本更新后需重新确认。")
+    @SecurityRequirement(name = "bearerAuth")
+    @PostMapping("/users/me/consents/user-agreement")
     public ApiResponse<GenerationConsentResponse> confirmCurrentConsent(
             Authentication authentication,
             @Valid @RequestBody ConfirmGenerationConsentRequest request) {

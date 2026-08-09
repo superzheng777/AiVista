@@ -1,5 +1,4 @@
 ALTER TABLE `generation_images`
-    ADD COLUMN `favorited` BOOLEAN NOT NULL DEFAULT FALSE,
     ADD COLUMN `public_at` DATETIME(3) DEFAULT NULL,
     ADD COLUMN `publication_review_status` VARCHAR(16) NOT NULL DEFAULT 'NONE',
     ADD COLUMN `publication_version` BIGINT UNSIGNED NOT NULL DEFAULT 0,
@@ -7,7 +6,6 @@ ALTER TABLE `generation_images`
     ADD COLUMN `publication_review_started_at` DATETIME(3) DEFAULT NULL,
     ADD COLUMN `publication_title` VARCHAR(100) DEFAULT NULL,
     ADD COLUMN `publication_description` VARCHAR(500) DEFAULT NULL,
-    ADD KEY `idx_generation_images_user_favorited_visible_created` (`user_id`, `favorited`, `deleted_at`, `created_at` DESC, `id` DESC),
     ADD KEY `idx_generation_images_public_list` (`public_at` DESC, `id` DESC),
     ADD KEY `idx_generation_images_review_recovery` (`publication_review_status`, `publication_review_started_at`);
 
@@ -19,6 +17,7 @@ CREATE TABLE `user_notifications` (
     `image_id` BIGINT UNSIGNED DEFAULT NULL,
     `title` VARCHAR(200) NOT NULL,
     `content` VARCHAR(500) NOT NULL,
+    `metadata_json` JSON DEFAULT NULL,
     `read_at` DATETIME(3) DEFAULT NULL,
     `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `deleted_at` DATETIME(3) DEFAULT NULL,

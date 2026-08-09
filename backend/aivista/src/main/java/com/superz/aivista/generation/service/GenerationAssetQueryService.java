@@ -54,6 +54,16 @@ public class GenerationAssetQueryService {
         return new GenerationAssetPageResponse(items, nextCursor);
     }
 
+    @Transactional(readOnly = true)
+    public GenerationAssetImageResponse get(long userId, long imageId) {
+        GenerationAssetImageRow row = imageMapper.selectVisibleByUserIdAndId(userId, imageId);
+        if (row == null) {
+            throw new BusinessException(ErrorCode.GENERATION_RESOURCE_NOT_FOUND);
+        }
+        Instant urlExpiresAt = clock.instant().plus(ossProperties.signedUrlTtl());
+        return response(row, urlExpiresAt);
+    }
+
     private static int normalizeLimit(Integer requestedLimit) {
         int limit = requestedLimit == null ? DEFAULT_LIMIT : requestedLimit;
         if (limit < 1 || limit > MAX_LIMIT) {

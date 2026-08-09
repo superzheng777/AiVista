@@ -12,6 +12,7 @@ import com.superz.aivista.auth.token.JwtService;
 import com.superz.aivista.auth.token.RefreshTokenService;
 import com.superz.aivista.common.exception.BusinessException;
 import com.superz.aivista.common.exception.ErrorCode;
+import com.superz.aivista.generation.service.GenerationConsentService;
 import com.superz.aivista.user.dto.UserProfileResponse;
 import com.superz.aivista.user.entity.User;
 import com.superz.aivista.user.mapper.UserMapper;
@@ -36,6 +37,7 @@ public class AuthService {
     private final JwtService jwtService;
     private final RefreshTokenService refreshTokenService;
     private final AuthProperties properties;
+    private final GenerationConsentService consentService;
     private final Clock clock;
 
     public AuthService(
@@ -45,6 +47,7 @@ public class AuthService {
             JwtService jwtService,
             RefreshTokenService refreshTokenService,
             AuthProperties properties,
+            GenerationConsentService consentService,
             Clock clock) {
         this.userMapper = userMapper;
         this.authSessionMapper = authSessionMapper;
@@ -52,6 +55,7 @@ public class AuthService {
         this.jwtService = jwtService;
         this.refreshTokenService = refreshTokenService;
         this.properties = properties;
+        this.consentService = consentService;
         this.clock = clock;
     }
 
@@ -61,6 +65,7 @@ public class AuthService {
         String nickname = UserInputRules.normalizeNickname(request.nickname());
         UserInputRules.requireValidLoginName(loginName);
         UserInputRules.requireValidPassword(request.password());
+        consentService.requireCurrentPolicyVersion(request.agreementPolicyVersion());
 
         User user = new User();
         user.setLoginName(loginName);
@@ -72,6 +77,8 @@ public class AuthService {
         } catch (DuplicateKeyException exception) {
             throw new BusinessException(ErrorCode.LOGIN_NAME_EXISTS);
         }
+
+        consentService.confirmCurrentConsent(user.getId(), request.agreementPolicyVersion());
 
         return UserProfileResponse.from(userMapper.selectOneById(user.getId()));
     }
@@ -97,7 +104,8 @@ public class AuthService {
                 jwtService.issueAccessToken(user.getId()),
                 TOKEN_TYPE,
                 properties.accessTokenTtl().toSeconds(),
-                UserProfileResponse.from(user));
+                UserProfileResponse.from(user),
+                consentService.getCurrentConsent(user.getId()).consented());
         return new AuthResult<>(response, refreshToken.value(), properties.refreshTokenTtl());
     }
 
@@ -128,7 +136,8 @@ public class AuthService {
         TokenResponse response = new TokenResponse(
                 jwtService.issueAccessToken(user.getId()),
                 TOKEN_TYPE,
-                properties.accessTokenTtl().toSeconds());
+                properties.accessTokenTtl().toSeconds(),
+                consentService.getCurrentConsent(user.getId()).consented());
         return new AuthResult<>(response, newRefreshToken.value(), Duration.between(now, session.getExpiresAt()));
     }
 

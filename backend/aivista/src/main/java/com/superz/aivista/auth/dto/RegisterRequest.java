@@ -6,5 +6,6 @@ import jakarta.validation.constraints.NotNull;
 public record RegisterRequest(
         @NotNull String loginName,
         @NotNull String password,
-        @NotNull String nickname) {
+        @NotNull String nickname,
+        @NotNull String agreementPolicyVersion) {
 }

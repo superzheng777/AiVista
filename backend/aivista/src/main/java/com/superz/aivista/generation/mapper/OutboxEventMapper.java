@@ -23,6 +23,19 @@ public interface OutboxEventMapper extends BaseMapper<OutboxEvent> {
     List<OutboxEvent> selectAvailableByEventType(@Param("eventType") String eventType,
             @Param("now") Instant now, @Param("limit") int limit);
 
+    @Select("""
+            SELECT id, event_type, aggregate_type, aggregate_id, aggregate_version, payload_json,
+                   status, retry_count, available_at, locked_at, published_at, last_error, created_at, updated_at
+            FROM outbox_events
+            WHERE event_type = #{eventType}
+              AND status = 'PROCESSING'
+              AND locked_at < #{lockedBefore}
+            ORDER BY locked_at
+            LIMIT #{limit}
+            """)
+    List<OutboxEvent> selectProcessingLockedBefore(@Param("eventType") String eventType,
+            @Param("lockedBefore") Instant lockedBefore, @Param("limit") int limit);
+
     @Update("""
             UPDATE outbox_events
             SET status = 'PROCESSING', locked_at = #{lockedAt}

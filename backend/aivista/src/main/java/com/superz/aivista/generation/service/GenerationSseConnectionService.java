@@ -4,6 +4,7 @@ import com.superz.aivista.common.exception.BusinessException;
 import com.superz.aivista.common.exception.ErrorCode;
 import com.superz.aivista.generation.config.GenerationSseProperties;
 import com.superz.aivista.generation.event.GenerationTaskStatusEvent;
+import com.superz.aivista.publication.event.PublicationStatusEvent;
 import java.io.IOException;
 import java.time.Clock;
 import java.time.Duration;
@@ -46,11 +47,19 @@ public class GenerationSseConnectionService {
 
     /** 向当前实例中该用户的全部在线页面发送同一状态通知。 */
     public void publish(long userId, long eventId, GenerationTaskStatusEvent event) {
+        publish(userId, eventId, "generation.task.updated", event);
+    }
+
+    public void publish(long userId, long eventId, PublicationStatusEvent event) {
+        publish(userId, eventId, "publication.updated", event);
+    }
+
+    private void publish(long userId, long eventId, String eventName, Object event) {
         for (Map.Entry<String, SseEmitter> connection : snapshot(userId)) {
             try {
                 connection.getValue().send(SseEmitter.event()
                         .id(String.valueOf(eventId))
-                        .name("generation.task.updated")
+                        .name(eventName)
                         .data(event, MediaType.APPLICATION_JSON));
             } catch (IOException | IllegalStateException exception) {
                 remove(userId, connection.getKey(), connection.getValue());

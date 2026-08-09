@@ -9,7 +9,6 @@ import com.superz.aivista.common.exception.ErrorCode;
 import com.superz.aivista.generation.config.GenerationTaskProperties;
 import com.superz.aivista.generation.dto.CreateGenerationTaskRequest;
 import com.superz.aivista.generation.dto.CreateGenerationTaskResponse;
-import com.superz.aivista.generation.dto.GenerationConsentResponse;
 import com.superz.aivista.generation.entity.GenerationMessage;
 import com.superz.aivista.generation.entity.GenerationSession;
 import com.superz.aivista.generation.entity.GenerationTask;
@@ -50,7 +49,6 @@ public class GenerationTaskCreationService {
     private final UserGenerationDailyUsageMapper dailyUsageMapper;
     private final OutboxEventMapper outboxEventMapper;
     private final IdempotencyRecordMapper idempotencyRecordMapper;
-    private final GenerationConsentService consentService;
     private final GenerationTaskProperties properties;
     private final Clock clock;
     private final ObjectMapper objectMapper;
@@ -63,7 +61,6 @@ public class GenerationTaskCreationService {
             UserGenerationDailyUsageMapper dailyUsageMapper,
             OutboxEventMapper outboxEventMapper,
             IdempotencyRecordMapper idempotencyRecordMapper,
-            GenerationConsentService consentService,
             GenerationTaskProperties properties,
             Clock clock, ObjectMapper objectMapper) {
         this.userMapper = userMapper;
@@ -73,7 +70,6 @@ public class GenerationTaskCreationService {
         this.dailyUsageMapper = dailyUsageMapper;
         this.outboxEventMapper = outboxEventMapper;
         this.idempotencyRecordMapper = idempotencyRecordMapper;
-        this.consentService = consentService;
         this.properties = properties;
         this.clock = clock;
         this.objectMapper = objectMapper;
@@ -83,11 +79,6 @@ public class GenerationTaskCreationService {
     public CreateGenerationTaskResponse create(long userId, String idempotencyKey,
             CreateGenerationTaskRequest request) {
         CreationCommand command = validateAndNormalize(userId, idempotencyKey, request);
-        GenerationConsentResponse consent = consentService.getCurrentConsent(userId);
-        if (!consent.consented()) {
-            throw new BusinessException(ErrorCode.GENERATION_CONSENT_REQUIRED);
-        }
-
         // 所有创建请求先锁用户行：串行化跨会话的并发数与每日额度判断。
         if (userMapper.selectIdForUpdate(userId) == null) {
             throw new BusinessException(ErrorCode.UNAUTHORIZED);
