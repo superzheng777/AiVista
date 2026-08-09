@@ -3,11 +3,14 @@ package com.superz.aivista.generation.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.superz.aivista.generation.config.GenerationBailianProperties;
 import com.superz.aivista.generation.entity.GenerationTask;
+import java.net.SocketException;
+import java.net.SocketTimeoutException;
 import java.util.List;
 import java.util.Map;
 import java.net.ConnectException;
 import java.net.UnknownHostException;
 import javax.net.ssl.SSLHandshakeException;
+import javax.net.ssl.SSLException;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
@@ -39,7 +42,7 @@ public class GenerationBailianClient {
                         "negative_prompt", task.getFinalNegativePrompt() == null ? "" : task.getFinalNegativePrompt(),
                         "size", task.getWidth() + "*" + task.getHeight(),
                         "n", task.getRequestedImageCount(),
-                        "prompt_extend", task.getPromptExtend(),
+                        "prompt_extend", Boolean.TRUE.equals(task.getPromptExtend()),
                         "watermark", false));
         try {
             BailianGenerationResponse response = restClient.post()
@@ -58,7 +61,7 @@ public class GenerationBailianClient {
         } catch (RestClientResponseException exception) {
             throw providerException(exception.getStatusCode().value(), exception.getResponseBodyAsString());
         } catch (ResourceAccessException exception) {
-            if (isConnectionNotEstablished(exception)) {
+            if (isConnectionFailure(exception)) {
                 throw new BailianConnectionException(exception);
             }
             throw exception;
@@ -116,10 +119,11 @@ public class GenerationBailianClient {
         }
     }
 
-    private static boolean isConnectionNotEstablished(Throwable exception) {
+    private static boolean isConnectionFailure(Throwable exception) {
         for (Throwable current = exception; current != null; current = current.getCause()) {
             if (current instanceof UnknownHostException || current instanceof ConnectException
-                    || current instanceof SSLHandshakeException) {
+                    || current instanceof SocketException || current instanceof SocketTimeoutException
+                    || current instanceof SSLHandshakeException || current instanceof SSLException) {
                 return true;
             }
         }

@@ -3,5 +3,6 @@ package com.superz.aivista.generation.model;
 /** 图像生成模块可靠事件的用途。 */
 public enum OutboxEventType {
     GENERATION_TASK_EXECUTE,
-    GENERATION_TASK_STATUS_CHANGED
+    GENERATION_TASK_STATUS_CHANGED,
+    PUBLICATION_TEXT_REVIEW
 }

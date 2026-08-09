@@ -125,7 +125,7 @@ public class GenerationTaskCreationService {
 
         GenerationMessage message = new GenerationMessage();
         message.setSessionId(session.getId());
-        message.setSequenceNo(command.sessionId() == null ? 1 : messageMapper.selectNextSequenceNo(session.getId()));
+        message.setSequenceNo(nextMessageSequenceNo(command.sessionId(), session.getId()));
         message.setPrompt(command.prompt());
         message.setNegativePrompt(command.negativePrompt());
         message.setCreatedAt(now);
@@ -252,8 +252,17 @@ public class GenerationTaskCreationService {
             throw new BusinessException(ErrorCode.IDEMPOTENCY_KEY_CONFLICT);
         }
         try {
-            return objectMapper.readValue(record.getResponseBody(), CreateGenerationTaskResponse.class);
+            var response = objectMapper.readTree(record.getResponseBody());
+            return new CreateGenerationTaskResponse(
+                    response.required("taskId").asText(),
+                    response.required("sessionId").asText(),
+                    response.required("status").asText(),
+                    response.required("taskVersion").asInt(),
+                    response.required("requestedImageCount").asInt(),
+                    Instant.parse(response.required("createdAt").asText()));
         } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("Invalid persisted idempotency response", exception);
+        } catch (RuntimeException exception) {
             throw new IllegalStateException("Invalid persisted idempotency response", exception);
         }
     }
@@ -269,7 +278,13 @@ public class GenerationTaskCreationService {
             record.setResourceType("GENERATION_TASK");
             record.setResourceId(taskId);
             record.setResponseStatus(202);
-            record.setResponseBody(objectMapper.writeValueAsString(response));
+            record.setResponseBody(objectMapper.writeValueAsString(Map.of(
+                    "taskId", response.taskId(),
+                    "sessionId", response.sessionId(),
+                    "status", response.status(),
+                    "taskVersion", response.taskVersion(),
+                    "requestedImageCount", response.requestedImageCount(),
+                    "createdAt", response.createdAt().toString())));
             record.setCreatedAt(now);
             record.setExpiresAt(now.plus(Duration.ofMinutes(30)));
             idempotencyRecordMapper.insertSelective(record);
@@ -299,6 +314,14 @@ public class GenerationTaskCreationService {
         } catch (NumberFormatException exception) {
             throw new IllegalStateException("Invalid configured generation size: " + size, exception);
         }
+    }
+
+    private int nextMessageSequenceNo(Long sessionId, long persistedSessionId) {
+        if (sessionId == null) {
+            return 1;
+        }
+        Integer lastSequenceNo = messageMapper.selectLastSequenceNoForUpdate(persistedSessionId);
+        return lastSequenceNo == null ? 1 : lastSequenceNo + 1;
     }
 
     private static boolean isCanonicalUuid(String value) {

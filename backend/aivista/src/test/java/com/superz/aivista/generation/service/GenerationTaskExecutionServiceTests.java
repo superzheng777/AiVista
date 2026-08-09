@@ -22,6 +22,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.net.ConnectException;
+import java.net.SocketException;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -174,6 +175,11 @@ class GenerationTaskExecutionServiceTests {
     }
 
     @Test
+    void requeuesWhenProviderConnectionIsReset() throws Exception {
+        assertRetryableFailure(new BailianConnectionException(new SocketException("Connection reset")));
+    }
+
+    @Test
     void publishesFailedStateWhenProviderRejectsContent() throws Exception {
         GenerationTaskMapper taskMapper = mock(GenerationTaskMapper.class);
         OutboxEventMapper outboxEventMapper = mock(OutboxEventMapper.class);
@@ -257,6 +263,7 @@ class GenerationTaskExecutionServiceTests {
         task.setFinalPrompt("one future city");
         task.setWidth(2048);
         task.setHeight(2048);
+        task.setPromptExtend(true);
         task.setRequestedImageCount(1);
         task.setCreatedAt(NOW);
         return task;

@@ -18,7 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 /** 管理用户对当前文生图第三方数据处理规则的确认。 */
 @Service
 public class GenerationConsentService {
-    private static final ConsentType CONSENT_TYPE = ConsentType.GENERATION_THIRD_PARTY_PROCESSING;
+    private static final ConsentType CONSENT_TYPE = ConsentType.USER_AGREEMENT;
 
     private final UserConsentMapper userConsentMapper;
     private final GenerationConsentProperties properties;

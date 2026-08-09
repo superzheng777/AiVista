@@ -58,7 +58,7 @@ class GenerationTaskCreationServiceTests {
                 Map.of("1:1", "2048*2048"));
         service = new GenerationTaskCreationService(userMapper, sessionMapper, messageMapper, taskMapper,
                 dailyUsageMapper, outboxEventMapper, idempotencyRecordMapper, consentService, properties,
-                Clock.fixed(NOW, ZoneOffset.UTC), new ObjectMapper().findAndRegisterModules());
+                Clock.fixed(NOW, ZoneOffset.UTC), new ObjectMapper());
         when(consentService.getCurrentConsent(USER_ID))
                 .thenReturn(new GenerationConsentResponse("v1", "policy", true, NOW));
         when(userMapper.selectIdForUpdate(USER_ID)).thenReturn(USER_ID);
@@ -91,9 +91,11 @@ class GenerationTaskCreationServiceTests {
         ArgumentCaptor<UserGenerationDailyUsage> usage = ArgumentCaptor.forClass(UserGenerationDailyUsage.class);
         ArgumentCaptor<GenerationTask> task = ArgumentCaptor.forClass(GenerationTask.class);
         ArgumentCaptor<OutboxEvent> event = ArgumentCaptor.forClass(OutboxEvent.class);
+        ArgumentCaptor<IdempotencyRecord> idempotencyRecord = ArgumentCaptor.forClass(IdempotencyRecord.class);
         verify(dailyUsageMapper).insertSelective(usage.capture());
         verify(taskMapper).insertSelective(task.capture());
         verify(outboxEventMapper, org.mockito.Mockito.times(2)).insertSelective(event.capture());
+        verify(idempotencyRecordMapper).insertSelective(idempotencyRecord.capture());
         assertThat(usage.getValue().getRequestedImageCount()).isEqualTo(2);
         assertThat(task.getValue().getFinalPrompt()).isEqualTo("future city");
         assertThat(task.getValue().getFinalNegativePrompt()).isNull();
@@ -104,6 +106,24 @@ class GenerationTaskCreationServiceTests {
                 .containsExactly("GENERATION_TASK_EXECUTE", "GENERATION_TASK_STATUS_CHANGED");
         assertThat(event.getAllValues().get(1).getPayloadJson())
                 .isEqualTo("{\"status\":\"QUEUED\",\"modelRetryCount\":0}");
+        assertThat(idempotencyRecord.getValue().getResponseBody())
+                .contains("\"createdAt\":\"2026-07-28T01:02:03Z\"");
+    }
+
+    @Test
+    void allocatesExistingSessionMessageSequenceWhileHoldingLastMessageLock() {
+        GenerationSession existingSession = new GenerationSession();
+        existingSession.setId(101L);
+        when(sessionMapper.selectOwnedByIdForUpdate(101L, USER_ID)).thenReturn(existingSession);
+        when(messageMapper.selectLastSequenceNoForUpdate(101L)).thenReturn(2);
+
+        service.create(USER_ID, IDEMPOTENCY_KEY,
+                new CreateGenerationTaskRequest("101", "future city", null, "1:1", true, 1));
+
+        ArgumentCaptor<GenerationMessage> message = ArgumentCaptor.forClass(GenerationMessage.class);
+        verify(messageMapper).insertSelective(message.capture());
+        verify(messageMapper).selectLastSequenceNoForUpdate(101L);
+        assertThat(message.getValue().getSequenceNo()).isEqualTo(3);
     }
 
     @Test

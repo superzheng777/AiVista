@@ -43,7 +43,7 @@ class GenerationConsentServiceTests {
         assertThat(response.consented()).isTrue();
         assertThat(response.consentedAt()).isEqualTo(NOW);
         verify(mapper).upsert(org.mockito.ArgumentMatchers.eq(7L),
-                org.mockito.ArgumentMatchers.eq("GENERATION_THIRD_PARTY_PROCESSING"),
+                org.mockito.ArgumentMatchers.eq("USER_AGREEMENT"),
                 org.mockito.ArgumentMatchers.eq("2026-07-27-v1"), any(), org.mockito.ArgumentMatchers.eq(NOW));
     }
 
@@ -61,7 +61,7 @@ class GenerationConsentServiceTests {
         consent.setPolicyVersion("2026-07-27-v1");
         consent.setPolicyContentHash("not-the-current-hash");
         consent.setConsentedAt(NOW);
-        when(mapper.selectByUserIdAndConsentType(7L, "GENERATION_THIRD_PARTY_PROCESSING")).thenReturn(consent);
+        when(mapper.selectByUserIdAndConsentType(7L, "USER_AGREEMENT")).thenReturn(consent);
 
         assertThat(service.getCurrentConsent(7L).consented()).isFalse();
     }

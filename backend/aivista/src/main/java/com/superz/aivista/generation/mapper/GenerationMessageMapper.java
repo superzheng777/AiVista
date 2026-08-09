@@ -34,9 +34,12 @@ public interface GenerationMessageMapper extends BaseMapper<GenerationMessage> {
             @Param("limit") int limit);
 
     @Select("""
-            SELECT COALESCE(MAX(sequence_no), 0) + 1
+            SELECT sequence_no
             FROM generation_messages
             WHERE session_id = #{sessionId}
+            ORDER BY sequence_no DESC
+            LIMIT 1
+            FOR UPDATE
             """)
-    int selectNextSequenceNo(@Param("sessionId") long sessionId);
+    Integer selectLastSequenceNoForUpdate(@Param("sessionId") long sessionId);
 }

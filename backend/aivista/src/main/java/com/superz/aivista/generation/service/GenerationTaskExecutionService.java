@@ -19,6 +19,8 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -27,6 +29,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 public class GenerationTaskExecutionService {
     private static final ZoneId QUOTA_ZONE = ZoneId.of("Asia/Shanghai");
+    private static final Logger log = LoggerFactory.getLogger(GenerationTaskExecutionService.class);
 
     private final GenerationTaskMapper taskMapper;
     private final GenerationImageMapper imageMapper;
@@ -101,6 +104,7 @@ public class GenerationTaskExecutionService {
                 return null;
             });
         } catch (BailianConnectionException exception) {
+            log.warn("Bailian connection failed for generation task {}", plan.task().getId(), exception);
             if (inTransaction(() -> retry(plan.task().getId(), clock.instant()))) {
                 return true;
             }
@@ -109,6 +113,7 @@ public class GenerationTaskExecutionService {
                 return null;
             });
         } catch (Exception exception) {
+            log.error("Unexpected generation execution failure for task {}", plan.task().getId(), exception);
             inTransaction(() -> {
                 fail(plan.task(), GenerationFailureCode.PROVIDER_CALL_OUTCOME_UNKNOWN, null, clock.instant());
                 return null;
