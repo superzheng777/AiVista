@@ -93,7 +93,7 @@ public class GenerationTaskCreationService {
             throw new BusinessException(ErrorCode.UNAUTHORIZED);
         }
 
-        IdempotencyRecord existing = idempotencyRecordMapper.selectByOwnerScopeAndKey(
+        IdempotencyRecord existing = idempotencyRecordMapper.selectByOwnerScopeAndKeyForUpdate(
                 userId, IDEMPOTENCY_SCOPE, command.idempotencyKey());
         if (existing != null) {
             return idempotentResponse(existing, command.requestFingerprint());

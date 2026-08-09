@@ -11,7 +11,8 @@ public interface IdempotencyRecordMapper extends BaseMapper<IdempotencyRecord> {
             FROM idempotency_records
             WHERE owner_id = #{ownerId} AND scope = #{scope} AND idempotency_key = #{idempotencyKey}
             LIMIT 1
+            FOR UPDATE
             """)
-    IdempotencyRecord selectByOwnerScopeAndKey(@Param("ownerId") long ownerId,
+    IdempotencyRecord selectByOwnerScopeAndKeyForUpdate(@Param("ownerId") long ownerId,
             @Param("scope") String scope, @Param("idempotencyKey") String idempotencyKey);
 }

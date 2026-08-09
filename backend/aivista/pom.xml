@@ -34,6 +34,7 @@
         <jjwt.version>0.13.0</jjwt.version>
         <bouncycastle.version>1.84</bouncycastle.version>
         <aliyun.oss.version>3.18.4</aliyun.oss.version>
+        <aliyun.green.version>3.3.3</aliyun.green.version>
         <!-- Spring Boot 4 对应的 Knife4j OpenAPI 3 Starter 版本。 -->
         <knife4j.version>5.0.15</knife4j.version>
     </properties>
@@ -88,6 +89,11 @@
             <groupId>com.aliyun.oss</groupId>
             <artifactId>aliyun-sdk-oss</artifactId>
             <version>${aliyun.oss.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.aliyun</groupId>
+            <artifactId>green20220302</artifactId>
+            <version>${aliyun.green.version}</version>
         </dependency>
         <!-- OSS Java SDK V1 在 Java 9+ 环境运行所需的 JAXB 依赖。 -->
         <dependency>

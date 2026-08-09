@@ -130,7 +130,7 @@ class GenerationTaskCreationServiceTests {
     void returnsExistingTaskForSameIdempotencyKeyWithoutAdditionalWrites() {
         IdempotencyRecord existing = idempotencyRecord(GenerationRequestFingerprint.sha256(
                 USER_ID, "NEW", "future city", null, "1:1", true, 2));
-        when(idempotencyRecordMapper.selectByOwnerScopeAndKey(USER_ID, "GENERATION_TASK_CREATE", IDEMPOTENCY_KEY))
+        when(idempotencyRecordMapper.selectByOwnerScopeAndKeyForUpdate(USER_ID, "GENERATION_TASK_CREATE", IDEMPOTENCY_KEY))
                 .thenReturn(existing);
 
         var response = service.create(USER_ID, IDEMPOTENCY_KEY,
@@ -144,7 +144,7 @@ class GenerationTaskCreationServiceTests {
 
     @Test
     void rejectsSameIdempotencyKeyWhenFingerprintDiffers() {
-        when(idempotencyRecordMapper.selectByOwnerScopeAndKey(USER_ID, "GENERATION_TASK_CREATE", IDEMPOTENCY_KEY))
+        when(idempotencyRecordMapper.selectByOwnerScopeAndKeyForUpdate(USER_ID, "GENERATION_TASK_CREATE", IDEMPOTENCY_KEY))
                 .thenReturn(idempotencyRecord("different"));
 
         assertThatThrownBy(() -> service.create(USER_ID, IDEMPOTENCY_KEY,
