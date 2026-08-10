@@ -1,6 +1,5 @@
 import type {
   CursorPage,
-  GenerationConsent,
   GenerationImage,
   GenerationMessage,
   GenerationSession,
@@ -15,7 +14,6 @@ type GenerationTaskDto = { taskId: string; sessionId: string; status: Generation
 type GenerationSessionDto = { sessionId: string; title: string; lastMessageAt: string; latestTask: { taskId: string; status: GenerationTaskStatus; taskVersion: number } | null };
 type UpdatedGenerationSessionDto = { sessionId: string; title: string; createdAt: string; lastMessageAt: string };
 type GenerationMessageDto = { message: { messageId: string; sequenceNo: number; prompt: string; negativePrompt: string | null; createdAt: string }; generation: GenerationTaskDto };
-type GenerationConsentDto = { policyVersion: string; policyContent: string; consented: boolean; consentedAt: string | null };
 type CreatedGenerationTaskDto = Pick<GenerationTaskDto, "taskId" | "sessionId" | "status" | "taskVersion" | "requestedImageCount" | "createdAt">;
 
 export type CreateGenerationTaskInput = { sessionId?: string; prompt: string; negativePrompt?: string; aspectRatio: string; promptExtend: boolean; imageCount: number };
@@ -23,7 +21,6 @@ export type UpdatedGenerationSession = { id: string; title: string; createdAt: s
 
 export const generationQueryKeys = {
   all: ["generation"] as const,
-  consent: () => [...generationQueryKeys.all, "consent"] as const,
   sessions: () => [...generationQueryKeys.all, "sessions"] as const,
   messages: (sessionId: string) => [...generationQueryKeys.all, "session", sessionId, "messages"] as const,
   task: (taskId: string) => [...generationQueryKeys.all, "task", taskId] as const,
@@ -35,10 +32,7 @@ function toTask(dto: GenerationTaskDto): GenerationTask {
 }
 function toSession(dto: GenerationSessionDto): GenerationSession { return { id: dto.sessionId, title: dto.title, lastMessageAt: dto.lastMessageAt, latestTask: dto.latestTask && { id: dto.latestTask.taskId, status: dto.latestTask.status, version: dto.latestTask.taskVersion } }; }
 function toUpdatedSession(dto: UpdatedGenerationSessionDto): UpdatedGenerationSession { return { id: dto.sessionId, title: dto.title, createdAt: dto.createdAt, lastMessageAt: dto.lastMessageAt }; }
-function toConsent(dto: GenerationConsentDto): GenerationConsent { return { policyVersion: dto.policyVersion, policyContent: dto.policyContent, consented: dto.consented, consentedAt: dto.consentedAt }; }
 
-export async function getGenerationConsent(): Promise<GenerationConsent> { const response = await browserApiClient.get<ApiResponse<GenerationConsentDto>>("/users/me/consents/user-agreement"); return toConsent(unwrapApiResponse(response.data)); }
-export async function confirmGenerationConsent(policyVersion: string): Promise<GenerationConsent> { const response = await browserApiClient.post<ApiResponse<GenerationConsentDto>>("/users/me/consents/user-agreement", { policyVersion }); return toConsent(unwrapApiResponse(response.data)); }
 export async function listGenerationSessions(cursor?: string): Promise<CursorPage<GenerationSession>> { const response = await browserApiClient.get<ApiResponse<{ items: GenerationSessionDto[]; nextCursor: string | null }>>("/generation-sessions", { params: { cursor, limit: 20 } }); const data = unwrapApiResponse(response.data); return { items: data.items.map(toSession), nextCursor: data.nextCursor }; }
 export async function listGenerationMessages(sessionId: string, before?: string): Promise<{ items: GenerationMessage[]; nextBefore: string | null; hasMore: boolean }> { const response = await browserApiClient.get<ApiResponse<{ items: GenerationMessageDto[]; nextBefore: string | null; hasMore: boolean }>>(`/generation-sessions/${sessionId}/messages`, { params: { before, limit: 30 } }); const data = unwrapApiResponse(response.data); return { items: data.items.map(({ message, generation }) => ({ id: message.messageId, sequenceNo: message.sequenceNo, prompt: message.prompt, negativePrompt: message.negativePrompt, createdAt: message.createdAt, generation: toTask(generation) })), nextBefore: data.nextBefore, hasMore: data.hasMore }; }
 export async function updateGenerationSessionTitle(sessionId: string, title: string): Promise<UpdatedGenerationSession> { const response = await browserApiClient.patch<ApiResponse<UpdatedGenerationSessionDto>>(`/generation-sessions/${sessionId}`, { title }); return toUpdatedSession(unwrapApiResponse(response.data)); }

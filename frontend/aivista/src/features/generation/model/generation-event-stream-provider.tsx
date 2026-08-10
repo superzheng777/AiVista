@@ -3,107 +3,43 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { createContext, type ReactNode, use, useCallback, useEffect, useRef, useState } from "react";
 
-import type { GenerationTask, GenerationTaskStatus } from "@/entities/generation/model/generation";
-import { generationQueryKeys, getGenerationTask, listActiveGenerationTasks } from "@/features/generation/api/generation-api";
+import type { GenerationTask } from "@/entities/generation/model/generation";import { generationQueryKeys, getGenerationTask, listActiveGenerationTasks } from "@/features/generation/api/generation-api";
 import { useAuthStore } from "@/features/auth/model/auth-store";
+import {
+  consumeSseStream,
+  isTerminalStatus,
+  reconnectDelayMs,
+  type GenerationSessionIndicator,
+  type GenerationStreamStatus,
+  type GenerationTaskUpdateEvent,
+} from "@/features/generation/model/generation-event-stream-parsing";
 
-export type GenerationStreamStatus = "DISCONNECTED" | "CONNECTING" | "SYNCING" | "READY" | "RECONNECTING" | "FAILED";
-
-type GenerationTaskUpdateEvent = {
-  sessionId: string;
-  taskId: string;
-  taskVersion: number;
-  status: GenerationTaskStatus;
-  retryCount: number;
-  maxRetryCount: number;
-};
+export type { GenerationSessionIndicator } from "@/features/generation/model/generation-event-stream-parsing";
 
 type GenerationEventStreamContextValue = {
   status: GenerationStreamStatus;
   reconnectAttempt: number;
-  maxReconnectAttempts: number;
   ensureReady: () => Promise<boolean>;
+  retryNow: () => Promise<boolean>;
   activeTaskCount: number;
   sessionIndicators: Record<string, GenerationSessionIndicator>;
   hasCompletedResults: boolean;
   hasAttention: boolean;
+  /** 发布相关的刷新信号：收到 publication.updated 或重连成功同步时自增。 */
+  publicationRefreshVersion: number;
   acknowledgeSession: (sessionId: string) => void;
   acknowledgeCompletedResults: () => void;
   registerSubmittedTask: (task: Pick<GenerationTask, "id" | "sessionId" | "status" | "version">) => void;
-  abandonSubmission: () => void;
 };
-
-export type GenerationSessionIndicator = "ACTIVE" | "COMPLETED" | "ATTENTION";
 
 type TrackedTask = Pick<GenerationTask, "sessionId" | "status" | "version">;
 
-const TASK_EVENT_NAME = "generation.task.updated";
-const READY_EVENT_NAME = "generation.stream.ready";
-const MAX_RECONNECT_ATTEMPTS = 3;
-const RECONNECT_DELAYS_MS = [0, 1_000, 2_000] as const;
+const READY_TIMEOUT_MS = 5_000;
+/** 提交路径等待实时连接就绪的上限，避免后端不可用时提交无限挂起。 */
+const READY_WAIT_MS = 10_000;
+const SYNC_POLL_MS = 25;
 
 const GenerationEventStreamContext = createContext<GenerationEventStreamContextValue | null>(null);
-
-function isTaskUpdateEvent(value: unknown): value is GenerationTaskUpdateEvent {
-  if (!value || typeof value !== "object") return false;
-  const event = value as Partial<GenerationTaskUpdateEvent>;
-  return typeof event.sessionId === "string"
-    && typeof event.taskId === "string"
-    && typeof event.taskVersion === "number"
-    && typeof event.status === "string"
-    && typeof event.retryCount === "number"
-    && typeof event.maxRetryCount === "number";
-}
-
-function isTerminalStatus(status: GenerationTaskStatus): boolean {
-  return status === "SUCCEEDED" || status === "PARTIALLY_SUCCEEDED"
-    || status === "FAILED" || status === "CANCELLED";
-}
-
-function parseSseBlock(block: string): { eventName: string; data: string } | null {
-  let eventName = "message";
-  const data: string[] = [];
-  for (const line of block.split("\n")) {
-    if (line.startsWith("event:")) eventName = line.slice("event:".length).trim();
-    if (line.startsWith("data:")) data.push(line.slice("data:".length).trimStart());
-  }
-  return data.length ? { eventName, data: data.join("\n") } : null;
-}
-
-async function consumeSseStream(
-  response: Response,
-  onReady: () => void,
-  onTaskUpdate: (event: GenerationTaskUpdateEvent) => void,
-): Promise<void> {
-  if (!response.body) throw new Error("The event stream has no response body.");
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let pending = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    pending = (pending + decoder.decode(value, { stream: !done })).replaceAll("\r\n", "\n");
-    let boundary = pending.indexOf("\n\n");
-    while (boundary !== -1) {
-      const parsed = parseSseBlock(pending.slice(0, boundary));
-      pending = pending.slice(boundary + 2);
-      boundary = pending.indexOf("\n\n");
-      if (!parsed) continue;
-      if (parsed.eventName === READY_EVENT_NAME) {
-        onReady();
-        continue;
-      }
-      if (parsed.eventName !== TASK_EVENT_NAME) continue;
-      try {
-        const event: unknown = JSON.parse(parsed.data);
-        if (isTaskUpdateEvent(event)) onTaskUpdate(event);
-      } catch {
-        // REST reconciliation after the next connection remains authoritative.
-      }
-    }
-    if (done) return;
-  }
-}
 
 function wait(delay: number, signal: AbortSignal): Promise<void> {
   if (!delay) return Promise.resolve();
@@ -128,23 +64,22 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
   const [trackedTasks, setTrackedTasks] = useState<Record<string, TrackedTask>>({});
   const [completedSessionIds, setCompletedSessionIds] = useState<Set<string>>(() => new Set());
   const [attentionSessionIds, setAttentionSessionIds] = useState<Set<string>>(() => new Set());
+  const [publicationRefreshVersion, setPublicationRefreshVersion] = useState(0);
   const readyRef = useRef(false);
   const everReadyRef = useRef(false);
   const lifecycleControllerRef = useRef<AbortController | null>(null);
   const streamControllerRef = useRef<AbortController | null>(null);
   const connectionSequenceRef = useRef(0);
   const batchRef = useRef<Promise<boolean> | null>(null);
+  const inFlightRef = useRef(false);
   const startBatchRef = useRef<() => Promise<boolean>>(() => Promise.resolve(false));
   const knownTaskIdsRef = useRef(new Set<string>());
   const taskVersionsRef = useRef(new Map<string, number>());
-  const maintainStreamRef = useRef(false);
-  const submissionHoldRef = useRef(false);
 
   const trackTask = useCallback((task: Pick<GenerationTask, "id" | "sessionId" | "status" | "version">) => {
     const knownVersion = taskVersionsRef.current.get(task.id);
     if (knownVersion !== undefined && task.version < knownVersion) return;
     taskVersionsRef.current.set(task.id, task.version);
-    if (!isTerminalStatus(task.status)) maintainStreamRef.current = true;
     setTrackedTasks((current) => {
       const previous = current[task.id];
       if (previous && previous.version > task.version) return current;
@@ -197,6 +132,11 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
     })();
   }, [mergeTaskSnapshot, queryClient, trackTask]);
 
+  const applyPublicationUpdate = useCallback(() => {
+    // The SSE event carries no unread count or message body; consumers refresh their own queries.
+    setPublicationRefreshVersion((current) => current + 1);
+  }, []);
+
   const reconcile = useCallback(async () => {
     const taskIdsToReview = new Set(knownTaskIdsRef.current);
     const cachedTasks = queryClient.getQueriesData<GenerationTask>({
@@ -215,6 +155,8 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
     const reviewedTasks = await Promise.all([...taskIdsToReview].map(getGenerationTask));
     for (const task of reviewedTasks) mergeTaskSnapshot(task);
     await queryClient.refetchQueries({ queryKey: generationQueryKeys.all, type: "active" });
+    // A successful sync refreshes any open publication views that listen to this version.
+    setPublicationRefreshVersion((current) => current + 1);
   }, [mergeTaskSnapshot, queryClient]);
 
   const startBatch = useCallback((): Promise<boolean> => {
@@ -225,12 +167,13 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
     if (!lifecycleController || lifecycleController.signal.aborted) return Promise.resolve(false);
 
     const batch = (async () => {
-      for (let index = 0; index < MAX_RECONNECT_ATTEMPTS; index += 1) {
-        await wait(RECONNECT_DELAYS_MS[index], lifecycleController.signal);
-        if (lifecycleController.signal.aborted || !maintainStreamRef.current
-          || useAuthStore.getState().status !== "authenticated") return false;
+      inFlightRef.current = true;
+      for (let attempt = 1; ; attempt += 1) {
+        await wait(reconnectDelayMs(attempt - 1), lifecycleController.signal);
+        if (lifecycleController.signal.aborted || useAuthStore.getState().status !== "authenticated") {
+          return false;
+        }
 
-        const attempt = index + 1;
         setReconnectAttempt(attempt);
         setStatus(everReadyRef.current ? "RECONNECTING" : "CONNECTING");
         const streamController = new AbortController();
@@ -254,30 +197,30 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
               signal: streamController.signal,
             });
           }
-          if (!response.ok) throw new Error(`Unable to open generation event stream: ${response.status}`);
+          if (!response.ok) throw new Error(`Unable to open event stream: ${response.status}`);
 
           let serverReady = false;
           let connectionAccepted = false;
-          const streamDone = consumeSseStream(response, () => { serverReady = true; }, applyTaskUpdate)
+          const streamDone = consumeSseStream(response, () => { serverReady = true; }, applyTaskUpdate, applyPublicationUpdate)
             .catch(() => undefined)
             .finally(() => {
               if (connectionSequenceRef.current !== sequence || lifecycleController.signal.aborted) return;
               streamController.abort();
               readyRef.current = false;
-              if (connectionAccepted && maintainStreamRef.current) {
+              if (connectionAccepted) {
                 setStatus("RECONNECTING");
                 window.setTimeout(() => { void startBatchRef.current(); }, 0);
               }
             });
-          const readyDeadline = window.setTimeout(() => streamController.abort(), 5_000);
-          while (!serverReady && !streamController.signal.aborted) await wait(25, streamController.signal);
+          const readyDeadline = window.setTimeout(() => streamController.abort(), READY_TIMEOUT_MS);
+          while (!serverReady && !streamController.signal.aborted) await wait(SYNC_POLL_MS, streamController.signal);
           window.clearTimeout(readyDeadline);
-          if (!serverReady) throw new Error("Generation event stream did not become ready.");
+          if (!serverReady) throw new Error("Event stream did not become ready.");
 
           setStatus("SYNCING");
           await reconcile();
           if (streamController.signal.aborted || connectionSequenceRef.current !== sequence) {
-            throw new Error("Generation event stream closed during reconciliation.");
+            throw new Error("Event stream closed during reconciliation.");
           }
           readyRef.current = true;
           everReadyRef.current = true;
@@ -291,26 +234,33 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
           streamController.abort();
         }
       }
-      readyRef.current = false;
-      setStatus("FAILED");
-      return false;
     })().finally(() => {
       if (batchRef.current === batch) batchRef.current = null;
+      inFlightRef.current = false;
     });
 
     batchRef.current = batch;
     return batch;
-  }, [applyTaskUpdate, reconcile]);
+  }, [applyPublicationUpdate, applyTaskUpdate, reconcile]);
 
   const ensureReady = useCallback(async (): Promise<boolean> => {
-    submissionHoldRef.current = true;
-    maintainStreamRef.current = true;
-    const ready = await startBatch();
-    if (!ready) {
-      submissionHoldRef.current = false;
-      maintainStreamRef.current = false;
-    }
-    return ready;
+    if (readyRef.current) return true;
+    const batch = startBatch();
+    if (!batch) return false;
+    let timer = 0;
+    const timeout = new Promise<boolean>((resolve) => {
+      timer = window.setTimeout(() => resolve(false), READY_WAIT_MS);
+    });
+    const result = await Promise.race([batch, timeout]);
+    window.clearTimeout(timer);
+    return result;
+  }, [startBatch]);
+
+  const retryNow = useCallback(async (): Promise<boolean> => {
+    if (readyRef.current || inFlightRef.current) return batchRef.current ?? Promise.resolve(true);
+    setReconnectAttempt(0);
+    setStatus("DISCONNECTED");
+    return startBatch();
   }, [startBatch]);
 
   useEffect(() => {
@@ -326,8 +276,6 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
       everReadyRef.current = false;
       knownTaskIdsRef.current.clear();
       taskVersionsRef.current.clear();
-      maintainStreamRef.current = false;
-      submissionHoldRef.current = false;
       queueMicrotask(() => {
         setTrackedTasks({});
         setCompletedSessionIds(new Set());
@@ -348,9 +296,9 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
         const activeTasks = await listActiveGenerationTasks();
         if (lifecycleController.signal.aborted) return;
         for (const task of activeTasks) mergeTaskSnapshot(task);
-        if (activeTasks.length > 0) void startBatch();
+        void startBatch();
       } catch {
-        // This is only an activity probe; the first submission still calls ensureReady explicitly.
+        // A failed probe must not prevent the connection attempt from starting.
       }
     })();
     return () => {
@@ -376,34 +324,6 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
     if (!sessionIndicators[sessionId]) sessionIndicators[sessionId] = "ATTENTION";
   }
 
-  const stopStream = useCallback(() => {
-    if (!readyRef.current && !streamControllerRef.current) return;
-    maintainStreamRef.current = false;
-    readyRef.current = false;
-    connectionSequenceRef.current += 1;
-    streamControllerRef.current?.abort();
-    streamControllerRef.current = null;
-    queueMicrotask(() => {
-      setReconnectAttempt(0);
-      setStatus("DISCONNECTED");
-    });
-  }, []);
-
-  useEffect(() => {
-    if (activeTaskCount === 0 && !submissionHoldRef.current) stopStream();
-  }, [activeTaskCount, stopStream]);
-
-  const registerSubmittedTask = useCallback((task: Pick<GenerationTask, "id" | "sessionId" | "status" | "version">) => {
-    trackTask(task);
-    submissionHoldRef.current = false;
-    maintainStreamRef.current = true;
-  }, [trackTask]);
-
-  const abandonSubmission = useCallback(() => {
-    submissionHoldRef.current = false;
-    if (activeTaskCount === 0) stopStream();
-  }, [activeTaskCount, stopStream]);
-
   const acknowledgeSession = useCallback((sessionId: string) => {
     setCompletedSessionIds((current) => {
       if (!current.has(sessionId)) return current;
@@ -421,13 +341,16 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
 
   const acknowledgeCompletedResults = useCallback(() => setCompletedSessionIds(new Set()), []);
 
+  const registerSubmittedTask = useCallback((task: Pick<GenerationTask, "id" | "sessionId" | "status" | "version">) => {
+    trackTask(task);
+  }, [trackTask]);
+
   return (
     <GenerationEventStreamContext value={{ status: authStatus === "authenticated" ? status : "DISCONNECTED",
       reconnectAttempt: authStatus === "authenticated" ? reconnectAttempt : 0,
-      maxReconnectAttempts: MAX_RECONNECT_ATTEMPTS, ensureReady, activeTaskCount,
-      sessionIndicators, hasCompletedResults: completedSessionIds.size > 0,
-      hasAttention: attentionSessionIds.size > 0, acknowledgeSession, acknowledgeCompletedResults,
-      registerSubmittedTask, abandonSubmission }}>
+      ensureReady, retryNow, activeTaskCount, sessionIndicators,
+      hasCompletedResults: completedSessionIds.size > 0, hasAttention: attentionSessionIds.size > 0,
+      publicationRefreshVersion, acknowledgeSession, acknowledgeCompletedResults, registerSubmittedTask }}>
       {children}
     </GenerationEventStreamContext>
   );

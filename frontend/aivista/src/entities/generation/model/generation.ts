@@ -1,5 +1,8 @@
 export type GenerationTaskStatus = "QUEUED" | "RUNNING" | "SUCCEEDED" | "PARTIALLY_SUCCEEDED" | "FAILED" | "CANCELLED";
 
+/** 发布流程状态。`NONE` 表示从未提交或撤销发布后的初始状态。 */
+export type PublicationReviewStatus = "NONE" | "PENDING" | "APPROVED" | "REJECTED" | "FAILED";
+
 export type GenerationImage = {
   id: string;
   sourceIndex: number;
@@ -43,13 +46,6 @@ export type GenerationMessage = {
   generation: GenerationTask;
 };
 
-export type GenerationConsent = {
-  policyVersion: string;
-  policyContent: string;
-  consented: boolean;
-  consentedAt: string | null;
-};
-
 export type GenerationAsset = {
   id: string;
   url: string;
@@ -61,12 +57,48 @@ export type GenerationAsset = {
   finalNegativePrompt: string | null;
   requestedImageCount: number;
   promptExtend: boolean;
-  publicationReviewStatus: string;
+  publicationReviewStatus: PublicationReviewStatus;
   publicationVersion: number;
   publicAt: string | null;
   title: string | null;
   description: string | null;
 };
+
+/** 资产、个人发布和灵感列表共用的后端完整图片 DTO，字段与 `GenerationAssetImageResponse` 对齐。 */
+export type GenerationAssetImageDto = {
+  imageId: string;
+  url: string;
+  urlExpiresAt: string;
+  createdAt: string;
+  finalPrompt: string;
+  finalNegativePrompt: string | null;
+  generationConfig: { width: number; height: number; requestedImageCount: number; promptExtend: boolean };
+  publicationReviewStatus: PublicationReviewStatus;
+  publicationVersion: number;
+  publicAt: string | null;
+  title: string | null;
+  description: string | null;
+};
+
+export function mapGenerationAssetImage(dto: GenerationAssetImageDto): GenerationAsset {
+  return {
+    id: dto.imageId,
+    url: dto.url,
+    urlExpiresAt: dto.urlExpiresAt,
+    width: dto.generationConfig.width,
+    height: dto.generationConfig.height,
+    createdAt: dto.createdAt,
+    finalPrompt: dto.finalPrompt,
+    finalNegativePrompt: dto.finalNegativePrompt,
+    requestedImageCount: dto.generationConfig.requestedImageCount,
+    promptExtend: dto.generationConfig.promptExtend,
+    publicationReviewStatus: dto.publicationReviewStatus,
+    publicationVersion: dto.publicationVersion,
+    publicAt: dto.publicAt,
+    title: dto.title,
+    description: dto.description,
+  };
+}
 
 export type CursorPage<T> = {
   items: T[];
