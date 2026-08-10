@@ -10,6 +10,7 @@ import { useAuthDialog } from "@/features/auth/model/auth-dialog-provider";
 import type { AuthStatus } from "@/features/auth/model/auth-store";
 import { useSession } from "@/features/auth/model/session-provider";
 import { useGenerationEventStream } from "@/features/generation/model/generation-event-stream-provider";
+import { OfficialNotificationsBell } from "@/features/official-notifications/ui/official-notifications-bell";
 import { cn } from "@/lib/utils";
 
 type NavigationItem = { href: string; label: string; icon: typeof Home; requiresAuth?: boolean };
@@ -40,14 +41,14 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <GenerationStreamNotice status={generationStream.status} attempt={generationStream.reconnectAttempt}
-        maxAttempts={generationStream.maxReconnectAttempts} onRetry={() => { void generationStream.ensureReady(); }} />
+        onRetry={() => { void generationStream.retryNow(); }} />
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-24 flex-col items-center border-r border-sidebar-border bg-sidebar py-5 md:flex">
         <Link href="/" aria-label="AiVista 首页" className="grid size-11 place-items-center rounded-2xl bg-gradient-to-br from-cyan-300 via-sky-500 to-violet-500 text-white shadow-[0_10px_26px_-12px_rgba(14,165,233,0.9)]"><Palette className="size-5" strokeWidth={2.4} /></Link>
         <nav className="mt-24 flex w-full flex-col items-center gap-3">
           {navigationItems.map((item) => <SidebarLink key={item.href} item={item} active={pathname === item.href} authStatus={status} onAuthRequired={openAuthDialog}
             generationBadge={item.href === "/generate" && !pathname.startsWith("/generate") ? generationStream : undefined} />)}
         </nav>
-        <div className="mt-auto"><AccountControl /></div>
+        <div className="mt-auto space-y-1">{status === "authenticated" ? <OfficialNotificationsBell /> : null}<AccountControl /></div>
       </aside>
 
       <main className="min-h-screen pb-20 md:ml-24 md:pb-0">{children}</main>
@@ -55,22 +56,21 @@ export function AppShell({ children }: { children: ReactNode }) {
       <nav className="fixed inset-x-0 bottom-0 z-30 flex h-16 items-center justify-around border-t border-sidebar-border bg-sidebar/95 px-3 backdrop-blur md:hidden">
         {navigationItems.map((item) => <SidebarLink key={item.href} item={item} active={pathname === item.href} compact authStatus={status} onAuthRequired={openAuthDialog}
           generationBadge={item.href === "/generate" && !pathname.startsWith("/generate") ? generationStream : undefined} />)}
+        {status === "authenticated" ? <OfficialNotificationsBell /> : null}
         <AccountControl compact />
       </nav>
     </div>
   );
 }
 
-function GenerationStreamNotice({ status, attempt, maxAttempts, onRetry }: { status: string; attempt: number; maxAttempts: number; onRetry: () => void }) {
+function GenerationStreamNotice({ status, attempt, onRetry }: { status: string; attempt: number; onRetry: () => void }) {
   if (status === "READY" || status === "DISCONNECTED") return null;
   const message = status === "SYNCING"
     ? "实时连接已建立，正在同步任务状态…"
-    : status === "FAILED"
-      ? "自动连接失败；本次尚未提交的生成不会开始。"
-      : status === "RECONNECTING"
-        ? `实时连接已中断，正在重连（${Math.max(1, attempt)}/${maxAttempts}）…`
-        : `正在建立实时连接（${Math.max(1, attempt)}/${maxAttempts}）…`;
-  return <div role="status" className="fixed inset-x-0 top-0 z-50 flex items-center justify-center gap-3 border-b border-amber-300/60 bg-amber-50 px-4 py-2 text-center text-xs text-amber-900 shadow-sm dark:border-amber-700/60 dark:bg-amber-950 dark:text-amber-100"><span>{message}</span>{status === "FAILED" ? <button type="button" onClick={onRetry} className="font-medium underline underline-offset-4">重新连接</button> : null}</div>;
+    : status === "RECONNECTING"
+      ? `实时连接已中断，正在自动重连（已尝试 ${attempt} 次）…`
+      : `正在建立实时连接（第 ${Math.max(1, attempt)} 次尝试）…`;
+  return <div role="status" className="fixed inset-x-0 top-0 z-50 flex items-center justify-center gap-3 border-b border-amber-300/60 bg-amber-50 px-4 py-2 text-center text-xs text-amber-900 shadow-sm dark:border-amber-700/60 dark:bg-amber-950 dark:text-amber-100"><span>{message}</span><button type="button" onClick={onRetry} className="font-medium underline underline-offset-4">重新连接</button></div>;
 }
 
 function SidebarLink({

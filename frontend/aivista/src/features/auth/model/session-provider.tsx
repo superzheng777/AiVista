@@ -6,6 +6,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import type { CurrentUser } from "@/entities/user/model/user";
 import type { LoginInput, RegisterInput, UpdateProfileInput } from "@/features/auth/api/auth-api";
 import { type AuthStatus, useAuthStore } from "@/features/auth/model/auth-store";
+import { clearAllPendingPublications } from "@/features/publication/model/publication-pending";
 import { configureBrowserAuth } from "@/shared/api/browser-client";
 
 type SessionContextValue = {
@@ -45,6 +46,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (status === "anonymous") {
       window.sessionStorage.removeItem("aivista.pending-generation-submission");
+      clearAllPendingPublications();
       queryClient.clear();
     }
   }, [queryClient, status]);

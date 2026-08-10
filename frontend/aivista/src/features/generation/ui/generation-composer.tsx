@@ -1,17 +1,16 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { LoaderCircle, Send, Settings2, Sparkles, X } from "lucide-react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { LoaderCircle, Send, Settings2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 
+import { UserAgreementConsentDialog } from "@/components/ui/user-agreement-consent-dialog";
 import {
-  confirmGenerationConsent,
   createGenerationTask,
   generationQueryKeys,
-  getGenerationConsent,
   type CreateGenerationTaskInput,
 } from "@/features/generation/api/generation-api";
 import {
@@ -21,8 +20,13 @@ import {
 } from "@/features/generation/model/generation-form";
 import { useAuthDialog } from "@/features/auth/model/auth-dialog-provider";
 import { useSession } from "@/features/auth/model/session-provider";
-import { getApiErrorCode } from "@/shared/api/api-response";
 import { useGenerationEventStream } from "@/features/generation/model/generation-event-stream-provider";
+import { getApiErrorCode } from "@/shared/api/api-response";
+import {
+  getUserAgreementConsent,
+  userAgreementQueryKeys,
+} from "@/shared/api/user-agreement-consent-api";
+import { useUserAgreementConsent } from "@/shared/api/use-user-agreement-consent";
 
 type GenerationComposerProps = {
   sessionId?: string;
@@ -113,12 +117,13 @@ export function GenerationComposer({ sessionId, hasActiveTask = false }: Generat
     resolver: zodResolver(generationFormSchema),
     defaultValues: { prompt: "", negativePrompt: "", aspectRatio: "1:1", promptExtend: true, imageCount: 1 },
   });
-  const consentQuery = useQuery({
-    queryKey: generationQueryKeys.consent(),
-    queryFn: getGenerationConsent,
-    enabled: status === "authenticated",
-    retry: false,
-  });
+  const { consentQuery, confirmConsent } = useUserAgreementConsent(
+    status === "authenticated",
+    () => {
+      setShowConsent(false);
+      void submitTask(true);
+    },
+  );
   const createTask = useMutation({
     mutationFn: ({ input, idempotencyKey }: { input: CreateGenerationTaskInput; idempotencyKey: string }) =>
       createGenerationTask(input, idempotencyKey),
@@ -143,7 +148,6 @@ export function GenerationComposer({ sessionId, hasActiveTask = false }: Generat
     },
     onError: (error) => {
       const apiErrorCode = getApiErrorCode(error);
-      if (apiErrorCode !== null) generationStream.abandonSubmission();
       const feedback = feedbackFromCreateError(error);
       if (feedback.clearPendingSubmission || apiErrorCode !== null) {
         pendingSubmission.current = null;
@@ -152,19 +156,11 @@ export function GenerationComposer({ sessionId, hasActiveTask = false }: Generat
       setSubmitFeedback(feedback);
       if (feedback.requiresConsent) {
         void queryClient.fetchQuery({
-          queryKey: generationQueryKeys.consent(),
-          queryFn: getGenerationConsent,
+          queryKey: userAgreementQueryKeys.consent(),
+          queryFn: getUserAgreementConsent,
           retry: false,
         }).then(() => setShowConsent(true));
       }
-    },
-  });
-  const confirmConsent = useMutation({
-    mutationFn: confirmGenerationConsent,
-    onSuccess: (consent) => {
-      queryClient.setQueryData(generationQueryKeys.consent(), consent);
-      setShowConsent(false);
-      void submitTask(true);
     },
   });
 
@@ -308,26 +304,16 @@ export function GenerationComposer({ sessionId, hasActiveTask = false }: Generat
       </form>
 
       {showConsent && consentQuery.data ? (
-        <div role="dialog" aria-modal="true" aria-labelledby="generation-consent-title" className="fixed inset-0 z-50 grid place-items-center bg-slate-950/45 p-4">
-          <section className="w-full max-w-xl rounded-2xl border border-border bg-card p-5 shadow-2xl sm:p-6">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-sm font-medium text-sky-600">开始生成前</p>
-                <h2 id="generation-consent-title" className="mt-1 text-xl font-semibold tracking-tight">确认第三方数据处理规则</h2>
-              </div>
-              <button type="button" onClick={() => setShowConsent(false)} className="grid size-10 place-items-center rounded-lg text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label="关闭规则确认窗口"><X className="size-4" /></button>
-            </div>
-            <div className="mt-4 max-h-56 overflow-y-auto rounded-xl bg-muted p-4 text-sm leading-6 text-muted-foreground">{consentQuery.data.policyContent}</div>
-            {confirmConsent.error ? <p role="alert" className="mt-3 text-sm text-destructive">确认失败，请稍后重试。</p> : null}
-            <div className="mt-5 flex justify-end gap-3">
-              <button type="button" onClick={() => setShowConsent(false)} className="min-h-11 rounded-xl px-4 text-sm font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground">暂不生成</button>
-              <button type="button" disabled={confirmConsent.isPending} onClick={() => confirmConsent.mutate(consentQuery.data.policyVersion)} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-primary px-4 text-sm font-medium text-primary-foreground transition hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-60">
-                {confirmConsent.isPending ? <LoaderCircle className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
-                同意并生成
-              </button>
-            </div>
-          </section>
-        </div>
+        <UserAgreementConsentDialog
+          consent={consentQuery.data}
+          isConfirming={confirmConsent.isPending}
+          error={confirmConsent.error ? "确认失败，请稍后重试。" : undefined}
+          eyebrow="开始生成前"
+          title="确认第三方数据处理规则"
+          confirmLabel="同意并生成"
+          onConfirm={(policyVersion) => confirmConsent.mutate(policyVersion)}
+          onDismiss={() => setShowConsent(false)}
+        />
       ) : null}
     </>
   );

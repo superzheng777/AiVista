@@ -76,6 +76,25 @@ class GenerationAssetQueryServiceTests {
     }
 
     @Test
+    void returnsPublishedAssetEvenWhenTheAssetPageWasDeleted() throws Exception {
+        GenerationImageMapper imageMapper = mock(GenerationImageMapper.class);
+        OSS ossClient = mock(OSS.class);
+        // 已发布（public_at 非空）的图片资源由发布状态保障：即使资产页已删除（deleted_at 非空），单图查询仍应返回。
+        GenerationAssetImageRow published = row(42L, NOW, "APPROVED", 5L);
+        published.setPublicAt(NOW);
+        when(imageMapper.selectVisibleByUserIdAndId(7L, 42L)).thenReturn(published);
+        when(ossClient.generatePresignedUrl(anyString(), anyString(), any())).thenReturn(new URL("https://oss.example/signed-published"));
+
+        var response = service(imageMapper, ossClient).get(7L, 42L);
+
+        assertThat(response.imageId()).isEqualTo("42");
+        assertThat(response.publicationReviewStatus()).isEqualTo("APPROVED");
+        assertThat(response.publicationVersion()).isEqualTo(5L);
+        assertThat(response.publicAt()).isEqualTo(NOW);
+        assertThat(response.url()).isEqualTo("https://oss.example/signed-published");
+    }
+
+    @Test
     void hidesDeletedOrOtherUsersAssetAsNotFound() {
         assertThatThrownBy(() -> service(mock(GenerationImageMapper.class), mock(OSS.class)).get(7L, 41L))
                 .isInstanceOfSatisfying(BusinessException.class,

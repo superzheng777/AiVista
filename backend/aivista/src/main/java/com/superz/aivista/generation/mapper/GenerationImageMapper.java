@@ -87,7 +87,7 @@ public interface GenerationImageMapper extends BaseMapper<GenerationImage> {
             INNER JOIN generation_tasks t ON t.id = i.task_id
             WHERE i.id = #{imageId}
               AND i.user_id = #{userId}
-              AND i.deleted_at IS NULL
+              AND (i.deleted_at IS NULL OR i.public_at IS NOT NULL)
             """)
     GenerationAssetImageRow selectVisibleByUserIdAndId(
             @Param("userId") long userId, @Param("imageId") long imageId);
