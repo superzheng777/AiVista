@@ -18,4 +18,10 @@ public class GenerationAssetImageRow {
     private String finalPrompt;
     private String finalNegativePrompt;
     private Integer requestedImageCount;
+    private Boolean promptExtend;
+    private String publicationReviewStatus;
+    private Long publicationVersion;
+    private Instant publicAt;
+    private String publicationTitle;
+    private String publicationDescription;
 }

@@ -26,6 +26,12 @@ export type LoginInput = {
 
 export type RegisterInput = LoginInput & {
   nickname: string;
+  agreementPolicyVersion: string;
+};
+
+export type UserAgreementPolicy = {
+  policyVersion: string;
+  policyContent: string;
 };
 
 export type AuthenticatedSession = {
@@ -61,6 +67,11 @@ export async function login(input: LoginInput): Promise<AuthenticatedSession> {
 export async function register(input: RegisterInput): Promise<CurrentUser> {
   const response = await browserApiClient.post<ApiResponse<CurrentUserDto>>("/auth/register", input);
   return toCurrentUser(unwrapApiResponse(response.data));
+}
+
+export async function getUserAgreementPolicy(): Promise<UserAgreementPolicy> {
+  const response = await browserApiClient.get<ApiResponse<UserAgreementPolicy>>("/policies/user-agreement");
+  return unwrapApiResponse(response.data);
 }
 
 export async function refreshAccessToken(): Promise<string> {

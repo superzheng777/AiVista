@@ -3,6 +3,7 @@
 import { Eye, EyeOff, LockKeyhole, UserRound, X } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
 
+import { getUserAgreementPolicy, type UserAgreementPolicy } from "@/features/auth/api/auth-api";
 import { useAuthDialog } from "@/features/auth/model/auth-dialog-provider";
 import { useSession } from "@/features/auth/model/session-provider";
 
@@ -16,6 +17,11 @@ export function AuthDialog() {
   const [nickname, setNickname] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [hasAcceptedAgreement, setHasAcceptedAgreement] = useState(false);
+  const [agreementPolicy, setAgreementPolicy] = useState<UserAgreementPolicy | null>(null);
+  const [isAgreementLoading, setIsAgreementLoading] = useState(false);
+  const [agreementLoadFailed, setAgreementLoadFailed] = useState(false);
+  const [isAgreementOpen, setIsAgreementOpen] = useState(false);
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
   const [isConfirmPasswordVisible, setIsConfirmPasswordVisible] = useState(false);
   const [error, setError] = useState("");
@@ -31,10 +37,29 @@ export function AuthDialog() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [close, isOpen]);
 
+  async function loadAgreementPolicy(): Promise<void> {
+    if (agreementPolicy || isAgreementLoading || agreementLoadFailed) return;
+    let cancelled = false;
+    setIsAgreementLoading(true);
+    await getUserAgreementPolicy()
+      .then((policy) => { if (!cancelled) setAgreementPolicy(policy); })
+      .catch(() => {
+        if (!cancelled) {
+          setAgreementLoadFailed(true);
+          setError("无法加载用户协议，请稍后重试。");
+        }
+      })
+      .finally(() => { if (!cancelled) setIsAgreementLoading(false); });
+    cancelled = true;
+  }
+
   function switchMode(nextMode: Mode) {
     setMode(nextMode);
     setPassword("");
     setConfirmPassword("");
+    setHasAcceptedAgreement(false);
+    setAgreementLoadFailed(false);
+    if (nextMode === "register") void loadAgreementPolicy();
     setError("");
     setNotice("");
   }
@@ -49,6 +74,12 @@ export function AuthDialog() {
       return;
     }
 
+    const policy = agreementPolicy;
+    if (mode === "register" && (!hasAcceptedAgreement || !policy)) {
+      setError("请先阅读并同意用户协议。");
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
@@ -56,7 +87,13 @@ export function AuthDialog() {
         await login({ loginName: loginName.trim(), password });
         close();
       } else {
-        await register({ loginName: loginName.trim(), password, nickname: nickname.trim() });
+        if (!policy) return;
+        await register({
+          loginName: loginName.trim(),
+          password,
+          nickname: nickname.trim(),
+          agreementPolicyVersion: policy.policyVersion,
+        });
         setMode("login");
         setPassword("");
         setConfirmPassword("");
@@ -139,6 +176,25 @@ export function AuthDialog() {
             />
           )}
 
+          {isLogin ? null : (
+            <label className="flex cursor-pointer items-start gap-2 rounded-lg px-1 py-1 text-xs leading-5 text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={hasAcceptedAgreement}
+                onChange={(event) => setHasAcceptedAgreement(event.target.checked)}
+                disabled={isAgreementLoading || !agreementPolicy}
+                className="mt-0.5 size-4 shrink-0 accent-primary"
+              />
+              <span>
+                我已阅读并同意
+                <button type="button" onClick={(event) => { event.preventDefault(); setIsAgreementOpen(true); }} disabled={!agreementPolicy} className="mx-1 font-medium text-sky-600 underline underline-offset-2 hover:text-sky-700 disabled:cursor-not-allowed disabled:text-muted-foreground">
+                  《用户协议》
+                </button>
+                {isAgreementLoading ? "加载中…" : null}
+              </span>
+            </label>
+          )}
+
           {error ? <p className="rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-600">{error}</p> : null}
           {notice ? <p className="rounded-xl bg-sky-50 px-3 py-2 text-sm text-sky-700">{notice}</p> : null}
 
@@ -150,13 +206,24 @@ export function AuthDialog() {
             )}
           </div>
 
-          <button type="submit" disabled={isSubmitting} className="h-11 w-full rounded-xl bg-primary text-sm font-medium text-primary-foreground transition hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-60">
+          <button type="submit" disabled={isSubmitting || (!isLogin && (isAgreementLoading || !agreementPolicy))} className="h-11 w-full rounded-xl bg-primary text-sm font-medium text-primary-foreground transition hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-60">
             {isSubmitting ? "处理中…" : isLogin ? "登录" : "注册"}
           </button>
         </form>
       </section>
+      {isAgreementOpen && agreementPolicy ? <UserAgreementDialog policy={agreementPolicy} onClose={() => setIsAgreementOpen(false)} /> : null}
     </div>
   );
+}
+
+function UserAgreementDialog({ policy, onClose }: { policy: UserAgreementPolicy; onClose: () => void }) {
+  return <div className="fixed inset-0 z-10 grid place-items-center bg-slate-950/30 p-4" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}>
+    <section role="dialog" aria-modal="true" aria-labelledby="user-agreement-title" className="w-full max-w-lg rounded-2xl border border-border bg-card p-5 shadow-xl">
+      <div className="flex items-center justify-between gap-4"><h2 id="user-agreement-title" className="text-base font-semibold text-card-foreground">用户协议</h2><button type="button" onClick={onClose} aria-label="关闭用户协议" className="grid size-8 place-items-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"><X className="size-4" /></button></div>
+      <div className="mt-4 max-h-80 overflow-y-auto whitespace-pre-wrap rounded-xl bg-muted/60 p-4 text-sm leading-6 text-muted-foreground">{policy.policyContent}</div>
+      <button type="button" onClick={onClose} className="mt-4 h-10 w-full rounded-xl bg-primary text-sm font-medium text-primary-foreground transition hover:bg-sky-600">我已阅读</button>
+    </section>
+  </div>;
 }
 
 function PasswordField({

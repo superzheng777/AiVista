@@ -52,6 +52,17 @@ class UserAgreementAccessFilterTests {
     }
 
     @Test
+    void permitsAgreementStatusQueryBeforeItIsAccepted() throws Exception {
+        authenticate(7L);
+        MockFilterChain chain = new MockFilterChain();
+
+        filter.doFilter(new MockHttpServletRequest("GET", "/users/me/consents/user-agreement"),
+                new MockHttpServletResponse(), chain);
+
+        assertThat(chain.getRequest()).isNotNull();
+    }
+
+    @Test
     void permitsBusinessRequestAfterCurrentAgreementIsAccepted() throws Exception {
         authenticate(7L);
         when(consentService.getCurrentConsent(7L))

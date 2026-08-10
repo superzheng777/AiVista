@@ -7,10 +7,16 @@ public record GenerationAssetImageResponse(
         String imageId,
         String url,
         Instant urlExpiresAt,
-        int width,
-        int height,
         Instant createdAt,
         String finalPrompt,
         String finalNegativePrompt,
-        int requestedImageCount) {
+        GenerationConfig generationConfig,
+        String publicationReviewStatus,
+        long publicationVersion,
+        Instant publicAt,
+        String title,
+        String description) {
+
+    public record GenerationConfig(int width, int height, int requestedImageCount, boolean promptExtend) {
+    }
 }

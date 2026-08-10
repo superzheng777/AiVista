@@ -29,7 +29,15 @@ public class GenerationConsentController {
         this.generationConsentService = generationConsentService;
     }
 
-    @Operation(summary = "查询当前用户协议", description = "注册与登录后强制确认弹窗使用的公开协议全文及版本。")
+    @Operation(summary = "查询当前用户协议状态", description = "返回当前协议全文、版本及当前用户是否已经确认。"
+            + " 未确认用户也可调用此接口，以便完成首次确认。")
+    @SecurityRequirement(name = "bearerAuth")
+    @GetMapping("/users/me/consents/user-agreement")
+    public ApiResponse<GenerationConsentResponse> getCurrentConsent(Authentication authentication) {
+        return ResponseUtils.success(generationConsentService.getCurrentConsent(currentUserId(authentication)));
+    }
+
+    @Operation(summary = "查询当前用户协议", description = "注册时用于读取当前协议全文和版本。")
     @GetMapping("/policies/user-agreement")
     public ApiResponse<UserAgreementPolicyResponse> getCurrentPolicy() {
         return ResponseUtils.success(generationConsentService.getCurrentPolicy());

@@ -12,6 +12,7 @@ public enum ErrorCode {
     FORBIDDEN(40300, "无权限访问", HttpStatus.FORBIDDEN),
     MEDIA_FORBIDDEN(40301, "无权使用该媒体文件", HttpStatus.FORBIDDEN),
     NOT_FOUND(40400, "资源不存在", HttpStatus.NOT_FOUND),
+    METHOD_NOT_ALLOWED(40500, "请求方法不被允许", HttpStatus.METHOD_NOT_ALLOWED),
     LOGIN_NAME_EXISTS(40901, "登录账号已存在", HttpStatus.CONFLICT),
     GENERATION_CONSENT_VERSION_OUTDATED(40902, "第三方数据处理规则已更新，请重新确认", HttpStatus.CONFLICT),
     GENERATION_CONSENT_REQUIRED(40903, "请先确认第三方数据处理规则", HttpStatus.CONFLICT),

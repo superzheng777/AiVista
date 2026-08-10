@@ -1,15 +1,15 @@
 "use client";
 
-import { useInfiniteQuery, useMutation, useQueryClient, type InfiniteData } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Clipboard, Download, FolderOpen, Heart, LoaderCircle, Send, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import type { CursorPage, GenerationAsset } from "@/entities/generation/model/generation";
+import type { GenerationAsset } from "@/entities/generation/model/generation";
 import { assetQueryKeys, deleteGenerationAssets, listGenerationAssets } from "@/features/assets/api/asset-api";
 import { useGenerationEventStream } from "@/features/generation/model/generation-event-stream-provider";
 import { cn } from "@/lib/utils";
 
-type AssetPages = InfiniteData<CursorPage<GenerationAsset>, string | undefined>;
+const EMPTY_ASSETS: GenerationAsset[] = [];
 
 function groupAssetsByDate(assets: GenerationAsset[]): Array<{ label: string; items: GenerationAsset[] }> {
   const formatter = new Intl.DateTimeFormat("zh-CN", {
@@ -64,13 +64,13 @@ export function AssetsWorkspace() {
   const [detailAsset, setDetailAsset] = useState<GenerationAsset | null>(null);
   const [deleteIds, setDeleteIds] = useState<string[] | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const assetsQuery = useInfiniteQuery({
-    queryKey: assetQueryKeys.pages(),
-    queryFn: ({ pageParam }) => listGenerationAssets(pageParam),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
-  });
-  const assets = useMemo(() => assetsQuery.data?.pages.flatMap((page) => page.items) ?? [], [assetsQuery.data]);
+  const assetsQuery = {
+    ...useQuery({ queryKey: assetQueryKeys.all, queryFn: listGenerationAssets }),
+    hasNextPage: false,
+    isFetchingNextPage: false,
+    fetchNextPage: async () => undefined,
+  };
+  const assets = assetsQuery.data ?? EMPTY_ASSETS;
   const groups = useMemo(() => groupAssetsByDate(assets), [assets]);
   const earliestExpiry = useMemo(() => assets.reduce<number | null>((earliest, asset) => {
     const expiresAt = Date.parse(asset.urlExpiresAt);
@@ -80,7 +80,7 @@ export function AssetsWorkspace() {
   useEffect(() => {
     if (earliestExpiry === null) return;
     const timeout = window.setTimeout(() => {
-      void queryClient.invalidateQueries({ queryKey: assetQueryKeys.pages() });
+      void queryClient.invalidateQueries({ queryKey: assetQueryKeys.all });
     }, Math.max(0, earliestExpiry - Date.now() - 30_000));
     return () => window.clearTimeout(timeout);
   }, [earliestExpiry, queryClient]);
@@ -94,12 +94,10 @@ export function AssetsWorkspace() {
   const deleteMutation = useMutation({
     mutationFn: deleteGenerationAssets,
     onMutate: async (imageIds) => {
-      await queryClient.cancelQueries({ queryKey: assetQueryKeys.pages() });
-      const previous = queryClient.getQueryData<AssetPages>(assetQueryKeys.pages());
-      queryClient.setQueryData<AssetPages>(assetQueryKeys.pages(), (current) => current && {
-        ...current,
-        pages: current.pages.map((page) => ({ ...page, items: page.items.filter((asset) => !imageIds.includes(asset.id)) })),
-      });
+      await queryClient.cancelQueries({ queryKey: assetQueryKeys.all });
+      const previous = queryClient.getQueryData<GenerationAsset[]>(assetQueryKeys.all);
+      queryClient.setQueryData<GenerationAsset[]>(assetQueryKeys.all,
+        (current) => current?.filter((asset) => !imageIds.includes(asset.id)));
       return { previous };
     },
     onSuccess: (_result, imageIds) => {
@@ -108,7 +106,7 @@ export function AssetsWorkspace() {
       setNotice(`已删除 ${imageIds.length} 张图片`);
     },
     onError: (_error, _imageIds, context) => {
-      queryClient.setQueryData(assetQueryKeys.pages(), context?.previous);
+      queryClient.setQueryData(assetQueryKeys.all, context?.previous);
       setNotice("删除失败，请重试");
     },
     onSettled: () => {

@@ -117,6 +117,7 @@ export function GenerationComposer({ sessionId, hasActiveTask = false }: Generat
     queryKey: generationQueryKeys.consent(),
     queryFn: getGenerationConsent,
     enabled: status === "authenticated",
+    retry: false,
   });
   const createTask = useMutation({
     mutationFn: ({ input, idempotencyKey }: { input: CreateGenerationTaskInput; idempotencyKey: string }) =>
@@ -153,6 +154,7 @@ export function GenerationComposer({ sessionId, hasActiveTask = false }: Generat
         void queryClient.fetchQuery({
           queryKey: generationQueryKeys.consent(),
           queryFn: getGenerationConsent,
+          retry: false,
         }).then(() => setShowConsent(true));
       }
     },

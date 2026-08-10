@@ -60,6 +60,12 @@ export type GenerationAsset = {
   finalPrompt: string;
   finalNegativePrompt: string | null;
   requestedImageCount: number;
+  promptExtend: boolean;
+  publicationReviewStatus: string;
+  publicationVersion: number;
+  publicAt: string | null;
+  title: string | null;
+  description: string | null;
 };
 
 export type CursorPage<T> = {

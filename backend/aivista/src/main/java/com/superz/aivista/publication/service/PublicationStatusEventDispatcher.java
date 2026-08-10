@@ -56,7 +56,8 @@ public class PublicationStatusEventDispatcher {
             GenerationImage image = images.selectByImageId(event.getAggregateId());
             if (image != null && payload.hasNonNull("status")) {
                 connections.publish(image.getUserId(), event.getId(), new PublicationStatusEvent(
-                        String.valueOf(image.getId()), event.getAggregateVersion(), payload.get("status").asText()));
+                        String.valueOf(image.getId()), event.getAggregateVersion(), payload.get("status").asText(),
+                        image.getPublicAt()));
             }
             outbox.markPublished(event.getId(), clock.instant());
         } catch (Exception exception) {
