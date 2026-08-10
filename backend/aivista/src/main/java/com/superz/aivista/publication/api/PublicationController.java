@@ -15,7 +15,6 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -30,10 +29,9 @@ public class PublicationController {
 
     @PostMapping
     public ResponseEntity<ApiResponse<PublicationRequestResponse>> request(Authentication authentication, @PathVariable long imageId,
-            @RequestHeader("Idempotency-Key") String idempotencyKey,
             @Valid @RequestBody RequestPublicationRequest request) {
         PublicationRequestResponse response = publicationService.request(
-                currentUserId(authentication), imageId, idempotencyKey, request.title(), request.description());
+                currentUserId(authentication), imageId, request.title(), request.description());
         return ResponseEntity.status(HttpStatus.ACCEPTED)
                 .body(ResponseUtils.success(response));
     }

@@ -3,7 +3,7 @@ import { mapGenerationAssetImage } from "@/entities/generation/model/generation"
 import { browserApiClient } from "@/shared/api/browser-client";
 import { type ApiResponse, unwrapApiResponse } from "@/shared/api/api-response";
 
-type PublicationRequestDto = { imageId: string; status: string };
+export type PublicationRequestResult = { imageId: string; status: "PENDING" };
 
 export const publicationQueryKeys = {
   mine: ["publication", "mine"] as const,
@@ -11,11 +11,10 @@ export const publicationQueryKeys = {
 
 export type SubmitPublicationInput = { title: string; description: string };
 
-export async function submitPublication(imageId: string, input: SubmitPublicationInput, idempotencyKey: string): Promise<{ imageId: string; status: string }> {
-  const response = await browserApiClient.post<ApiResponse<PublicationRequestDto>>(
+export async function submitPublication(imageId: string, input: SubmitPublicationInput): Promise<PublicationRequestResult> {
+  const response = await browserApiClient.post<ApiResponse<PublicationRequestResult>>(
     `/generation-images/${imageId}/publication`,
     input,
-    { headers: { "Idempotency-Key": idempotencyKey } },
   );
   return unwrapApiResponse(response.data);
 }

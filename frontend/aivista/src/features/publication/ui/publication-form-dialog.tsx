@@ -1,27 +1,20 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
+import { Dialog } from "@base-ui/react/dialog";
 import { LoaderCircle, Send, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useForm } from "react-hook-form";
 
 import type { GenerationAsset } from "@/entities/generation/model/generation";
-import { useSession } from "@/features/auth/model/session-provider";
-import { submitPublication } from "@/features/publication/api/publication-api";
+import { type PublicationRequestResult, submitPublication } from "@/features/publication/api/publication-api";
 import { publicationFormSchema, type PublicationFormValues } from "@/features/publication/model/publication-form";
-import {
-  clearPendingPublication,
-  createPublicationIdempotencyKey,
-  PENDING_PUBLICATION_MAX_AGE_MS,
-  readPendingPublication,
-  storePendingPublication,
-} from "@/features/publication/model/publication-pending";
-import { getApiErrorCode } from "@/shared/api/api-response";
+import { getApiErrorCode, getApiErrorMessage } from "@/shared/api/api-response";
 
 function submitMessageOf(error: unknown): string {
   const code = getApiErrorCode(error);
-  if (code === 40906) return "本次提交标识冲突，请重新提交。";
   if (code === 50000) return "系统繁忙，请稍后重试。";
+  if (code !== null) return getApiErrorMessage(error) ?? "提交失败，请稍后重试。";
   return "提交失败，请检查网络后重试。";
 }
 
@@ -31,49 +24,21 @@ export function PublicationFormDialog({
   onClose,
 }: {
   asset: GenerationAsset;
-  onSuccess: () => void;
+  onSuccess: (result: PublicationRequestResult) => void;
   onClose: () => void;
 }) {
-  const { user } = useSession();
-  const idempotencyKeyRef = useRef<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const form = useForm<PublicationFormValues>({
     resolver: zodResolver(publicationFormSchema),
     defaultValues: { title: "", description: "" },
   });
 
-  // 结果未知恢复：打开表单时若该图片存在未过期、属于当前用户的待恢复请求，则复用其 key 并预填文案。
-  useEffect(() => {
-    if (!user) return;
-    const pending = readPendingPublication(asset.id);
-    if (pending && pending.userId === user.id
-      && Date.now() - pending.createdAt <= PENDING_PUBLICATION_MAX_AGE_MS) {
-      idempotencyKeyRef.current = pending.idempotencyKey;
-      form.reset({ title: pending.input.title, description: pending.input.description });
-    }
-  }, [asset.id, form, user]);
-
   async function handleSubmit(values: PublicationFormValues): Promise<void> {
-    if (!user) return;
     setSubmitError(null);
-    const idempotencyKey = idempotencyKeyRef.current ?? createPublicationIdempotencyKey();
-    idempotencyKeyRef.current = idempotencyKey;
-    storePendingPublication({
-      userId: user.id,
-      imageId: asset.id,
-      input: values,
-      idempotencyKey,
-      createdAt: Date.now(),
-    });
     try {
-      await submitPublication(asset.id, values, idempotencyKey);
-      clearPendingPublication(asset.id);
-      onSuccess();
+      const result = await submitPublication(asset.id, values);
+      onSuccess(result);
     } catch (error) {
-      if (getApiErrorCode(error) === 40906) {
-        clearPendingPublication(asset.id);
-        idempotencyKeyRef.current = createPublicationIdempotencyKey();
-      }
       setSubmitError(submitMessageOf(error));
     }
   }
@@ -81,8 +46,11 @@ export function PublicationFormDialog({
   const isSubmitting = form.formState.isSubmitting;
 
   return (
-    <div role="dialog" aria-modal="true" aria-labelledby="publication-form-title" className="fixed inset-0 z-50 grid place-items-center bg-slate-950/45 p-4">
-      <section className="w-full max-w-lg rounded-2xl border border-border bg-card p-5 shadow-2xl sm:p-6">
+    <Dialog.Root open modal onOpenChange={(open) => { if (!open && !isSubmitting) onClose(); }}>
+      <Dialog.Portal>
+        <Dialog.Backdrop className="fixed inset-0 z-50 bg-slate-950/45" />
+        <Dialog.Viewport className="fixed inset-0 z-50 grid place-items-center p-4">
+          <Dialog.Popup aria-labelledby="publication-form-title" className="w-full max-w-lg rounded-2xl border border-border bg-card p-5 shadow-2xl sm:p-6">
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-sm font-medium text-sky-600">提交审核</p>
@@ -111,7 +79,9 @@ export function PublicationFormDialog({
             </button>
           </div>
         </form>
-      </section>
-    </div>
+          </Dialog.Popup>
+        </Dialog.Viewport>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }

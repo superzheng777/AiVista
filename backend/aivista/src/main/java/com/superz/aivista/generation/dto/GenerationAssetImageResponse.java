@@ -8,6 +8,7 @@ public record GenerationAssetImageResponse(
         String url,
         Instant urlExpiresAt,
         Instant createdAt,
+        boolean favorited,
         String finalPrompt,
         String finalNegativePrompt,
         GenerationConfig generationConfig,

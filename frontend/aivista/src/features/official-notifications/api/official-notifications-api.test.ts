@@ -7,7 +7,10 @@ vi.mock("@/shared/api/browser-client", () => ({
 import { browserApiClient } from "@/shared/api/browser-client";
 import {
   fetchOfficialNotificationUnreadCount,
+  deleteAllOfficialNotifications,
+  deleteOfficialNotification,
   listOfficialNotifications,
+  markAllOfficialNotificationsRead,
   markOfficialNotificationRead,
 } from "@/features/official-notifications/api/official-notifications-api";
 
@@ -83,5 +86,18 @@ describe("official-notifications-api", () => {
     client.post.mockResolvedValue(responseData(null));
     await markOfficialNotificationRead("n1");
     expect(client.post).toHaveBeenCalledWith("/users/me/official-notifications/n1/read");
+  });
+
+  it("批量已读与删除操作调用对应端点", async () => {
+    client.post.mockResolvedValue(responseData(null));
+    client.delete.mockResolvedValue(responseData(null));
+
+    await markAllOfficialNotificationsRead();
+    await deleteOfficialNotification("n1");
+    await deleteAllOfficialNotifications();
+
+    expect(client.post).toHaveBeenCalledWith("/users/me/official-notifications/read-all");
+    expect(client.delete).toHaveBeenCalledWith("/users/me/official-notifications/n1");
+    expect(client.delete).toHaveBeenCalledWith("/users/me/official-notifications");
   });
 });

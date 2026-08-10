@@ -5,7 +5,7 @@ import { Check, Clipboard, Download, FolderOpen, Heart, LoaderCircle, Send, Tras
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { GenerationAsset } from "@/entities/generation/model/generation";
-import { assetQueryKeys, deleteGenerationAssets, listGenerationAssets } from "@/features/assets/api/asset-api";
+import { assetQueryKeys, deleteGenerationAssets, listGenerationAssets, setGenerationImageFavorites } from "@/features/assets/api/asset-api";
 import { useGenerationEventStream } from "@/features/generation/model/generation-event-stream-provider";
 import { PublicationFormDialog } from "@/features/publication/ui/publication-form-dialog";
 import { cn } from "@/lib/utils";
@@ -73,6 +73,7 @@ export function AssetsWorkspace() {
     fetchNextPage: async () => undefined,
   };
   const assets = assetsQuery.data ?? EMPTY_ASSETS;
+  const selectedHasUnfavorited = assets.some((asset) => selectedIds.has(asset.id) && !asset.favorited);
   const groups = useMemo(() => groupAssetsByDate(assets), [assets]);
   const earliestExpiry = useMemo(() => assets.reduce<number | null>((earliest, asset) => {
     const expiresAt = Date.parse(asset.urlExpiresAt);
@@ -115,6 +116,25 @@ export function AssetsWorkspace() {
       setDeleteIds(null);
     },
   });
+  const favoriteMutation = useMutation({
+    mutationFn: ({ imageIds, favorite }: { imageIds: string[]; favorite: boolean }) => setGenerationImageFavorites(imageIds, favorite),
+    onMutate: async ({ imageIds, favorite }) => {
+      await queryClient.cancelQueries({ queryKey: assetQueryKeys.all });
+      const previous = queryClient.getQueryData<GenerationAsset[]>(assetQueryKeys.all);
+      queryClient.setQueryData<GenerationAsset[]>(assetQueryKeys.all, (current) =>
+        current?.map((asset) => imageIds.includes(asset.id) ? { ...asset, favorited: favorite } : asset));
+      const previousDetail = detailAsset;
+      setDetailAsset((current) => current && imageIds.includes(current.id) ? { ...current, favorited: favorite } : current);
+      return { previous, previousDetail };
+    },
+    onSuccess: (_result, { imageIds, favorite }) => setNotice(favorite ? `已收藏 ${imageIds.length} 张图片` : `已取消收藏 ${imageIds.length} 张图片`),
+    onError: (_error, _variables, context) => {
+      queryClient.setQueryData(assetQueryKeys.all, context?.previous);
+      setDetailAsset(context?.previousDetail ?? null);
+      setNotice("收藏状态更新失败，请重试");
+    },
+    onSettled: () => void queryClient.invalidateQueries({ queryKey: assetQueryKeys.all }),
+  });
 
   function toggleSelection(id: string): void {
     setSelectedIds((current) => {
@@ -139,12 +159,32 @@ export function AssetsWorkspace() {
     if (selectedAssets.length > 1) setNotice("已发起逐张下载；若浏览器拦截，请允许此网站下载多个文件后重试。");
   }
 
+  function requestPublication(asset: GenerationAsset): void {
+    if (asset.publicationReviewStatus === "PENDING") {
+      setNotice("该图片正在审核中，可在个人中心的发布区查看。");
+      return;
+    }
+    if (asset.publicationReviewStatus === "APPROVED") {
+      setNotice("该图片已发布，请先在个人中心撤销发布。");
+      return;
+    }
+    setPublishAsset(asset);
+  }
+
+  function setSelectedFavorites(favorite: boolean): void {
+    const imageIds = assets.filter((asset) => selectedIds.has(asset.id)).map((asset) => asset.id);
+    if (imageIds.length) favoriteMutation.mutate({ imageIds, favorite });
+  }
+
   if (detailAsset) {
-    return <AssetDetail asset={detailAsset} onPublish={() => setPublishAsset(detailAsset)} onClose={() => setDetailAsset(null)}
+    const isFavorite = detailAsset.favorited;
+    return <AssetDetail asset={detailAsset} onPublish={() => requestPublication(detailAsset)} onClose={() => setDetailAsset(null)}
       onDownload={() => downloadAsset(detailAsset)} onCopyResult={setNotice}
       onDelete={() => setDeleteIds([detailAsset.id])} onRefresh={() => void assetsQuery.refetch()} isDeleting={deleteMutation.isPending}
+      isFavorite={isFavorite} isFavoriteUpdating={favoriteMutation.isPending}
+      onFavorite={() => favoriteMutation.mutate({ imageIds: [detailAsset.id], favorite: !isFavorite })}
       deleteDialog={deleteIds ? <DeleteDialog count={deleteIds.length} isDeleting={deleteMutation.isPending} onCancel={() => setDeleteIds(null)} onConfirm={() => deleteMutation.mutate(deleteIds)} /> : null} notice={notice}
-      publishDialog={publishAsset ? <PublicationFormDialog asset={publishAsset} onSuccess={() => { setPublishAsset(null); setNotice("已提交审核，可在个人中心的发布区查看。"); }} onClose={() => setPublishAsset(null)} /> : null} />;
+      publishDialog={publishAsset ? <PublicationFormDialog asset={publishAsset} onSuccess={(result) => { setPublishAsset(null); setDetailAsset((current) => current?.id === result.imageId ? { ...current, publicationReviewStatus: result.status } : current); queryClient.setQueryData<GenerationAsset[]>(assetQueryKeys.all, (current) => current?.map((asset) => asset.id === result.imageId ? { ...asset, publicationReviewStatus: result.status } : asset)); setNotice("已提交审核，可在个人中心的发布区查看。"); void queryClient.invalidateQueries({ queryKey: assetQueryKeys.all }); }} onClose={() => setPublishAsset(null)} /> : null} />;
   }
 
   return (
@@ -152,7 +192,7 @@ export function AssetsWorkspace() {
       <div className="mx-auto max-w-[1680px]">
         <header className="flex min-h-10 items-center justify-between gap-5">
           <div><p className="text-sm font-medium text-sky-600">个人资产</p><h1 className="mt-1 text-2xl font-semibold tracking-tight">你的创作</h1></div>
-          {isManaging ? <div className="flex items-center gap-2"><span className="text-sm text-muted-foreground">已选 {selectedIds.size} 张</span><button type="button" onClick={downloadSelected} disabled={!selectedIds.size} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-sm font-medium transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"><Download className="size-4" />下载</button><button type="button" onClick={() => setDeleteIds([...selectedIds])} disabled={!selectedIds.size} className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-destructive/10 px-3 text-sm font-medium text-destructive transition hover:bg-destructive/20 disabled:cursor-not-allowed disabled:opacity-50"><Trash2 className="size-4" />删除</button><button type="button" onClick={leaveManaging} className="h-9 rounded-lg px-3 text-sm font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground">取消选择</button></div> : <button type="button" onClick={() => setIsManaging(true)} className="inline-flex h-9 items-center rounded-lg border border-border bg-card px-3 text-sm font-medium transition hover:bg-muted">批量操作</button>}
+          {isManaging ? <div className="flex items-center gap-2"><span className="text-sm text-muted-foreground">已选 {selectedIds.size} 张</span><button type="button" onClick={downloadSelected} disabled={!selectedIds.size} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-sm font-medium transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"><Download className="size-4" />下载</button><button type="button" onClick={() => setSelectedFavorites(selectedHasUnfavorited)} disabled={!selectedIds.size || favoriteMutation.isPending} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-sm font-medium transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"><Heart className="size-4" />{selectedHasUnfavorited ? "批量收藏" : "取消收藏"}</button><button type="button" onClick={() => setDeleteIds([...selectedIds])} disabled={!selectedIds.size} className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-destructive/10 px-3 text-sm font-medium text-destructive transition hover:bg-destructive/20 disabled:cursor-not-allowed disabled:opacity-50"><Trash2 className="size-4" />删除</button><button type="button" onClick={leaveManaging} className="h-9 rounded-lg px-3 text-sm font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground">取消选择</button></div> : <button type="button" onClick={() => setIsManaging(true)} className="inline-flex h-9 items-center rounded-lg border border-border bg-card px-3 text-sm font-medium transition hover:bg-muted">批量操作</button>}
         </header>
 
         {notice ? <div role="status" className="mt-5 flex items-center justify-between rounded-xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground"><span>{notice}</span><button type="button" onClick={() => setNotice(null)} className="rounded p-1 hover:bg-muted" aria-label="关闭提示"><X className="size-4" /></button></div> : null}
@@ -179,7 +219,7 @@ function AssetCard({ asset, isManaging, isSelected, onSelect, onOpen, onRefresh 
   </article>;
 }
 
-function AssetDetail({ asset, onPublish, onClose, onDownload, onCopyResult, onDelete, onRefresh, isDeleting, deleteDialog, notice, publishDialog }: { asset: GenerationAsset; onPublish: () => void; onClose: () => void; onDownload: () => void; onCopyResult: (message: string) => void; onDelete: () => void; onRefresh: () => void; isDeleting: boolean; deleteDialog: React.ReactNode; notice: string | null; publishDialog: React.ReactNode }) {
+function AssetDetail({ asset, onPublish, onClose, onDownload, onCopyResult, onDelete, onRefresh, isDeleting, isFavorite, isFavoriteUpdating, onFavorite, deleteDialog, notice, publishDialog }: { asset: GenerationAsset; onPublish: () => void; onClose: () => void; onDownload: () => void; onCopyResult: (message: string) => void; onDelete: () => void; onRefresh: () => void; isDeleting: boolean; isFavorite: boolean; isFavoriteUpdating: boolean; onFavorite: () => void; deleteDialog: React.ReactNode; notice: string | null; publishDialog: React.ReactNode }) {
   const failedUrls = useRef(new Set<string>());
   async function copyImage(): Promise<void> {
     try {
@@ -203,7 +243,7 @@ function AssetDetail({ asset, onPublish, onClose, onDownload, onCopyResult, onDe
       <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card/95 px-5 py-4 backdrop-blur"><button type="button" onClick={onClose} className="grid size-9 place-items-center rounded-lg text-muted-foreground transition hover:bg-muted hover:text-foreground" aria-label="关闭详情"><X className="size-5" /></button><div className="flex items-center gap-1"><button type="button" onClick={onDownload} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border px-3 text-sm font-medium transition hover:bg-muted"><Download className="size-4" />下载</button><button type="button" onClick={() => void copyImage()} className="grid size-9 place-items-center rounded-lg text-muted-foreground transition hover:bg-muted hover:text-foreground" aria-label="复制图片"><Clipboard className="size-4" /></button></div></div>
       {notice ? <p role="status" className="border-b border-border px-5 py-3 text-xs text-muted-foreground">{notice}</p> : null}
       <div className="space-y-7 p-5">
-        <section><p className="text-xs font-medium tracking-wide text-muted-foreground">作品操作</p><div className="mt-3 grid grid-cols-2 gap-2"><button type="button" disabled title="迭代 4 收藏开放" className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-border text-sm text-muted-foreground opacity-55"><Heart className="size-4" />收藏</button><button type="button" onClick={onPublish} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-border text-sm font-medium transition hover:bg-muted hover:text-foreground"><Send className="size-4" />发布</button></div><button type="button" onClick={onDelete} disabled={isDeleting} className="mt-2 inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-destructive/10 text-sm font-medium text-destructive transition hover:bg-destructive/20 disabled:cursor-not-allowed disabled:opacity-50"><Trash2 className="size-4" />删除图片</button></section>
+        <section><p className="text-xs font-medium tracking-wide text-muted-foreground">作品操作</p><div className="mt-3 grid grid-cols-2 gap-2"><button type="button" onClick={onFavorite} disabled={isFavoriteUpdating} className={cn("inline-flex h-10 items-center justify-center gap-2 rounded-lg border text-sm font-medium transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50", isFavorite ? "border-rose-200 bg-rose-50 text-rose-600" : "border-border text-muted-foreground hover:text-foreground")}><Heart className={cn("size-4", isFavorite && "fill-current")} />{isFavorite ? "已收藏" : "收藏"}</button><button type="button" onClick={onPublish} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-border text-sm font-medium transition hover:bg-muted hover:text-foreground"><Send className="size-4" />发布</button></div><button type="button" onClick={onDelete} disabled={isDeleting} className="mt-2 inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-destructive/10 text-sm font-medium text-destructive transition hover:bg-destructive/20 disabled:cursor-not-allowed disabled:opacity-50"><Trash2 className="size-4" />删除图片</button></section>
         <section className="border-t border-border pt-6"><div className="flex items-center justify-between"><h2 className="text-sm font-semibold">提示词</h2></div><p className="mt-3 max-h-56 overflow-y-auto whitespace-pre-wrap break-words rounded-xl bg-muted/60 p-3 text-sm leading-6 text-foreground">{asset.finalPrompt}</p>{asset.finalNegativePrompt ? <><p className="mt-5 text-xs font-medium tracking-wide text-muted-foreground">负向提示词</p><p className="mt-2 whitespace-pre-wrap break-words rounded-xl bg-muted/60 p-3 text-sm leading-6 text-muted-foreground">{asset.finalNegativePrompt}</p></> : null}</section>
         <section className="border-t border-border pt-6"><h2 className="text-sm font-semibold">本次生成</h2><dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-4 text-sm"><Property label="比例" value={ratioOf(asset)} /><Property label="尺寸" value={`${asset.width} × ${asset.height}`} /><Property label="生成时间" value={createdAtText(asset.createdAt)} /><Property label="生成数量" value={`${asset.requestedImageCount} 张`} /></dl></section>
       </div>

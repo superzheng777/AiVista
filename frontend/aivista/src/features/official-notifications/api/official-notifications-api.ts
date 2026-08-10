@@ -33,6 +33,21 @@ export async function markOfficialNotificationRead(notificationId: string): Prom
   unwrapApiResponse(response.data);
 }
 
+export async function markAllOfficialNotificationsRead(): Promise<void> {
+  const response = await browserApiClient.post<ApiResponse<null>>("/users/me/official-notifications/read-all");
+  unwrapApiResponse(response.data);
+}
+
+export async function deleteOfficialNotification(notificationId: string): Promise<void> {
+  const response = await browserApiClient.delete<ApiResponse<null>>(`/users/me/official-notifications/${notificationId}`);
+  unwrapApiResponse(response.data);
+}
+
+export async function deleteAllOfficialNotifications(): Promise<void> {
+  const response = await browserApiClient.delete<ApiResponse<null>>("/users/me/official-notifications");
+  unwrapApiResponse(response.data);
+}
+
 function mapOfficialNotification(dto: OfficialNotificationDto): OfficialNotification {
   return {
     id: dto.notificationId,

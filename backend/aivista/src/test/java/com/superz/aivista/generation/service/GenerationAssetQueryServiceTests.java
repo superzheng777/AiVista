@@ -46,6 +46,7 @@ class GenerationAssetQueryServiceTests {
             assertThat(item.imageId()).isEqualTo("100");
             assertThat(item.url()).isEqualTo("https://oss.example/signed");
             assertThat(item.urlExpiresAt()).isEqualTo(NOW.plusSeconds(600));
+            assertThat(item.favorited()).isFalse();
             assertThat(item.finalPrompt()).isEqualTo("prompt-100");
             assertThat(item.finalNegativePrompt()).isEqualTo("negative-100");
             assertThat(item.generationConfig()).isEqualTo(new GenerationAssetImageResponse.GenerationConfig(1024, 768, 4, true));
@@ -115,6 +116,7 @@ class GenerationAssetQueryServiceTests {
         row.setWidth(1024);
         row.setHeight(768);
         row.setCreatedAt(createdAt);
+        row.setFavorited(false);
         row.setFinalPrompt("prompt-" + imageId);
         row.setFinalNegativePrompt("negative-" + imageId);
         row.setRequestedImageCount(4);

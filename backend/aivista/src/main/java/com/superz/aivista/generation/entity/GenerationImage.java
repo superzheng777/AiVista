@@ -32,6 +32,7 @@ public class GenerationImage {
     private Integer ossCleanupAttemptCount;
     private Instant ossCleanupAvailableAt;
     private String ossCleanupLastError;
+    private Boolean favorited;
     private Instant publicAt;
     private String publicationReviewStatus;
     private Long publicationVersion;

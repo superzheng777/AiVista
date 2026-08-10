@@ -24,13 +24,12 @@ describe("publication-api", () => {
     vi.clearAllMocks();
   });
 
-  it("submitPublication 提交标题描述并带幂等键头", async () => {
+  it("submitPublication 提交标题和描述", async () => {
     client.post.mockResolvedValue(responseData({ imageId: "img-1", status: "PENDING" }));
-    const result = await submitPublication("img-1", { title: "标题", description: "描述" }, "uuid-123");
+    const result = await submitPublication("img-1", { title: "标题", description: "描述" });
     expect(client.post).toHaveBeenCalledWith(
       "/generation-images/img-1/publication",
       { title: "标题", description: "描述" },
-      { headers: { "Idempotency-Key": "uuid-123" } },
     );
     expect(result).toEqual({ imageId: "img-1", status: "PENDING" });
   });
@@ -47,6 +46,7 @@ describe("publication-api", () => {
       url: "https://signed.example/img-1",
       urlExpiresAt: "2026-08-10T00:10:00Z",
       createdAt: "2026-08-09T00:00:00Z",
+      favorited: false,
       finalPrompt: "一只猫",
       finalNegativePrompt: null,
       generationConfig: { width: 1024, height: 768, requestedImageCount: 4, promptExtend: false },

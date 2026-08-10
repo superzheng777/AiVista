@@ -1,7 +1,8 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, Eye, FolderOpen, ImageOff, LoaderCircle, X } from "lucide-react";
+import { Dialog } from "@base-ui/react/dialog";
+import { Bell, CheckCheck, Eye, FolderOpen, ImageOff, LoaderCircle, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import type { OfficialNotification } from "@/entities/notification/model/notification";
@@ -9,7 +10,10 @@ import { getGenerationAsset } from "@/features/assets/api/asset-api";
 import { useGenerationEventStream } from "@/features/generation/model/generation-event-stream-provider";
 import {
   fetchOfficialNotificationUnreadCount,
+  deleteAllOfficialNotifications,
+  deleteOfficialNotification,
   listOfficialNotifications,
+  markAllOfficialNotificationsRead,
   markOfficialNotificationRead,
   officialNotificationQueryKeys,
 } from "@/features/official-notifications/api/official-notifications-api";
@@ -43,6 +47,7 @@ export function OfficialNotificationsBell() {
   const { publicationRefreshVersion } = useGenerationEventStream();
   const [isOpen, setIsOpen] = useState(false);
   const [viewingImageId, setViewingImageId] = useState<string | null>(null);
+  const [isClearConfirmOpen, setIsClearConfirmOpen] = useState(false);
   const unreadCountQuery = useQuery({
     queryKey: officialNotificationQueryKeys.unreadCount,
     queryFn: fetchOfficialNotificationUnreadCount,
@@ -69,6 +74,31 @@ export function OfficialNotificationsBell() {
       void queryClient.invalidateQueries({ queryKey: officialNotificationQueryKeys.unreadCount });
     },
   });
+  const markAllReadMutation = useMutation({
+    mutationFn: markAllOfficialNotificationsRead,
+    onSuccess: () => {
+      queryClient.setQueryData<OfficialNotification[]>(officialNotificationQueryKeys.list, (current) =>
+        current?.map((item) => item.readAt === null ? { ...item, readAt: new Date().toISOString() } : item));
+      void queryClient.invalidateQueries({ queryKey: officialNotificationQueryKeys.unreadCount });
+    },
+  });
+  const deleteMutation = useMutation({
+    mutationFn: deleteOfficialNotification,
+    onSuccess: (_result, notificationId) => {
+      queryClient.setQueryData<OfficialNotification[]>(officialNotificationQueryKeys.list, (current) =>
+        current?.filter((item) => item.id !== notificationId));
+      void queryClient.invalidateQueries({ queryKey: officialNotificationQueryKeys.unreadCount });
+    },
+  });
+  const deleteAllMutation = useMutation({
+    mutationFn: deleteAllOfficialNotifications,
+    onSuccess: () => {
+      queryClient.setQueryData<OfficialNotification[]>(officialNotificationQueryKeys.list, []);
+      setViewingImageId(null);
+      setIsClearConfirmOpen(false);
+      void queryClient.invalidateQueries({ queryKey: officialNotificationQueryKeys.unreadCount });
+    },
+  });
 
   const unreadCount = unreadCountQuery.data ?? 0;
 
@@ -79,16 +109,17 @@ export function OfficialNotificationsBell() {
         {unreadCount > 0 ? <span className="absolute -right-0.5 -top-0.5 grid min-w-4 place-items-center rounded-full bg-destructive px-1 text-[10px] font-semibold leading-4 text-white">{unreadBadgeText(unreadCount)}</span> : null}
       </button>
 
-      {isOpen ? (
-        <div role="dialog" aria-modal="true" aria-labelledby="official-notifications-title" className="fixed inset-0 z-50">
-          <div className="absolute inset-0 bg-slate-950/20 backdrop-blur-[1px]" onClick={() => setIsOpen(false)} />
-          <aside className="absolute inset-y-0 left-0 flex w-full max-w-md flex-col border-r border-border bg-card shadow-2xl md:left-24">
+      <Dialog.Root open={isOpen} modal onOpenChange={(open) => setIsOpen(open)}>
+        <Dialog.Portal>
+          <Dialog.Backdrop className="fixed inset-0 z-50 bg-slate-950/20 backdrop-blur-[1px]" />
+          <Dialog.Viewport className="fixed inset-0 z-50">
+            <Dialog.Popup aria-labelledby="official-notifications-title" className="absolute inset-y-0 left-0 flex w-full max-w-md flex-col border-r border-border bg-card shadow-2xl md:left-24">
             <header className="flex items-center justify-between border-b border-border px-5 py-4">
               <div>
                 <h2 id="official-notifications-title" className="text-lg font-semibold text-card-foreground">官方消息</h2>
                 <p className="mt-0.5 text-xs text-muted-foreground">{unreadCount > 0 ? `${unreadCount} 条未读` : "没有未读消息"}</p>
               </div>
-              <button type="button" onClick={() => setIsOpen(false)} className="grid size-9 place-items-center rounded-lg text-muted-foreground transition hover:bg-muted hover:text-foreground" aria-label="关闭消息抽屉"><X className="size-5" /></button>
+              <div className="flex items-center gap-1"><button type="button" onClick={() => void markAllReadMutation.mutateAsync()} disabled={!unreadCount || markAllReadMutation.isPending} className="inline-flex h-8 items-center gap-1 rounded-lg px-2 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40" aria-label="全部标为已读"><CheckCheck className="size-3.5" />已读</button><button type="button" onClick={() => setIsClearConfirmOpen(true)} disabled={!listQuery.data?.length || deleteAllMutation.isPending} className="grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-muted hover:text-destructive disabled:cursor-not-allowed disabled:opacity-40" aria-label="清空全部消息"><Trash2 className="size-4" /></button><button type="button" onClick={() => setIsOpen(false)} className="grid size-9 place-items-center rounded-lg text-muted-foreground transition hover:bg-muted hover:text-foreground" aria-label="关闭消息抽屉"><X className="size-5" /></button></div>
             </header>
 
             {listQuery.isLoading ? <div className="flex-1 space-y-3 overflow-y-auto p-5">{Array.from({ length: 4 }, (_, index) => <div key={index} className="h-20 animate-pulse rounded-xl bg-muted" />)}</div> : null}
@@ -113,16 +144,29 @@ export function OfficialNotificationsBell() {
                           <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{notification.content}</p>
                           {isPublicationRejected(notification) && notification.violations.length ? <p className="mt-2 rounded-lg bg-rose-50 px-3 py-2 text-xs leading-5 text-rose-700 dark:bg-rose-950/40 dark:text-rose-200">{violationText(notification.violations)}</p> : null}
                         </button>
-                        {notification.imageId ? <button type="button" onClick={() => setViewingImageId(notification.imageId)} className="mt-3 inline-flex h-8 items-center gap-1.5 rounded-lg border border-border px-2.5 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"><Eye className="size-3.5" />查看图片</button> : null}
+                        <div className="mt-3 flex items-center justify-between gap-2">{notification.imageId ? <button type="button" onClick={() => { if (isUnread) void markReadMutation.mutateAsync(notification.id); setViewingImageId(notification.imageId); }} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border px-2.5 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"><Eye className="size-3.5" />查看图片</button> : <span />}{<button type="button" onClick={() => void deleteMutation.mutateAsync(notification.id)} disabled={deleteMutation.isPending} className="grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-muted hover:text-destructive disabled:cursor-not-allowed disabled:opacity-50" aria-label="删除该消息"><Trash2 className="size-4" /></button>}</div>
                       </li>
                     );
                   })}
                 </ul>
               </div>
             ) : null}
-          </aside>
-        </div>
-      ) : null}
+            </Dialog.Popup>
+          </Dialog.Viewport>
+        </Dialog.Portal>
+      </Dialog.Root>
+      <Dialog.Root open={isClearConfirmOpen} modal onOpenChange={setIsClearConfirmOpen}>
+        <Dialog.Portal>
+          <Dialog.Backdrop className="fixed inset-0 z-[60] bg-slate-950/45" />
+          <Dialog.Viewport className="fixed inset-0 z-[60] grid place-items-center p-4">
+            <Dialog.Popup aria-labelledby="clear-official-notifications-title" className="w-full max-w-sm rounded-2xl border border-border bg-card p-6 shadow-2xl">
+              <h2 id="clear-official-notifications-title" className="text-lg font-semibold">清空全部消息？</h2>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">已删除的消息将不再显示，此操作无法撤销。</p>
+              <div className="mt-6 flex justify-end gap-3"><button type="button" onClick={() => setIsClearConfirmOpen(false)} disabled={deleteAllMutation.isPending} className="h-9 rounded-lg px-3 text-sm font-medium text-muted-foreground transition hover:bg-muted">取消</button><button type="button" onClick={() => void deleteAllMutation.mutateAsync()} disabled={deleteAllMutation.isPending} className="inline-flex h-9 items-center gap-2 rounded-lg bg-destructive px-3 text-sm font-medium text-white transition hover:bg-destructive/90 disabled:cursor-not-allowed disabled:opacity-60">{deleteAllMutation.isPending ? <LoaderCircle className="size-4 animate-spin" /> : null}清空</button></div>
+            </Dialog.Popup>
+          </Dialog.Viewport>
+        </Dialog.Portal>
+      </Dialog.Root>
     </>
   );
 }

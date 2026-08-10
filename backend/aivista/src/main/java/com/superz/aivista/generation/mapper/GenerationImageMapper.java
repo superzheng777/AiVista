@@ -68,7 +68,7 @@ public interface GenerationImageMapper extends BaseMapper<GenerationImage> {
     List<GenerationImage> selectByTaskIds(@Param("taskIds") List<Long> taskIds);
 
     @Select("""
-            SELECT i.id AS image_id, i.object_key, i.width, i.height, i.created_at,
+            SELECT i.id AS image_id, i.object_key, i.width, i.height, i.created_at, i.is_favorited AS favorited,
                    i.publication_review_status, i.publication_version, i.public_at,
                    i.publication_title, i.publication_description,
                    t.final_prompt, t.final_negative_prompt, t.requested_image_count, t.prompt_extend
@@ -79,7 +79,7 @@ public interface GenerationImageMapper extends BaseMapper<GenerationImage> {
     List<GenerationAssetImageRow> selectVisibleByUserId(@Param("userId") long userId);
 
     @Select("""
-            SELECT i.id AS image_id, i.object_key, i.width, i.height, i.created_at,
+            SELECT i.id AS image_id, i.object_key, i.width, i.height, i.created_at, i.is_favorited AS favorited,
                    i.publication_review_status, i.publication_version, i.public_at,
                    i.publication_title, i.publication_description,
                    t.final_prompt, t.final_negative_prompt, t.requested_image_count, t.prompt_extend
@@ -112,6 +112,35 @@ public interface GenerationImageMapper extends BaseMapper<GenerationImage> {
             @Param("userId") long userId,
             @Param("imageIds") List<Long> imageIds,
             @Param("deletedAt") Instant deletedAt);
+
+    @Select("""
+            <script>
+            SELECT id FROM generation_images
+            WHERE user_id = #{userId}
+              AND deleted_at IS NULL
+              AND id IN
+            <foreach collection="imageIds" item="imageId" open="(" separator="," close=")">
+                #{imageId}
+            </foreach>
+            FOR UPDATE
+            </script>
+            """)
+    List<Long> selectVisibleOwnedIdsForUpdate(@Param("userId") long userId, @Param("imageIds") List<Long> imageIds);
+
+    @Update("""
+            <script>
+            UPDATE generation_images
+            SET is_favorited = #{favorite}
+            WHERE user_id = #{userId}
+              AND deleted_at IS NULL
+              AND id IN
+            <foreach collection="imageIds" item="imageId" open="(" separator="," close=")">
+                #{imageId}
+            </foreach>
+            </script>
+            """)
+    int setFavoriteByUserIdAndIds(@Param("userId") long userId, @Param("imageIds") List<Long> imageIds,
+            @Param("favorite") boolean favorite);
 
     @Select("""
             SELECT id, object_key, oss_cleanup_attempt_count

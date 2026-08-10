@@ -53,6 +53,7 @@ export type GenerationAsset = {
   width: number;
   height: number;
   createdAt: string;
+  favorited: boolean;
   finalPrompt: string;
   finalNegativePrompt: string | null;
   requestedImageCount: number;
@@ -70,6 +71,7 @@ export type GenerationAssetImageDto = {
   url: string;
   urlExpiresAt: string;
   createdAt: string;
+  favorited: boolean;
   finalPrompt: string;
   finalNegativePrompt: string | null;
   generationConfig: { width: number; height: number; requestedImageCount: number; promptExtend: boolean };
@@ -88,6 +90,7 @@ export function mapGenerationAssetImage(dto: GenerationAssetImageDto): Generatio
     width: dto.generationConfig.width,
     height: dto.generationConfig.height,
     createdAt: dto.createdAt,
+    favorited: dto.favorited,
     finalPrompt: dto.finalPrompt,
     finalNegativePrompt: dto.finalNegativePrompt,
     requestedImageCount: dto.generationConfig.requestedImageCount,

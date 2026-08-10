@@ -12,6 +12,7 @@ Thumbs.db
 # 日志文件
 *.log
 logs/
+.pnpm-store/
 
 # 本地环境变量与密钥（保留可提交的示例文件）
 .env

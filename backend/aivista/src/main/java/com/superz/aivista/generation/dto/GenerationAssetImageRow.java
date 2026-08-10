@@ -15,6 +15,7 @@ public class GenerationAssetImageRow {
     private Integer width;
     private Integer height;
     private Instant createdAt;
+    private Boolean favorited;
     private String finalPrompt;
     private String finalNegativePrompt;
     private Integer requestedImageCount;

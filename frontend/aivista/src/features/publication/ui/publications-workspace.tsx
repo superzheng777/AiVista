@@ -1,6 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Dialog } from "@base-ui/react/dialog";
 import { FolderOpen, LoaderCircle, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -134,16 +135,21 @@ export function PublicationsWorkspace() {
       </div>
 
       {deleteIds ? (
-        <div role="dialog" aria-modal="true" aria-labelledby="delete-publication-title" className="fixed inset-0 z-50 grid place-items-center bg-slate-950/35 p-4">
-          <section className="w-full max-w-sm rounded-2xl border border-border bg-card p-6 shadow-2xl">
+        <Dialog.Root open modal onOpenChange={(open) => { if (!open && !deleteMutation.isPending) setDeleteIds(null); }}>
+          <Dialog.Portal>
+            <Dialog.Backdrop className="fixed inset-0 z-50 bg-slate-950/35" />
+            <Dialog.Viewport className="fixed inset-0 z-50 grid place-items-center p-4">
+              <Dialog.Popup aria-labelledby="delete-publication-title" className="w-full max-w-sm rounded-2xl border border-border bg-card p-6 shadow-2xl">
             <h2 id="delete-publication-title" className="text-lg font-semibold">{deleteIds.length === 1 && detailAsset?.publicationReviewStatus === "APPROVED" ? "撤销发布？" : "取消审核？"}</h2>
             <p className="mt-3 text-sm leading-6 text-muted-foreground">{detailAsset?.publicationReviewStatus === "APPROVED" ? "撤销后图片将从灵感页下架，但原图仍保留在资产库。" : "取消审核后图片将移出发布区，但原图仍保留在资产库。"}</p>
             <div className="mt-6 flex justify-end gap-3">
               <button type="button" onClick={() => setDeleteIds(null)} disabled={deleteMutation.isPending} className="h-9 rounded-lg px-3 text-sm font-medium text-muted-foreground transition hover:bg-muted">取消</button>
               <button type="button" onClick={() => confirmDelete(deleteIds)} disabled={deleteMutation.isPending} className="inline-flex h-9 items-center gap-2 rounded-lg bg-destructive px-3 text-sm font-medium text-white transition hover:bg-destructive/90 disabled:cursor-not-allowed disabled:opacity-60">{deleteMutation.isPending ? <LoaderCircle className="size-4 animate-spin" /> : null}确认删除</button>
             </div>
-          </section>
-        </div>
+              </Dialog.Popup>
+            </Dialog.Viewport>
+          </Dialog.Portal>
+        </Dialog.Root>
       ) : null}
     </div>
   );
