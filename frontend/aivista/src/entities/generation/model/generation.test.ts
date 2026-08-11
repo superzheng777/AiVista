@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { mapGenerationAssetImage, type GenerationAssetImageDto } from "@/entities/generation/model/generation";
+import { mapGenerationAssetImage, needsImageUrlRefresh, type GenerationAssetImageDto } from "@/entities/generation/model/generation";
 
 const dto: GenerationAssetImageDto = {
   imageId: "img-1",
@@ -52,5 +52,16 @@ describe("mapGenerationAssetImage", () => {
     expect(mapped.publicAt).toBeNull();
     expect(mapped.title).toBeNull();
     expect(mapped.description).toBeNull();
+  });
+});
+
+describe("needsImageUrlRefresh", () => {
+  it("keeps a URL that has more than the safety margin remaining", () => {
+    expect(needsImageUrlRefresh("2026-08-11T12:01:00.000Z", Date.parse("2026-08-11T12:00:00.000Z"))).toBe(false);
+  });
+
+  it("refreshes an expiring or malformed URL", () => {
+    expect(needsImageUrlRefresh("2026-08-11T12:00:30.000Z", Date.parse("2026-08-11T12:00:00.000Z"))).toBe(true);
+    expect(needsImageUrlRefresh("not-a-date", Date.parse("2026-08-11T12:00:00.000Z"))).toBe(true);
   });
 });

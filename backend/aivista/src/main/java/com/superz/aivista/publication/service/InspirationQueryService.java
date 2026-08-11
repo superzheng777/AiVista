@@ -2,6 +2,8 @@ package com.superz.aivista.publication.service;
 
 import com.aliyun.oss.OSS;
 import com.superz.aivista.generation.config.GenerationOssProperties;
+import com.superz.aivista.common.exception.BusinessException;
+import com.superz.aivista.common.exception.ErrorCode;
 import com.superz.aivista.generation.dto.GenerationAssetImageResponse;
 import com.superz.aivista.generation.entity.GenerationImage;
 import com.superz.aivista.generation.mapper.GenerationImageMapper;
@@ -43,6 +45,14 @@ public class InspirationQueryService {
     public List<GenerationAssetImageResponse> listByUserId(long userId) {
         List<GenerationImage> rows = images.selectPublishedByUserId(userId);
         return toImages(rows, true, likedImageIds(userId, rows));
+    }
+
+    public GenerationAssetImageResponse get(long imageId, Long viewerUserId) {
+        GenerationImage image = images.selectPublishedById(imageId);
+        if (image == null) {
+            throw new BusinessException(ErrorCode.GENERATION_RESOURCE_NOT_FOUND);
+        }
+        return toImages(List.of(image), false, likedImageIds(viewerUserId, List.of(image))).get(0);
     }
 
     public List<GenerationAssetImageResponse> listPublicationsByUserId(long userId, Long viewerUserId) {

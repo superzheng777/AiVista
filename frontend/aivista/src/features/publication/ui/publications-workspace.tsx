@@ -4,13 +4,14 @@
 import { Dialog } from "@base-ui/react/dialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FolderOpen, LoaderCircle, Trash2, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
-import type { GenerationAsset } from "@/entities/generation/model/generation";
+import { needsImageUrlRefresh, type GenerationAsset } from "@/entities/generation/model/generation";
 import { ImageDetailShell } from "@/entities/generation/ui/image-detail-shell";
 import { PublicImageDetail } from "@/features/inspiration/ui/public-image-detail";
 import { useGenerationEventStream } from "@/features/generation/model/generation-event-stream-provider";
 import { listMyPublications, publicationQueryKeys, removePublication } from "@/features/publication/api/publication-api";
+import { getGenerationAsset } from "@/features/assets/api/asset-api";
 import { cn } from "@/lib/utils";
 
 function createdAtText(value: string): string {
@@ -23,10 +24,27 @@ export function PublicationsWorkspace() {
   const [detailId, setDetailId] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const failedUrls = useRef(new Set<string>());
+  const [openingId, setOpeningId] = useState<string | null>(null);
   const publicationsQuery = useQuery({ queryKey: publicationQueryKeys.mine, queryFn: listMyPublications });
   const publications = publicationsQuery.data ?? [];
   const detailAsset = publications.find((asset) => asset.id === detailId) ?? null;
+
+  async function openDetail(asset: GenerationAsset): Promise<void> {
+    if (!needsImageUrlRefresh(asset.urlExpiresAt)) {
+      setDetailId(asset.id);
+      return;
+    }
+    setOpeningId(asset.id);
+    try {
+      const refreshed = await getGenerationAsset(asset.id);
+      queryClient.setQueryData<GenerationAsset[]>(publicationQueryKeys.mine, (current) => current?.map((item) => item.id === refreshed.id ? refreshed : item));
+      setDetailId(refreshed.id);
+    } catch {
+      setNotice("图片访问地址刷新失败，请稍后重试。");
+    } finally {
+      setOpeningId(null);
+    }
+  }
 
   useEffect(() => {
     if (publicationRefreshVersion > 0) void publicationsQuery.refetch();
@@ -53,7 +71,7 @@ export function PublicationsWorkspace() {
     {publicationsQuery.isLoading ? <div className="grid flex-1 grid-cols-[repeat(auto-fill,minmax(200px,1fr))] content-start gap-4 overflow-y-auto p-6">{Array.from({ length: 6 }, (_, index) => <div key={index} className="aspect-square animate-pulse rounded-2xl bg-muted" />)}</div> : null}
     {publicationsQuery.isError ? <div role="alert" className="m-6 rounded-2xl border border-destructive/20 bg-card p-8 text-center"><p className="text-sm text-destructive">发布区加载失败，请重试。</p><button type="button" onClick={() => void publicationsQuery.refetch()} className="mt-3 text-sm font-medium underline">重新加载</button></div> : null}
     {!publicationsQuery.isLoading && !publicationsQuery.isError && !publications.length ? <div className="flex flex-1 items-center justify-center p-10"><div className="text-center"><FolderOpen className="mx-auto size-7 text-muted-foreground" /><p className="mt-3 text-sm text-muted-foreground">还没有发布记录。请在资产详情中提交作品审核。</p></div></div> : null}
-    {publications.length ? <div className="min-w-0 flex-1 overflow-y-auto p-6"><div className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-4">{publications.map((asset) => <button key={asset.id} type="button" onClick={() => setDetailId(asset.id)} className="group relative overflow-hidden rounded-2xl border bg-card text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"><img src={asset.url} alt="已发布的图片" referrerPolicy="no-referrer" onError={() => { if (!failedUrls.current.has(asset.url)) { failedUrls.current.add(asset.url); void publicationsQuery.refetch(); } }} className="aspect-square w-full bg-muted object-cover" /><span className={cn("absolute left-3 top-3 rounded-full px-2 py-0.5 text-xs font-medium", asset.publicationReviewStatus === "APPROVED" ? "bg-emerald-500/90 text-white" : "bg-sky-500/90 text-white")}>{asset.publicationReviewStatus === "APPROVED" ? "已发布" : "审核中"}</span></button>)}</div></div> : null}
+    {publications.length ? <div className="min-w-0 flex-1 overflow-y-auto p-6"><div className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-4">{publications.map((asset) => <button key={asset.id} type="button" disabled={openingId === asset.id} onClick={() => void openDetail(asset)} className="group relative overflow-hidden rounded-2xl border bg-card text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md disabled:opacity-60"><img src={asset.url} alt="已发布的图片" loading="lazy" decoding="async" referrerPolicy="no-referrer" className="aspect-square w-full bg-muted object-cover" /><span className={cn("absolute left-3 top-3 rounded-full px-2 py-0.5 text-xs font-medium", asset.publicationReviewStatus === "APPROVED" ? "bg-emerald-500/90 text-white" : "bg-sky-500/90 text-white")}>{asset.publicationReviewStatus === "APPROVED" ? "已发布" : "审核中"}</span></button>)}</div></div> : null}
   </div>;
 }
 

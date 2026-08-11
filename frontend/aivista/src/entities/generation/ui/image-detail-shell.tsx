@@ -1,7 +1,7 @@
 "use client";
 
 import { Clipboard, Download, X } from "lucide-react";
-import { useRef, useState } from "react";
+import { useState } from "react";
 import type { ReactNode } from "react";
 
 import type { GenerationAsset } from "@/entities/generation/model/generation";
@@ -19,7 +19,6 @@ function createdAtText(value: string): string {
 }
 
 export function ImageDetailShell({ image, onClose, actions, author, allowCopy = false }: ImageDetailShellProps) {
-  const failedUrls = useRef(new Set<string>());
   const [imageUnavailable, setImageUnavailable] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
   function download(): void {
@@ -44,7 +43,7 @@ export function ImageDetailShell({ image, onClose, actions, author, allowCopy = 
   return <section className="grid min-h-screen grid-cols-[minmax(0,1fr)_380px] bg-muted/35">
     <div onClick={(event) => { if (event.target === event.currentTarget) onClose(); }} className="flex min-w-0 items-center justify-center p-10">
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      {imageUnavailable ? <p className="rounded-xl bg-muted px-5 py-4 text-sm text-muted-foreground">作品图片已不可用。</p> : <img src={image.url} alt={image.title ?? "作品详情"} referrerPolicy="no-referrer" onError={() => { failedUrls.current.add(image.url); setImageUnavailable(true); }} className="max-h-[calc(100vh-5rem)] max-w-full rounded-2xl bg-muted object-contain shadow-xl" />}
+      {imageUnavailable ? <p className="rounded-xl bg-muted px-5 py-4 text-sm text-muted-foreground">作品图片已不可用。</p> : <img src={image.url} alt={image.title ?? "作品详情"} referrerPolicy="no-referrer" onError={() => setImageUnavailable(true)} className="max-h-[calc(100vh-5rem)] max-w-full rounded-2xl bg-muted object-contain shadow-xl" />}
     </div>
     <aside className="min-h-0 overflow-y-auto border-l border-border bg-card">
       <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card/95 px-5 py-4 backdrop-blur"><button type="button" onClick={onClose} className="grid size-9 place-items-center rounded-lg text-muted-foreground hover:bg-muted" aria-label="关闭详情"><X className="size-5" /></button><div className="flex gap-1"><button type="button" onClick={download} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border px-3 text-sm font-medium hover:bg-muted"><Download className="size-4" />下载</button>{allowCopy ? <button type="button" onClick={() => void copy()} className="grid size-9 place-items-center rounded-lg text-muted-foreground hover:bg-muted" aria-label="复制图片"><Clipboard className="size-4" /></button> : null}</div></div>

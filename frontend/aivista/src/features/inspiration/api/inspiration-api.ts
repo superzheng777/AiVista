@@ -9,6 +9,11 @@ export async function listInspirations(): Promise<GenerationAsset[]> {
   return unwrapApiResponse(response.data).map(mapGenerationAssetImage);
 }
 
+export async function getInspiration(imageId: string): Promise<GenerationAsset> {
+  const response = await browserApiClient.get<ApiResponse<GenerationAssetImageDto>>(`/inspirations/${imageId}`);
+  return mapGenerationAssetImage(unwrapApiResponse(response.data));
+}
+
 export async function setImageLike(imageId: string, publicationVersion: number, liked: boolean): Promise<void> {
   const path = `/inspirations/${imageId}/like`;
   if (liked) await browserApiClient.put(path, undefined, { params: { publicationVersion } });

@@ -68,6 +68,12 @@ export type GenerationAsset = {
   likedByCurrentUser: boolean;
 };
 
+/** Keep a small margin so a URL does not expire while the detail image is loading. */
+export function needsImageUrlRefresh(urlExpiresAt: string, now = Date.now()): boolean {
+  const expiresAt = Date.parse(urlExpiresAt);
+  return Number.isNaN(expiresAt) || expiresAt <= now + 30_000;
+}
+
 /** 资产、个人发布和灵感列表共用的后端完整图片 DTO，字段与 `GenerationAssetImageResponse` 对齐。 */
 export type GenerationAssetImageDto = {
   imageId: string;

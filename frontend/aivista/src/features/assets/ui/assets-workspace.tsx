@@ -5,9 +5,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Download, FolderOpen, Heart, LoaderCircle, Send, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import type { GenerationAsset } from "@/entities/generation/model/generation";
+import { needsImageUrlRefresh, type GenerationAsset } from "@/entities/generation/model/generation";
 import { ImageDetailShell } from "@/entities/generation/ui/image-detail-shell";
-import { assetQueryKeys, deleteGenerationAssets, listGenerationAssets, setGenerationImageFavorites } from "@/features/assets/api/asset-api";
+import { assetQueryKeys, deleteGenerationAssets, getGenerationAsset, listGenerationAssets, setGenerationImageFavorites } from "@/features/assets/api/asset-api";
 import { useGenerationEventStream } from "@/features/generation/model/generation-event-stream-provider";
 import { PublicationFormDialog } from "@/features/publication/ui/publication-form-dialog";
 import { cn } from "@/lib/utils";
@@ -38,6 +38,7 @@ export function AssetsWorkspace() {
   const [isManaging, setIsManaging] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [detailAsset, setDetailAsset] = useState<GenerationAsset | null>(null);
+  const [openingAssetId, setOpeningAssetId] = useState<string | null>(null);
   const [deleteIds, setDeleteIds] = useState<string[] | null>(null);
   const [publishAsset, setPublishAsset] = useState<GenerationAsset | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -45,16 +46,6 @@ export function AssetsWorkspace() {
   const assets = assetsQuery.data ?? EMPTY_ASSETS;
   const groups = useMemo(() => groupAssetsByDate(assets), [assets]);
   const selectedHasUnfavorited = assets.some((asset) => selectedIds.has(asset.id) && !asset.favorited);
-  const earliestExpiry = useMemo(() => assets.reduce<number | null>((earliest, asset) => {
-    const expiresAt = Date.parse(asset.urlExpiresAt);
-    return Number.isNaN(expiresAt) || (earliest !== null && earliest <= expiresAt) ? earliest : expiresAt;
-  }, null), [assets]);
-
-  useEffect(() => {
-    if (earliestExpiry === null) return;
-    const timeout = window.setTimeout(() => void queryClient.invalidateQueries({ queryKey: assetQueryKeys.all }), Math.max(0, earliestExpiry - Date.now() - 30_000));
-    return () => window.clearTimeout(timeout);
-  }, [earliestExpiry, queryClient]);
   useEffect(() => {
     if (!assetsQuery.dataUpdatedAt || assetsQuery.dataUpdatedAt <= lastAcknowledgedAssetUpdateRef.current) return;
     lastAcknowledgedAssetUpdateRef.current = assetsQuery.dataUpdatedAt;
@@ -94,6 +85,22 @@ export function AssetsWorkspace() {
     if (asset.publicationReviewStatus === "APPROVED") return setNotice("该图片已发布，请先在发布区撤销发布。");
     setPublishAsset(asset);
   }
+  async function openAsset(asset: GenerationAsset): Promise<void> {
+    if (!needsImageUrlRefresh(asset.urlExpiresAt)) {
+      setDetailAsset(asset);
+      return;
+    }
+    setOpeningAssetId(asset.id);
+    try {
+      const refreshed = await getGenerationAsset(asset.id);
+      queryClient.setQueryData<GenerationAsset[]>(assetQueryKeys.all, (current) => current?.map((item) => item.id === refreshed.id ? refreshed : item));
+      setDetailAsset(refreshed);
+    } catch {
+      setNotice("图片访问地址刷新失败，请稍后重试。");
+    } finally {
+      setOpeningAssetId(null);
+    }
+  }
 
   if (detailAsset) return <AssetDetail asset={detailAsset} onPublish={() => requestPublication(detailAsset)} onClose={() => setDetailAsset(null)} onDelete={() => setDeleteIds([detailAsset.id])} isDeleting={deleteMutation.isPending} isFavorite={detailAsset.favorited} isFavoriteUpdating={favoriteMutation.isPending} onFavorite={() => favoriteMutation.mutate({ imageIds: [detailAsset.id], favorite: !detailAsset.favorited })} deleteDialog={deleteIds ? <DeleteDialog count={deleteIds.length} isDeleting={deleteMutation.isPending} onCancel={() => setDeleteIds(null)} onConfirm={() => deleteMutation.mutate(deleteIds)} /> : null} publishDialog={publishAsset ? <PublicationFormDialog asset={publishAsset} onSuccess={(result) => { setPublishAsset(null); setDetailAsset((asset) => asset?.id === result.imageId ? { ...asset, publicationReviewStatus: result.status } : asset); void queryClient.invalidateQueries({ queryKey: assetQueryKeys.all }); setNotice("已提交审核，可在发布区查看。"); }} onClose={() => setPublishAsset(null)} /> : null} />;
 
@@ -101,13 +108,12 @@ export function AssetsWorkspace() {
     <header className="flex min-h-10 items-center justify-between gap-5"><div><p className="text-sm font-medium text-sky-600">个人资产</p><h1 className="mt-1 text-2xl font-semibold tracking-tight">你的创作</h1></div>{isManaging ? <div className="flex items-center gap-2"><span className="text-sm text-muted-foreground">已选 {selectedIds.size} 张</span><button type="button" onClick={() => assets.filter((asset) => selectedIds.has(asset.id)).forEach(downloadAsset)} disabled={!selectedIds.size} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-sm font-medium hover:bg-muted disabled:opacity-50"><Download className="size-4" />下载</button><button type="button" onClick={() => favoriteMutation.mutate({ imageIds: assets.filter((asset) => selectedIds.has(asset.id)).map((asset) => asset.id), favorite: selectedHasUnfavorited })} disabled={!selectedIds.size || favoriteMutation.isPending} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-sm font-medium hover:bg-muted disabled:opacity-50"><Heart className="size-4" />{selectedHasUnfavorited ? "批量收藏" : "取消收藏"}</button><button type="button" onClick={() => setDeleteIds([...selectedIds])} disabled={!selectedIds.size} className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-destructive/10 px-3 text-sm font-medium text-destructive hover:bg-destructive/20 disabled:opacity-50"><Trash2 className="size-4" />删除</button><button type="button" onClick={() => { setIsManaging(false); setSelectedIds(new Set()); }} className="h-9 rounded-lg px-3 text-sm font-medium text-muted-foreground hover:bg-muted">取消选择</button></div> : <button type="button" onClick={() => setIsManaging(true)} className="inline-flex h-9 items-center rounded-lg border border-border bg-card px-3 text-sm font-medium hover:bg-muted">批量操作</button>}</header>
     {notice ? <div role="status" className="mt-5 flex items-center justify-between rounded-xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground"><span>{notice}</span><button type="button" onClick={() => setNotice(null)} className="rounded p-1 hover:bg-muted" aria-label="关闭提示"><X className="size-4" /></button></div> : null}
     {assetsQuery.isLoading ? <AssetSkeleton /> : null}{assetsQuery.isError ? <section role="alert" className="mt-10 rounded-2xl border border-destructive/20 bg-card p-8 text-center"><p className="text-sm text-destructive">资产加载失败，请重试。</p><button type="button" onClick={() => void assetsQuery.refetch()} className="mt-3 text-sm font-medium underline">重新加载</button></section> : null}{!assetsQuery.isLoading && !assetsQuery.isError && !assets.length ? <EmptyAssets /> : null}
-    <div className="mt-9 space-y-10">{groups.map((group) => <section key={group.label}><h2 className="mb-4 text-sm font-medium text-muted-foreground">{group.label}</h2><div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">{group.items.map((asset) => <AssetCard key={asset.id} asset={asset} isManaging={isManaging} isSelected={selectedIds.has(asset.id)} onSelect={() => toggleSelection(asset.id)} onOpen={() => setDetailAsset(asset)} onRefresh={() => void assetsQuery.refetch()} />)}</div></section>)}</div>
+    <div className="mt-9 space-y-10">{groups.map((group) => <section key={group.label}><h2 className="mb-4 text-sm font-medium text-muted-foreground">{group.label}</h2><div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">{group.items.map((asset) => <AssetCard key={asset.id} asset={asset} isManaging={isManaging} isSelected={selectedIds.has(asset.id)} isOpening={openingAssetId === asset.id} onSelect={() => toggleSelection(asset.id)} onOpen={() => void openAsset(asset)} />)}</div></section>)}</div>
   </div>{deleteIds ? <DeleteDialog count={deleteIds.length} isDeleting={deleteMutation.isPending} onCancel={() => setDeleteIds(null)} onConfirm={() => deleteMutation.mutate(deleteIds)} /> : null}</section>;
 }
 
-function AssetCard({ asset, isManaging, isSelected, onSelect, onOpen, onRefresh }: { asset: GenerationAsset; isManaging: boolean; isSelected: boolean; onSelect: () => void; onOpen: () => void; onRefresh: () => void }) {
-  const failedUrls = useRef(new Set<string>());
-  return <article className={cn("group relative overflow-hidden rounded-2xl border bg-card shadow-sm transition", isSelected ? "border-sky-500 ring-2 ring-sky-500/25" : "border-border hover:-translate-y-0.5 hover:shadow-md")}><button type="button" onClick={isManaging ? onSelect : onOpen} className="block w-full text-left"><img src={asset.url} alt="已生成的图片" referrerPolicy="no-referrer" onError={() => { if (!failedUrls.current.has(asset.url)) { failedUrls.current.add(asset.url); onRefresh(); } }} className="aspect-square w-full bg-muted object-cover" /></button>{isManaging ? <button type="button" onClick={onSelect} aria-label={isSelected ? "取消选择图片" : "选择图片"} className={cn("absolute right-3 top-3 grid size-7 place-items-center rounded-full border shadow-sm", isSelected ? "border-sky-500 bg-sky-500 text-white" : "border-white/80 bg-white/90 text-transparent")}><Check className="size-4" /></button> : null}</article>;
+function AssetCard({ asset, isManaging, isSelected, isOpening, onSelect, onOpen }: { asset: GenerationAsset; isManaging: boolean; isSelected: boolean; isOpening: boolean; onSelect: () => void; onOpen: () => void }) {
+  return <article className={cn("group relative overflow-hidden rounded-2xl border bg-card shadow-sm transition", isSelected ? "border-sky-500 ring-2 ring-sky-500/25" : "border-border hover:-translate-y-0.5 hover:shadow-md")}><button type="button" disabled={isOpening} onClick={isManaging ? onSelect : onOpen} className="block w-full text-left disabled:opacity-60"><img src={asset.url} alt="已生成的图片" loading="lazy" decoding="async" referrerPolicy="no-referrer" className="aspect-square w-full bg-muted object-cover" /></button>{isManaging ? <button type="button" onClick={onSelect} aria-label={isSelected ? "取消选择图片" : "选择图片"} className={cn("absolute right-3 top-3 grid size-7 place-items-center rounded-full border shadow-sm", isSelected ? "border-sky-500 bg-sky-500 text-white" : "border-white/80 bg-white/90 text-transparent")}><Check className="size-4" /></button> : null}</article>;
 }
 
 export function AssetDetail({ asset, onPublish, onClose, onDelete, isDeleting, isFavorite, isFavoriteUpdating, onFavorite, deleteDialog, publishDialog }: { asset: GenerationAsset; onPublish: () => void; onClose: () => void; onDelete: () => void; isDeleting: boolean; isFavorite: boolean; isFavoriteUpdating: boolean; onFavorite: () => void; deleteDialog: React.ReactNode; publishDialog: React.ReactNode }) {

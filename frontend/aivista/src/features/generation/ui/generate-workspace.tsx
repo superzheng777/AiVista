@@ -5,7 +5,7 @@ import { CheckCircle2, FolderClock, ImageIcon, ImageOff, LoaderCircle, MessageSq
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 import type { GenerationMessage, GenerationSession, GenerationTask } from "@/entities/generation/model/generation";
 import { cancelGenerationTask, getGenerationTask, generationQueryKeys, listGenerationMessages, listGenerationSessions } from "@/features/generation/api/generation-api";
@@ -140,7 +140,7 @@ function ConversationPanel({ sessionId, taskId }: { sessionId: string; taskId: s
           {messagesQuery.isLoading ? <HistorySkeleton /> : null}
           {messagesQuery.isError ? <div role="alert" className="rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive"><p>历史对话加载失败，请重试。</p><button type="button" onClick={() => void (messagesQuery.hasNextPage ? messagesQuery.fetchNextPage() : messagesQuery.refetch())} className="mt-1 font-medium underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">重试</button></div> : null}
           {messagesQuery.hasNextPage ? <div className="mb-5 flex justify-center"><button type="button" onClick={() => void messagesQuery.fetchNextPage()} disabled={messagesQuery.isFetchingNextPage} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-border bg-card px-3 text-sm text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60">{messagesQuery.isFetchingNextPage ? <LoaderCircle className="size-4 animate-spin" /> : null}加载更早的对话</button></div> : null}
-          {messages?.map((message) => <ConversationMessage key={message.id} message={message} sessionId={sessionId} />)}
+        {messages?.map((message) => <ConversationMessage key={message.id} message={message} />)}
           {!messagesQuery.isLoading && !messages?.length && !taskQuery.data ? <div className="flex min-h-56 items-center justify-center"><p className="text-sm text-muted-foreground">这个会话还没有可展示的历史内容。</p></div> : null}
           {currentTask ? <div className="flex justify-start"><div className="w-full max-w-4xl"><TaskNotice task={currentTask} isCancelling={cancelTask.isPending} cancellationError={cancelTask.error} onCancel={() => cancelTask.mutate(currentTask.id)} /></div></div> : null}
         </div>
@@ -173,7 +173,7 @@ function SessionListItem({ session, indicator, active, onSelect }: { session: Ge
   return <button type="button" onClick={() => onSelect(session.id)} className={cn("inline-flex min-h-10 min-w-36 items-center gap-2 rounded-lg px-3 text-left text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:flex lg:w-full", active ? "bg-muted font-medium text-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground")}><MessageSquare className="size-4 shrink-0" /><span className="truncate">{session.title}</span>{statusIndicator}</button>;
 }
 
-function ConversationMessage({ message, sessionId }: { message: GenerationMessage; sessionId: string }) {
+function ConversationMessage({ message }: { message: GenerationMessage }) {
   return (
     <article className="border-b border-border/70 py-7 first:pt-0">
       <div className="flex justify-end" aria-label="用户消息">
@@ -191,7 +191,7 @@ function ConversationMessage({ message, sessionId }: { message: GenerationMessag
             <p className="mt-1 text-sm leading-6 text-muted-foreground">{taskStatusText(message.generation)}</p>
             <TaskOutcome task={message.generation} />
             {message.generation.failureMessage ? <p role="alert" className="mt-2 text-xs leading-5 text-destructive">{message.generation.failureMessage}</p> : null}
-            {message.generation.images.length ? <div className="mt-4 grid max-w-3xl gap-3 sm:grid-cols-2">{message.generation.images.map((image) => <GenerationImageCard key={image.id} image={image} sessionId={sessionId} />)}</div> : null}
+            {message.generation.images.length ? <div className="mt-4 grid max-w-3xl gap-3 sm:grid-cols-2">{message.generation.images.map((image) => <GenerationImageCard key={image.id} image={image} />)}</div> : null}
           </div>
         </div>
       </div>
@@ -199,10 +199,7 @@ function ConversationMessage({ message, sessionId }: { message: GenerationMessag
   );
 }
 
-function GenerationImageCard({ image, sessionId }: { image: GenerationTask["images"][number]; sessionId: string }) {
-  const queryClient = useQueryClient();
-  const failedUrls = useRef(new Set<string>());
-
+function GenerationImageCard({ image }: { image: GenerationTask["images"][number] }) {
   if (!image.url) {
     return <div role="status" className="flex aspect-square flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-muted/50 px-4 text-center text-xs text-muted-foreground"><ImageOff className="size-5" aria-hidden="true" />图片已从资产库删除</div>;
   }
@@ -210,12 +207,7 @@ function GenerationImageCard({ image, sessionId }: { image: GenerationTask["imag
   return <div className="overflow-hidden rounded-xl border border-border bg-card">
     {/* Private short-lived signed URLs must not be proxied through an image optimizer. */}
     {/* eslint-disable-next-line @next/next/no-img-element */}
-    <img src={image.url} alt="本次生成的图片" referrerPolicy="no-referrer" onError={() => {
-      if (!failedUrls.current.has(image.url!)) {
-        failedUrls.current.add(image.url!);
-        void queryClient.invalidateQueries({ queryKey: generationQueryKeys.messages(sessionId) });
-      }
-    }} className="aspect-square w-full object-cover" />
+    <img src={image.url} alt="本次生成的图片" loading="lazy" decoding="async" referrerPolicy="no-referrer" className="aspect-square w-full object-cover" />
     <div className="flex items-center gap-1.5 px-3 py-2 text-xs text-muted-foreground"><ImageIcon className="size-3.5" />已生成</div>
   </div>;
 }

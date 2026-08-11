@@ -53,6 +53,21 @@ class InspirationQueryServiceTests {
         verify(images).selectPublished(36);
     }
 
+    @Test
+    void refreshesOnlyTheRequestedPublishedImage() throws Exception {
+        GenerationImageMapper images = mock(GenerationImageMapper.class);
+        OSS oss = mock(OSS.class);
+        when(images.selectPublishedById(11L)).thenReturn(image(11L));
+        when(oss.generatePresignedUrl(anyString(), anyString(), any()))
+                .thenReturn(new URL("https://oss.example/refreshed"));
+
+        var response = service(images, oss).get(11L, null);
+
+        assertThat(response.imageId()).isEqualTo("11");
+        assertThat(response.url()).isEqualTo("https://oss.example/refreshed");
+        verify(images).selectPublishedById(11L);
+    }
+
     private static InspirationQueryService service(GenerationImageMapper images, OSS oss) {
         return new InspirationQueryService(images, mock(GenerationImageLikeMapper.class), oss,
                 new GenerationOssProperties("oss.example", "private-bucket", "id", "secret", "users",
