@@ -12,6 +12,9 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -46,6 +49,14 @@ public class GenerationAssetQueryService {
             throw new BusinessException(ErrorCode.GENERATION_RESOURCE_NOT_FOUND);
         }
         return response(row, clock.instant().plus(ossProperties.signedUrlTtl()));
+    }
+
+    @Transactional(readOnly = true)
+    public Map<Long, GenerationAssetImageResponse> getByIds(long userId, List<Long> imageIds) {
+        if (imageIds.isEmpty()) return Map.of();
+        Instant expiresAt = clock.instant().plus(ossProperties.signedUrlTtl());
+        return imageMapper.selectVisibleByUserIdAndIds(userId, imageIds).stream()
+                .collect(Collectors.toMap(GenerationAssetImageRow::getImageId, row -> response(row, expiresAt)));
     }
 
     private GenerationAssetImageResponse response(GenerationAssetImageRow row, Instant expiresAt) {

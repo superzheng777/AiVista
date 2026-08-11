@@ -19,7 +19,9 @@ public class UserNotification {
     private Long recipientUserId;
     private String category;
     private String eventType;
+    private Long actorUserId;
     private Long imageId;
+    private Long publicationVersion;
     private String title;
     private String content;
     private String metadataJson;

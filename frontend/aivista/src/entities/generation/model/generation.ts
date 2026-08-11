@@ -63,6 +63,9 @@ export type GenerationAsset = {
   publicAt: string | null;
   title: string | null;
   description: string | null;
+  authorId: string;
+  likeCount: number;
+  likedByCurrentUser: boolean;
 };
 
 /** 资产、个人发布和灵感列表共用的后端完整图片 DTO，字段与 `GenerationAssetImageResponse` 对齐。 */
@@ -80,6 +83,9 @@ export type GenerationAssetImageDto = {
   publicAt: string | null;
   title: string | null;
   description: string | null;
+  authorId: string;
+  likeCount: number;
+  likedByCurrentUser: boolean;
 };
 
 export function mapGenerationAssetImage(dto: GenerationAssetImageDto): GenerationAsset {
@@ -100,6 +106,9 @@ export function mapGenerationAssetImage(dto: GenerationAssetImageDto): Generatio
     publicAt: dto.publicAt,
     title: dto.title,
     description: dto.description,
+    authorId: dto.authorId,
+    likeCount: dto.likeCount,
+    likedByCurrentUser: dto.likedByCurrentUser,
   };
 }
 

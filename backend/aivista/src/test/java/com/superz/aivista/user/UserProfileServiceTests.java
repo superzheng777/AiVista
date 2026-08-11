@@ -10,14 +10,16 @@ import static org.mockito.Mockito.when;
 import com.superz.aivista.common.exception.BusinessException;
 import com.superz.aivista.common.exception.ErrorCode;
 import com.superz.aivista.user.dto.UpdateProfileRequest;
+import com.superz.aivista.user.dto.PublicUserProfileResponse;
 import com.superz.aivista.user.entity.User;
+import com.superz.aivista.user.mapper.UserFollowMapper;
 import com.superz.aivista.user.mapper.UserMapper;
 import com.superz.aivista.user.service.UserProfileService;
 import org.junit.jupiter.api.Test;
 
 class UserProfileServiceTests {
     private final UserMapper userMapper = mock(UserMapper.class);
-    private final UserProfileService service = new UserProfileService(userMapper);
+    private final UserProfileService service = new UserProfileService(userMapper, mock(UserFollowMapper.class));
 
     @Test
     void rejectsNewNonEmptyAvatarUrlUntilMediaOwnershipExists() {
@@ -28,6 +30,24 @@ class UserProfileServiceTests {
                 new UpdateProfileRequest("Alice", "https://example.com/avatar.png", null)))
                 .isInstanceOfSatisfying(BusinessException.class,
                         exception -> assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.MEDIA_FORBIDDEN));
+    }
+
+    @Test
+    void returnsBothFollowDirectionsForPublicProfile() {
+        UserFollowMapper follows = mock(UserFollowMapper.class);
+        User user = user();
+        user.setFollowerCount(7L);
+        user.setFollowingCount(3L);
+        user.setReceivedLikeCount(11L);
+        when(userMapper.selectPublicById(1L)).thenReturn(user);
+        when(follows.selectFollowerUserId(2L, 1L)).thenReturn(2L);
+        when(follows.selectFollowerUserId(1L, 2L)).thenReturn(1L);
+
+        PublicUserProfileResponse response = new UserProfileService(userMapper, follows).getPublicProfile(1L, 2L);
+
+        assertThat(response.viewerFollowing()).isTrue();
+        assertThat(response.viewerFollowedByAuthor()).isTrue();
+        assertThat(response.followerCount()).isEqualTo(7L);
     }
 
     @Test

@@ -14,6 +14,9 @@ const dto: GenerationAssetImageDto = {
   publicationReviewStatus: "PENDING",
   publicationVersion: 2,
   publicAt: null,
+  authorId: "author-1",
+  likeCount: 3,
+  likedByCurrentUser: true,
   title: "我的作品",
   description: "描述文本",
 };
@@ -35,6 +38,9 @@ describe("mapGenerationAssetImage", () => {
       publicationReviewStatus: "PENDING",
       publicationVersion: 2,
       publicAt: null,
+      authorId: "author-1",
+      likeCount: 3,
+      likedByCurrentUser: true,
       title: "我的作品",
       description: "描述文本",
     });

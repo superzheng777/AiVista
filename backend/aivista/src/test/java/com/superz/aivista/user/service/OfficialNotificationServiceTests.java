@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.superz.aivista.common.exception.BusinessException;
 import com.superz.aivista.common.exception.ErrorCode;
+import com.superz.aivista.generation.service.GenerationAssetQueryService;
 import com.superz.aivista.user.entity.UserNotification;
 import com.superz.aivista.user.mapper.UserNotificationMapper;
 import java.time.Clock;
@@ -23,8 +24,10 @@ import org.junit.jupiter.api.Test;
 class OfficialNotificationServiceTests {
     private static final long USER_ID = 7L;
     private final UserNotificationMapper notificationMapper = mock(UserNotificationMapper.class);
+    private final GenerationAssetQueryService assets = mock(GenerationAssetQueryService.class);
     private final OfficialNotificationService service = new OfficialNotificationService(
             notificationMapper,
+            assets,
             new ObjectMapper(),
             Clock.fixed(Instant.parse("2026-08-09T00:00:00Z"), ZoneOffset.UTC));
 
@@ -38,13 +41,14 @@ class OfficialNotificationServiceTests {
         notification.setContent("请修改后重新发布");
         notification.setMetadataJson("{\"violations\":[{\"field\":\"title\",\"reasonCode\":\"CONTENT_POLICY\"}]}");
         notification.setCreatedAt(Instant.parse("2026-08-09T00:00:00Z"));
-        when(notificationMapper.selectOfficialByRecipientUserId(USER_ID)).thenReturn(List.of(notification));
+        when(notificationMapper.selectOfficialPageByRecipientUserId(USER_ID, null, null, 16)).thenReturn(List.of(notification));
+        when(assets.getByIds(USER_ID, List.of(21L))).thenReturn(Map.of());
 
-        var response = service.list(USER_ID);
+        var response = service.list(USER_ID, null);
 
-        assertThat(response).singleElement().satisfies(item -> {
+        assertThat(response.items()).singleElement().satisfies(item -> {
             assertThat(item.notificationId()).isEqualTo("11");
-            assertThat(item.imageId()).isEqualTo("21");
+            assertThat(item.image()).isNull();
             assertThat(item.metadata())
                     .containsEntry("violations", List.of(Map.of("field", "title", "reasonCode", "CONTENT_POLICY")));
         });
@@ -84,20 +88,18 @@ class OfficialNotificationServiceTests {
     }
 
     @Test
-    void deletesOwnedNotificationAndRejectsOtherUsersNotification() {
+    void deletesOfficialNotificationsIdempotently() {
         when(notificationMapper.softDeleteOfficial(eq(11L), eq(USER_ID), any())).thenReturn(1);
         service.delete(USER_ID, 11L);
 
         when(notificationMapper.softDeleteOfficial(eq(12L), eq(USER_ID), any())).thenReturn(0);
-        assertThatThrownBy(() -> service.delete(USER_ID, 12L))
-                .isInstanceOfSatisfying(BusinessException.class,
-                        exception -> assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.NOT_FOUND));
+        service.delete(USER_ID, 12L);
     }
 
     @Test
-    void deletesAllOfficialNotifications() {
-        service.deleteAll(USER_ID);
+    void batchDeletesOfficialNotifications() {
+        service.deleteBatch(USER_ID, List.of("11", "12", "11"));
 
-        verify(notificationMapper).softDeleteAllOfficial(eq(USER_ID), any());
+        verify(notificationMapper).softDeleteOfficials(eq(USER_ID), eq(List.of(11L, 12L)), any());
     }
 }

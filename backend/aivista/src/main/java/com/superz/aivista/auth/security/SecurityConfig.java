@@ -3,6 +3,7 @@ package com.superz.aivista.auth.security;
 import com.superz.aivista.auth.token.JwtService;
 import com.superz.aivista.generation.service.GenerationConsentService;
 import jakarta.servlet.DispatcherType;
+import org.springframework.http.HttpMethod;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -57,6 +58,9 @@ public class SecurityConfig {
                                 "/v3/api-docs/**",
                                 "/webjars/**",
                                 "/swagger-resources/**")
+                        .permitAll()
+                        .requestMatchers(HttpMethod.GET, "/users/*", "/users/*/publications",
+                                "/users/*/liked-publications")
                         .permitAll()
                         .anyRequest().authenticated())
                 .addFilterBefore(accessTokenFilter, UsernamePasswordAuthenticationFilter.class)

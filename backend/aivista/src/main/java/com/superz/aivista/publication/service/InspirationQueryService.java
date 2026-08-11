@@ -45,6 +45,11 @@ public class InspirationQueryService {
         return toImages(rows, true, likedImageIds(userId, rows));
     }
 
+    public List<GenerationAssetImageResponse> listPublicationsByUserId(long userId, Long viewerUserId) {
+        List<GenerationImage> rows = images.selectPublicationsByUserId(userId);
+        return toImages(rows, false, likedImageIds(viewerUserId, rows));
+    }
+
     public List<LikedPublicationResponse> listLiked(long ownerUserId, Long viewerUserId) {
         List<GenerationImageLike> relations = likes.selectCurrentVisibleByUserId(ownerUserId);
         if (relations.isEmpty()) {
@@ -59,6 +64,10 @@ public class InspirationQueryService {
                 .map(relation -> new LikedPublicationResponse(imageById.get(relation.getImageId()), relation.getLikedAt()))
                 .filter(item -> item.image() != null)
                 .toList();
+    }
+
+    public List<GenerationAssetImageResponse> toPublicImages(List<GenerationImage> rows, Long viewerUserId) {
+        return toImages(rows, false, likedImageIds(viewerUserId, rows));
     }
 
     private Set<Long> likedImageIds(Long viewerUserId, List<GenerationImage> rows) {

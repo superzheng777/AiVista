@@ -53,6 +53,9 @@ describe("publication-api", () => {
       publicationReviewStatus: "APPROVED" as const,
       publicationVersion: 3,
       publicAt: "2026-08-10T00:00:00Z",
+      authorId: "user-1",
+      likeCount: 2,
+      likedByCurrentUser: false,
       title: "作品",
       description: null,
     };

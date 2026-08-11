@@ -12,7 +12,7 @@ function notification(overrides: Partial<OfficialNotification>): OfficialNotific
   return {
     id: "n1",
     eventType: "PUBLICATION_APPROVED",
-    imageId: "img-1",
+    image: null,
     title: "标题",
     content: "正文",
     violations: [],

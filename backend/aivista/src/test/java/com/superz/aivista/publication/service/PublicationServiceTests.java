@@ -92,6 +92,7 @@ class PublicationServiceTests {
     private static GenerationImage imageWithStatus(String status) {
         GenerationImage image = new GenerationImage();
         image.setId(IMAGE_ID);
+        image.setUserId(USER_ID);
         image.setPublicationReviewStatus(status);
         image.setPublicationVersion(0L);
         return image;

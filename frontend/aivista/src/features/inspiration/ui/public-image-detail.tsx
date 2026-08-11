@@ -1,0 +1,29 @@
+"use client";
+
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Heart, Trash2 } from "lucide-react";
+import { useState } from "react";
+
+import type { GenerationAsset } from "@/entities/generation/model/generation";
+import { ImageDetailShell } from "@/entities/generation/ui/image-detail-shell";
+import { useAuthDialog } from "@/features/auth/model/auth-dialog-provider";
+import { useSession } from "@/features/auth/model/session-provider";
+import { inspirationQueryKeys, setImageLike } from "@/features/inspiration/api/inspiration-api";
+import { publicationQueryKeys, removePublication } from "@/features/publication/api/publication-api";
+import { getPublicAuthor, setFollowing, type PublicAuthor } from "@/features/public-user/api/public-user-api";
+
+export function PublicImageDetail({ image, onClose }: { image: GenerationAsset; onClose: () => void }) {
+  const { status, user } = useSession(); const { open } = useAuthDialog(); const queryClient = useQueryClient();
+  const [current, setCurrent] = useState(image);
+  const [likeError, setLikeError] = useState(false);
+  const isSelf = user?.id === image.authorId;
+  const author = useQuery({ queryKey: ["public-author", image.authorId], queryFn: () => getPublicAuthor(image.authorId), enabled: Boolean(image.authorId) });
+  const like = useMutation({ mutationFn: (liked: boolean) => setImageLike(current.id, current.publicationVersion, liked) });
+  const follow = useMutation({ mutationFn: (following: boolean) => setFollowing(image.authorId, following), onSuccess: () => void author.refetch() });
+  const withdraw = useMutation({ mutationFn: () => removePublication(image.id), onSuccess: () => { queryClient.setQueryData<GenerationAsset[]>(inspirationQueryKeys.all, (items) => items?.filter((item) => item.id !== image.id)); queryClient.setQueryData<GenerationAsset[]>(publicationQueryKeys.mine, (items) => items?.filter((item) => item.id !== image.id)); onClose(); } });
+  const requireLogin = (action: () => void) => { if (status !== "authenticated") open(); else action(); };
+  function toggleLike(): void { const previous = current; const liked = !previous.likedByCurrentUser; const next = { ...previous, likedByCurrentUser: liked, likeCount: Math.max(0, previous.likeCount + (liked ? 1 : -1)) }; setLikeError(false); setCurrent(next); queryClient.setQueryData<GenerationAsset[]>(inspirationQueryKeys.all, (items) => items?.map((item) => item.id === next.id ? next : item)); like.mutate(liked, { onError: () => { setCurrent(previous); setLikeError(true); queryClient.setQueryData<GenerationAsset[]>(inspirationQueryKeys.all, (items) => items?.map((item) => item.id === previous.id ? previous : item)); } }); }
+  return <ImageDetailShell image={current} onClose={onClose} author={<AuthorCard author={author.data} loading={author.isLoading} isSelf={isSelf} following={follow.isPending} onFollow={() => requireLogin(() => follow.mutate(!(author.data?.viewerFollowing ?? false)))} />} actions={<section><p className="text-xs font-medium tracking-wide text-muted-foreground">公开互动</p>{likeError ? <p role="status" className="mt-2 text-xs text-destructive">点赞状态更新失败，已恢复原状态。</p> : null}<button type="button" disabled={like.isPending} onClick={() => requireLogin(toggleLike)} className="mt-3 inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-border text-sm font-medium hover:bg-muted disabled:opacity-50"><Heart className={`size-4 ${current.likedByCurrentUser ? "fill-rose-500 text-rose-500" : ""}`} />{current.likedByCurrentUser ? "取消点赞" : "点赞"} · {current.likeCount}</button>{isSelf ? <button type="button" disabled={withdraw.isPending} onClick={() => withdraw.mutate()} className="mt-2 inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-destructive/10 text-sm font-medium text-destructive hover:bg-destructive/20 disabled:opacity-50"><Trash2 className="size-4" />撤销发布</button> : null}</section>} />;
+}
+
+function AuthorCard({ author, loading, isSelf, onFollow, following }: { author: PublicAuthor | undefined; loading: boolean; isSelf: boolean; onFollow: () => void; following: boolean }) { if (loading) return <div className="h-16 animate-pulse rounded-xl bg-muted" />; if (!author) return null; const label = author.viewerFollowing ? (author.viewerFollowedByAuthor ? "互相关注" : "已关注") : (author.viewerFollowedByAuthor ? "回关" : "关注"); return <section className="border-b border-border pb-5"><p className="text-xs font-medium tracking-wide text-muted-foreground">作者</p><div className="mt-3 flex items-center gap-3"><div className="grid size-10 place-items-center rounded-full bg-sky-100 text-sm font-semibold text-sky-700">{author.nickname.slice(0, 1)}</div><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{author.nickname}</p><p className="mt-0.5 text-xs text-muted-foreground">{author.followerCount} 位关注者 · 获赞 {author.receivedLikeCount}</p></div>{!isSelf ? <button type="button" onClick={onFollow} disabled={following} className="h-9 rounded-lg border border-border px-3 text-sm font-medium hover:bg-muted disabled:opacity-50">{label}</button> : null}</div>{author.bio ? <p className="mt-3 text-sm leading-6 text-muted-foreground">{author.bio}</p> : null}</section>; }

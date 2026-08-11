@@ -41,6 +41,9 @@ public interface GenerationImageMapper extends BaseMapper<GenerationImage> {
     @Select("SELECT i.*, t.final_prompt AS publication_prompt, t.final_negative_prompt AS publication_negative_prompt, t.requested_image_count AS publication_requested_image_count, t.prompt_extend AS publication_prompt_extend FROM generation_images i INNER JOIN generation_tasks t ON t.id = i.task_id WHERE i.user_id = #{userId} AND i.publication_review_status IN ('PENDING', 'APPROVED') ORDER BY i.publication_review_started_at DESC, i.id DESC")
     List<GenerationImage> selectPublishedByUserId(@Param("userId") long userId);
 
+    @Select("SELECT i.*, t.final_prompt AS publication_prompt, t.final_negative_prompt AS publication_negative_prompt, t.requested_image_count AS publication_requested_image_count, t.prompt_extend AS publication_prompt_extend FROM generation_images i INNER JOIN generation_tasks t ON t.id = i.task_id WHERE i.user_id = #{userId} AND i.public_at IS NOT NULL AND i.publication_review_status = 'APPROVED' ORDER BY i.public_at DESC, i.id DESC")
+    List<GenerationImage> selectPublicationsByUserId(@Param("userId") long userId);
+
     @Update("UPDATE generation_images SET publication_review_status = 'PENDING', publication_version = publication_version + 1, publication_review_attempt_count = 0, publication_review_started_at = #{now}, publication_title = #{title}, publication_description = #{description} WHERE id = #{imageId}")
     int markPublicationPending(@Param("imageId") long imageId, @Param("title") String title, @Param("description") String description, @Param("now") Instant now);
 
@@ -108,6 +111,23 @@ public interface GenerationImageMapper extends BaseMapper<GenerationImage> {
             """)
     GenerationAssetImageRow selectVisibleByUserIdAndId(
             @Param("userId") long userId, @Param("imageId") long imageId);
+
+    @Select("""
+            <script>
+            SELECT i.id AS image_id, i.user_id AS author_id, i.object_key, i.width, i.height, i.created_at, i.is_favorited AS favorited, i.like_count,
+                   i.publication_review_status, i.publication_version, i.public_at,
+                   i.publication_title, i.publication_description,
+                   t.final_prompt, t.final_negative_prompt, t.requested_image_count, t.prompt_extend
+            FROM generation_images i
+            INNER JOIN generation_tasks t ON t.id = i.task_id
+            WHERE i.user_id = #{userId}
+              AND (i.deleted_at IS NULL OR i.public_at IS NOT NULL)
+              AND i.id IN
+            <foreach collection="imageIds" item="imageId" open="(" separator="," close=")">#{imageId}</foreach>
+            </script>
+            """)
+    List<GenerationAssetImageRow> selectVisibleByUserIdAndIds(
+            @Param("userId") long userId, @Param("imageIds") List<Long> imageIds);
 
     @Update("""
             <script>

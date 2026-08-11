@@ -7,7 +7,7 @@ vi.mock("@/shared/api/browser-client", () => ({
 import { browserApiClient } from "@/shared/api/browser-client";
 import {
   fetchOfficialNotificationUnreadCount,
-  deleteAllOfficialNotifications,
+  deleteOfficialNotifications,
   deleteOfficialNotification,
   listOfficialNotifications,
   markAllOfficialNotificationsRead,
@@ -27,11 +27,11 @@ describe("official-notifications-api", () => {
   });
 
   it("listOfficialNotifications 映射 DTO 到实体（metadata 缺省为空违规）", async () => {
-    client.get.mockResolvedValue(responseData([
+    client.get.mockResolvedValue(responseData({ items: [
       {
         notificationId: "n1",
         eventType: "PUBLICATION_REJECTED",
-        imageId: "img-1",
+        image: { imageId: "img-1", url: "https://example.com/image", urlExpiresAt: "2026-08-10T01:00:00Z", createdAt: "2026-08-10T00:00:00Z", favorited: false, finalPrompt: "prompt", finalNegativePrompt: null, generationConfig: { width: 1, height: 1, requestedImageCount: 1, promptExtend: false }, publicationReviewStatus: "APPROVED", publicationVersion: 1, publicAt: null, title: null, description: null, authorId: "user-1", likeCount: 0, likedByCurrentUser: false },
         title: "标题",
         content: "正文",
         metadata: { violations: [{ field: "title", reasonCode: "SENSITIVE_INFO" }] },
@@ -41,22 +41,22 @@ describe("official-notifications-api", () => {
       {
         notificationId: "n2",
         eventType: "PUBLICATION_APPROVED",
-        imageId: null,
+        image: null,
         title: "标题2",
         content: "正文2",
         metadata: null,
         readAt: "2026-08-10T01:00:00Z",
         createdAt: "2026-08-10T00:30:00Z",
       },
-    ]));
+    ], nextCursor: null }));
 
-    const result = await listOfficialNotifications();
-    expect(client.get).toHaveBeenCalledWith("/users/me/official-notifications");
-    expect(result).toEqual([
+    const result = await listOfficialNotifications(null);
+    expect(client.get).toHaveBeenCalledWith("/users/me/official-notifications", { params: undefined });
+    expect(result.items).toEqual([
       {
         id: "n1",
         eventType: "PUBLICATION_REJECTED",
-        imageId: "img-1",
+        image: expect.objectContaining({ id: "img-1" }),
         title: "标题",
         content: "正文",
         violations: [{ field: "title", reasonCode: "SENSITIVE_INFO" }],
@@ -66,7 +66,7 @@ describe("official-notifications-api", () => {
       {
         id: "n2",
         eventType: "PUBLICATION_APPROVED",
-        imageId: null,
+        image: null,
         title: "标题2",
         content: "正文2",
         violations: [],
@@ -74,12 +74,13 @@ describe("official-notifications-api", () => {
         createdAt: "2026-08-10T00:30:00Z",
       },
     ]);
+    expect(result.nextCursor).toBeNull();
   });
 
   it("fetchOfficialNotificationUnreadCount 返回未读数", async () => {
-    client.get.mockResolvedValue(responseData({ unreadCount: 3 }));
+    client.get.mockResolvedValue(responseData({ officialUnreadCount: 3 }));
     await expect(fetchOfficialNotificationUnreadCount()).resolves.toBe(3);
-    expect(client.get).toHaveBeenCalledWith("/users/me/official-notifications/unread-count");
+    expect(client.get).toHaveBeenCalledWith("/users/me/notifications/unread-count");
   });
 
   it("markOfficialNotificationRead 调用标记已读端点", async () => {
@@ -94,10 +95,10 @@ describe("official-notifications-api", () => {
 
     await markAllOfficialNotificationsRead();
     await deleteOfficialNotification("n1");
-    await deleteAllOfficialNotifications();
+    await deleteOfficialNotifications(["n1", "n2"]);
 
     expect(client.post).toHaveBeenCalledWith("/users/me/official-notifications/read-all");
     expect(client.delete).toHaveBeenCalledWith("/users/me/official-notifications/n1");
-    expect(client.delete).toHaveBeenCalledWith("/users/me/official-notifications");
+    expect(client.post).toHaveBeenCalledWith("/users/me/official-notifications/deletions", { notificationIds: ["n1", "n2"] });
   });
 });

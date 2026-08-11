@@ -5,6 +5,7 @@ import com.superz.aivista.common.exception.ErrorCode;
 import com.superz.aivista.generation.config.GenerationSseProperties;
 import com.superz.aivista.generation.event.GenerationTaskStatusEvent;
 import com.superz.aivista.publication.event.PublicationStatusEvent;
+import com.superz.aivista.user.event.InteractionNotificationCreatedEvent;
 import java.io.IOException;
 import java.time.Clock;
 import java.time.Duration;
@@ -52,6 +53,10 @@ public class GenerationSseConnectionService {
 
     public void publish(long userId, long eventId, PublicationStatusEvent event) {
         publish(userId, eventId, "publication.updated", event);
+    }
+
+    public void publish(long userId, long eventId, InteractionNotificationCreatedEvent event) {
+        publish(userId, eventId, "interaction.notification.created", event);
     }
 
     private void publish(long userId, long eventId, String eventName, Object event) {
