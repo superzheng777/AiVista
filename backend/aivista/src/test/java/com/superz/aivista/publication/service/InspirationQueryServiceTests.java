@@ -11,6 +11,7 @@ import com.aliyun.oss.OSS;
 import com.superz.aivista.generation.config.GenerationOssProperties;
 import com.superz.aivista.generation.entity.GenerationImage;
 import com.superz.aivista.generation.mapper.GenerationImageMapper;
+import com.superz.aivista.publication.mapper.GenerationImageLikeMapper;
 import java.net.URL;
 import java.time.Clock;
 import java.time.Duration;
@@ -48,12 +49,12 @@ class InspirationQueryServiceTests {
         OSS oss = mock(OSS.class);
         when(images.selectPublished(36)).thenReturn(List.of());
 
-        assertThat(service(images, oss).list()).isEmpty();
+        assertThat(service(images, oss).list(null)).isEmpty();
         verify(images).selectPublished(36);
     }
 
     private static InspirationQueryService service(GenerationImageMapper images, OSS oss) {
-        return new InspirationQueryService(images, oss,
+        return new InspirationQueryService(images, mock(GenerationImageLikeMapper.class), oss,
                 new GenerationOssProperties("oss.example", "private-bucket", "id", "secret", "users",
                         Duration.ofMinutes(10), Duration.ofSeconds(5), Duration.ofSeconds(60), "30MiB"),
                 Clock.fixed(NOW, ZoneOffset.UTC));

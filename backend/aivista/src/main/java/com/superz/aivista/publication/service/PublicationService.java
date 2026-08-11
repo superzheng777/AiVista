@@ -9,6 +9,7 @@ import com.superz.aivista.generation.mapper.OutboxEventMapper;
 import com.superz.aivista.generation.model.OutboxEventType;
 import com.superz.aivista.generation.model.OutboxStatus;
 import com.superz.aivista.publication.dto.PublicationRequestResponse;
+import com.superz.aivista.publication.mapper.GenerationImageLikeMapper;
 import com.superz.aivista.user.mapper.UserMapper;
 import java.time.Clock;
 import java.time.Instant;
@@ -19,13 +20,15 @@ import org.springframework.transaction.annotation.Transactional;
 public class PublicationService {
     private final GenerationImageMapper imageMapper;
     private final UserMapper userMapper;
+    private final GenerationImageLikeMapper likeMapper;
     private final OutboxEventMapper outboxEventMapper;
     private final Clock clock;
 
     public PublicationService(GenerationImageMapper imageMapper, UserMapper userMapper,
-            OutboxEventMapper outboxEventMapper, Clock clock) {
+            GenerationImageLikeMapper likeMapper, OutboxEventMapper outboxEventMapper, Clock clock) {
         this.imageMapper = imageMapper;
         this.userMapper = userMapper;
+        this.likeMapper = likeMapper;
         this.outboxEventMapper = outboxEventMapper;
         this.clock = clock;
     }
@@ -70,6 +73,14 @@ public class PublicationService {
         GenerationImage image = imageMapper.selectOwnedByIdForUpdate(imageId, userId);
         if (image == null) {
             throw new BusinessException(ErrorCode.GENERATION_RESOURCE_NOT_FOUND);
+        }
+        long likeCount = image.getLikeCount() == null ? 0 : image.getLikeCount();
+        if (image.getPublicAt() != null) {
+            int deleted = likeMapper.deleteByImageAndVersion(imageId, image.getPublicationVersion());
+            if (deleted != likeCount || userMapper.selectIdForUpdate(image.getUserId()) == null
+                    || userMapper.changeReceivedLikeCount(image.getUserId(), -deleted) != 1) {
+                throw new IllegalStateException("Publication like counters are inconsistent");
+            }
         }
         imageMapper.withdrawPublication(imageId, clock.instant());
     }

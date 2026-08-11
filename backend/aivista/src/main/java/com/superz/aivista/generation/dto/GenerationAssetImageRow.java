@@ -25,4 +25,6 @@ public class GenerationAssetImageRow {
     private Instant publicAt;
     private String publicationTitle;
     private String publicationDescription;
+    private Long authorId;
+    private Long likeCount;
 }

@@ -16,7 +16,10 @@ public record GenerationAssetImageResponse(
         long publicationVersion,
         Instant publicAt,
         String title,
-        String description) {
+        String description,
+        String authorId,
+        long likeCount,
+        boolean likedByCurrentUser) {
 
     public record GenerationConfig(int width, int height, int requestedImageCount, boolean promptExtend) {
     }

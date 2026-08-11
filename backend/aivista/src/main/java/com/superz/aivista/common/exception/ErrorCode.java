@@ -4,6 +4,7 @@ import org.springframework.http.HttpStatus;
 
 /** 应用对外暴露的稳定错误码。 */
 public enum ErrorCode {
+    LIKE_RATE_LIMITED(42902, "点赞操作过于频繁，请稍后重试", HttpStatus.TOO_MANY_REQUESTS),
     SUCCESS(0, "ok", HttpStatus.OK),
     BAD_REQUEST(40000, "请求参数错误", HttpStatus.BAD_REQUEST),
     UNAUTHORIZED(40100, "未登录或登录已失效", HttpStatus.UNAUTHORIZED),

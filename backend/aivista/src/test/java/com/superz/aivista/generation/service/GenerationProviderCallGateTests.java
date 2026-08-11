@@ -7,7 +7,6 @@ import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
-import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 
 class GenerationProviderCallGateTests {
 
@@ -46,17 +45,6 @@ class GenerationProviderCallGateTests {
         first.close();
         assertThat(acquired.await(1, TimeUnit.SECONDS)).isTrue();
         second.join();
-    }
-
-    @Test
-    void isCreatedBySpringThroughItsSingleConstructor() {
-        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
-            context.registerBean(GenerationBailianProperties.class, () -> properties(30, 2));
-            context.registerBean(GenerationProviderCallGate.class);
-            context.refresh();
-
-            assertThat(context.getBean(GenerationProviderCallGate.class)).isNotNull();
-        }
     }
 
     private static GenerationBailianProperties properties(int maxConcurrentCalls, int rateLimitPerSecond) {

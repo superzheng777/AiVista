@@ -21,6 +21,8 @@ public class User {
     private String nickname;
     private String avatarUrl;
     private String bio;
+    private Long receivedLikeCount;
+    private Boolean likesPublic;
     private Instant createdAt;
     private Instant updatedAt;
 }

@@ -1,7 +1,6 @@
 package com.superz.aivista.user.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.superz.aivista.common.exception.BusinessException;
 import com.superz.aivista.common.exception.ErrorCode;
@@ -11,6 +10,7 @@ import com.superz.aivista.user.entity.UserNotification;
 import com.superz.aivista.user.mapper.UserNotificationMapper;
 import java.time.Clock;
 import java.util.List;
+import java.util.Map;
 import org.springframework.stereotype.Service;
 
 /** Queries and acknowledges the current user's official notifications. */
@@ -70,12 +70,13 @@ public class OfficialNotificationService {
                 notification.getCreatedAt());
     }
 
-    private JsonNode metadata(String metadataJson) {
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> metadata(String metadataJson) {
         if (metadataJson == null) {
             return null;
         }
         try {
-            return objectMapper.readTree(metadataJson);
+            return (Map<String, Object>) objectMapper.readValue(metadataJson, Map.class);
         } catch (JsonProcessingException exception) {
             throw new IllegalStateException("Cannot deserialize notification metadata", exception);
         }

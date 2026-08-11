@@ -17,6 +17,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class OfficialNotificationServiceTests {
@@ -44,7 +45,8 @@ class OfficialNotificationServiceTests {
         assertThat(response).singleElement().satisfies(item -> {
             assertThat(item.notificationId()).isEqualTo("11");
             assertThat(item.imageId()).isEqualTo("21");
-            assertThat(item.metadata().at("/violations/0/field").asText()).isEqualTo("title");
+            assertThat(item.metadata())
+                    .containsEntry("violations", List.of(Map.of("field", "title", "reasonCode", "CONTENT_POLICY")));
         });
     }
 

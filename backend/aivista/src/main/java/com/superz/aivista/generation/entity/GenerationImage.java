@@ -40,6 +40,7 @@ public class GenerationImage {
     private Instant publicationReviewStartedAt;
     private String publicationTitle;
     private String publicationDescription;
+    private Long likeCount;
     private String publicationPrompt;
     private String publicationNegativePrompt;
     private Integer publicationRequestedImageCount;

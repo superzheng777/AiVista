@@ -56,6 +56,7 @@ public class GenerationAssetQueryService {
                         row.getRequestedImageCount(), Boolean.TRUE.equals(row.getPromptExtend())),
                 row.getPublicationReviewStatus() == null ? "NONE" : row.getPublicationReviewStatus(),
                 row.getPublicationVersion() == null ? 0L : row.getPublicationVersion(), row.getPublicAt(),
-                row.getPublicationTitle(), row.getPublicationDescription());
+                row.getPublicationTitle(), row.getPublicationDescription(), String.valueOf(row.getAuthorId()),
+                row.getLikeCount() == null ? 0L : row.getLikeCount(), false);
     }
 }

@@ -20,6 +20,15 @@ public interface UserMapper extends BaseMapper<User> {
     @Select("SELECT id FROM users WHERE id = #{userId} FOR UPDATE")
     Long selectIdForUpdate(@Param("userId") long userId);
 
+    @Update("UPDATE users SET received_like_count = received_like_count + #{delta} WHERE id = #{userId} AND received_like_count + #{delta} >= 0")
+    int changeReceivedLikeCount(@Param("userId") long userId, @Param("delta") int delta);
+
+    @Select("SELECT likes_public FROM users WHERE id = #{userId}")
+    Boolean selectLikesPublicById(@Param("userId") long userId);
+
+    @Update("UPDATE users SET likes_public = #{likesPublic} WHERE id = #{userId}")
+    int updateLikesPublic(@Param("userId") long userId, @Param("likesPublic") boolean likesPublic);
+
     @Update("""
             UPDATE users
             SET nickname = #{nickname}, avatar_url = #{avatarUrl}, bio = #{bio}

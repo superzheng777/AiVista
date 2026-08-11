@@ -9,7 +9,8 @@ import org.springframework.context.annotation.Configuration;
         "com.superz.aivista.user.mapper",
         "com.superz.aivista.auth.mapper",
         "com.superz.aivista.common.idempotency",
-        "com.superz.aivista.generation.mapper"
+        "com.superz.aivista.generation.mapper",
+        "com.superz.aivista.publication.mapper"
 })
 public class DataAccessConfig {
 }

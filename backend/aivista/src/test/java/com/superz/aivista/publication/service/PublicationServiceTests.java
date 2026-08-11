@@ -14,6 +14,7 @@ import com.superz.aivista.common.exception.ErrorCode;
 import com.superz.aivista.generation.entity.GenerationImage;
 import com.superz.aivista.generation.mapper.GenerationImageMapper;
 import com.superz.aivista.generation.mapper.OutboxEventMapper;
+import com.superz.aivista.publication.mapper.GenerationImageLikeMapper;
 import com.superz.aivista.user.mapper.UserMapper;
 import java.time.Clock;
 import java.time.Instant;
@@ -28,12 +29,13 @@ class PublicationServiceTests {
 
     private final GenerationImageMapper images = mock(GenerationImageMapper.class);
     private final UserMapper users = mock(UserMapper.class);
+    private final GenerationImageLikeMapper likes = mock(GenerationImageLikeMapper.class);
     private final OutboxEventMapper outbox = mock(OutboxEventMapper.class);
     private PublicationService service;
 
     @BeforeEach
     void setUp() {
-        service = new PublicationService(images, users, outbox, Clock.fixed(NOW, ZoneOffset.UTC));
+        service = new PublicationService(images, users, likes, outbox, Clock.fixed(NOW, ZoneOffset.UTC));
         when(users.selectIdForUpdate(USER_ID)).thenReturn(USER_ID);
     }
 
@@ -69,6 +71,22 @@ class PublicationServiceTests {
                 .isInstanceOfSatisfying(BusinessException.class,
                         exception -> assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.VALIDATION_ERROR));
         verify(outbox, never()).insertSelective(any());
+    }
+
+    @Test
+    void withdrawRemovesCurrentPublicationLikesAndReceivedCount() {
+        GenerationImage image = imageWithStatus("APPROVED");
+        image.setPublicAt(NOW);
+        image.setLikeCount(2L);
+        when(images.selectOwnedByIdForUpdate(IMAGE_ID, USER_ID)).thenReturn(image);
+        when(likes.deleteByImageAndVersion(IMAGE_ID, 0L)).thenReturn(2);
+        when(users.changeReceivedLikeCount(USER_ID, -2)).thenReturn(1);
+
+        service.withdraw(USER_ID, IMAGE_ID);
+
+        verify(likes).deleteByImageAndVersion(IMAGE_ID, 0L);
+        verify(users).changeReceivedLikeCount(USER_ID, -2);
+        verify(images).withdrawPublication(IMAGE_ID, NOW);
     }
 
     private static GenerationImage imageWithStatus(String status) {
