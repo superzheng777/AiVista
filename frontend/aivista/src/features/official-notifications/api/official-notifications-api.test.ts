@@ -78,7 +78,7 @@ describe("official-notifications-api", () => {
   });
 
   it("fetchOfficialNotificationUnreadCount 返回未读数", async () => {
-    client.get.mockResolvedValue(responseData({ officialUnreadCount: 3 }));
+    client.get.mockResolvedValue(responseData({ officialUnreadCount: 2, interactionUnreadCount: 1, totalUnreadCount: 3 }));
     await expect(fetchOfficialNotificationUnreadCount()).resolves.toBe(3);
     expect(client.get).toHaveBeenCalledWith("/users/me/notifications/unread-count");
   });

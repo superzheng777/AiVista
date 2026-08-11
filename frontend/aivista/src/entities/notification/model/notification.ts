@@ -21,3 +21,12 @@ export type OfficialNotification = {
   readAt: string | null;
   createdAt: string;
 };
+
+export type InteractionNotification = {
+  id: string;
+  eventType: "IMAGE_LIKED" | "USER_FOLLOWED";
+  actor: { userId: string; nickname: string; avatarUrl: string | null };
+  image: GenerationAsset | null;
+  readAt: string | null;
+  createdAt: string;
+};

@@ -29,8 +29,8 @@ export async function listOfficialNotifications(cursor: string | null): Promise<
 }
 
 export async function fetchOfficialNotificationUnreadCount(): Promise<number> {
-  const response = await browserApiClient.get<ApiResponse<{ officialUnreadCount: number }>>("/users/me/notifications/unread-count");
-  return unwrapApiResponse(response.data).officialUnreadCount;
+  const response = await browserApiClient.get<ApiResponse<{ totalUnreadCount: number }>>("/users/me/notifications/unread-count");
+  return unwrapApiResponse(response.data).totalUnreadCount;
 }
 
 export async function markOfficialNotificationRead(notificationId: string): Promise<void> {

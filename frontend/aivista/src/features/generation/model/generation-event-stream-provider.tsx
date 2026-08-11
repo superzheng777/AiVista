@@ -27,6 +27,7 @@ type GenerationEventStreamContextValue = {
   hasAttention: boolean;
   /** 发布相关的刷新信号：收到 publication.updated 或重连成功同步时自增。 */
   publicationRefreshVersion: number;
+  notificationRefreshVersion: number;
   acknowledgeSession: (sessionId: string) => void;
   acknowledgeCompletedResults: () => void;
   registerSubmittedTask: (task: Pick<GenerationTask, "id" | "sessionId" | "status" | "version">) => void;
@@ -65,6 +66,7 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
   const [completedSessionIds, setCompletedSessionIds] = useState<Set<string>>(() => new Set());
   const [attentionSessionIds, setAttentionSessionIds] = useState<Set<string>>(() => new Set());
   const [publicationRefreshVersion, setPublicationRefreshVersion] = useState(0);
+  const [notificationRefreshVersion, setNotificationRefreshVersion] = useState(0);
   const readyRef = useRef(false);
   const everReadyRef = useRef(false);
   const lifecycleControllerRef = useRef<AbortController | null>(null);
@@ -155,8 +157,9 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
     const reviewedTasks = await Promise.all([...taskIdsToReview].map(getGenerationTask));
     for (const task of reviewedTasks) mergeTaskSnapshot(task);
     await queryClient.refetchQueries({ queryKey: generationQueryKeys.all, type: "active" });
-    // A successful sync refreshes any open publication views that listen to this version.
+    // REST reconciliation also corrects any interaction messages missed while offline.
     setPublicationRefreshVersion((current) => current + 1);
+    setNotificationRefreshVersion((current) => current + 1);
   }, [mergeTaskSnapshot, queryClient]);
 
   const startBatch = useCallback((): Promise<boolean> => {
@@ -201,7 +204,7 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
 
           let serverReady = false;
           let connectionAccepted = false;
-          const streamDone = consumeSseStream(response, () => { serverReady = true; }, applyTaskUpdate, applyPublicationUpdate)
+          const streamDone = consumeSseStream(response, () => { serverReady = true; }, applyTaskUpdate, applyPublicationUpdate, () => setNotificationRefreshVersion((current) => current + 1))
             .catch(() => undefined)
             .finally(() => {
               if (connectionSequenceRef.current !== sequence || lifecycleController.signal.aborted) return;
@@ -350,7 +353,7 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
       reconnectAttempt: authStatus === "authenticated" ? reconnectAttempt : 0,
       ensureReady, retryNow, activeTaskCount, sessionIndicators,
       hasCompletedResults: completedSessionIds.size > 0, hasAttention: attentionSessionIds.size > 0,
-      publicationRefreshVersion, acknowledgeSession, acknowledgeCompletedResults, registerSubmittedTask }}>
+      publicationRefreshVersion, notificationRefreshVersion, acknowledgeSession, acknowledgeCompletedResults, registerSubmittedTask }}>
       {children}
     </GenerationEventStreamContext>
   );

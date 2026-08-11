@@ -23,6 +23,7 @@ export type GenerationSessionIndicator = "ACTIVE" | "COMPLETED" | "ATTENTION";
 export const TASK_EVENT_NAME = "generation.task.updated";
 export const PUBLICATION_EVENT_NAME = "publication.updated";
 export const READY_EVENT_NAME = "generation.stream.ready";
+export const INTERACTION_NOTIFICATION_EVENT_NAME = "interaction.notification.created";
 export const MAX_RECONNECT_DELAY_MS = 3_000;
 
 /** 发布终态：只有这些状态才允许驱动“信号 → 全量重拉”。 */
@@ -72,6 +73,7 @@ export async function consumeSseStream(
   onReady: () => void,
   onTaskUpdate: (event: GenerationTaskUpdateEvent) => void,
   onPublicationUpdate: (event: PublicationStatusUpdateEvent) => void,
+  onInteractionNotification: () => void = () => undefined,
 ): Promise<void> {
   if (!response.body) throw new Error("The event stream has no response body.");
   const reader = response.body.getReader();
@@ -91,6 +93,7 @@ export async function consumeSseStream(
         onReady();
         continue;
       }
+      if (parsed.eventName === INTERACTION_NOTIFICATION_EVENT_NAME) { onInteractionNotification(); continue; }
       try {
         const event: unknown = JSON.parse(parsed.data);
         if (parsed.eventName === TASK_EVENT_NAME && isTaskUpdateEvent(event)) {
