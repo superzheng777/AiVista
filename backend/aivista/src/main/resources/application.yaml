@@ -69,7 +69,7 @@ app:
       consumer-concurrency: 40
       dispatcher-fixed-delay: 1s
       dispatcher-batch-size: 20
-      delivery-max-retries: 5
+      delivery-max-attempts: 5
       delivery-retry-delay: 5s
       queue-timeout: 3m
       queue-timeout-fixed-delay: 30s

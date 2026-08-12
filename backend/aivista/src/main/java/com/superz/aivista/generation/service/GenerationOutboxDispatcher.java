@@ -97,7 +97,7 @@ public class GenerationOutboxDispatcher {
     /** 对可恢复故障重新排期；超过重试上限后收敛事件及其原始排队任务。 */
     private void handleDeliveryFailure(OutboxEvent event, Instant now, String error) {
         int retries = event.getRetryCount() + 1;
-        if (retries <= properties.deliveryMaxRetries()) {
+        if (retries <= properties.deliveryMaxAttempts()) {
             outboxEventMapper.reschedule(event.getId(), retries,
                     now.plus(properties.deliveryRetryDelay().multipliedBy(retries)), error);
             return;
