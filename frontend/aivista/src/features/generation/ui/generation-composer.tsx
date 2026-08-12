@@ -131,20 +131,11 @@ export function GenerationComposer({ sessionId, hasActiveTask = false }: Generat
       generationStream.registerSubmittedTask(task);
       pendingSubmission.current = null;
       window.sessionStorage.removeItem(PENDING_SUBMISSION_STORAGE_KEY);
-      queryClient.setQueryData(generationQueryKeys.task(task.id), {
-        ...task,
-        retryCount: 0,
-        maxRetryCount: 0,
-        completedImageCount: 0,
-        failedImageCount: 0,
-        cancelledImageCount: 0,
-        failureCode: null,
-        failureMessage: null,
-        images: [],
-        completedAt: null,
-      });
-      void queryClient.invalidateQueries({ queryKey: generationQueryKeys.sessions() });
-      router.push(`/generate?sessionId=${encodeURIComponent(task.sessionId)}&taskId=${encodeURIComponent(task.id)}`);
+      void Promise.all([
+        queryClient.invalidateQueries({ queryKey: generationQueryKeys.sessions() }),
+        queryClient.invalidateQueries({ queryKey: generationQueryKeys.messages(task.sessionId) }),
+      ]);
+      router.push(`/generate?sessionId=${encodeURIComponent(task.sessionId)}`);
     },
     onError: (error) => {
       const apiErrorCode = getApiErrorCode(error);

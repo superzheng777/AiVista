@@ -1,6 +1,6 @@
 "use client";
 
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { type InfiniteData, useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, FolderClock, ImageIcon, ImageOff, LoaderCircle, MessageSquare, PencilLine, Sparkles, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -8,9 +8,13 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import type { GenerationMessage, GenerationSession, GenerationTask } from "@/entities/generation/model/generation";
-import { cancelGenerationTask, getGenerationTask, generationQueryKeys, listGenerationMessages, listGenerationSessions } from "@/features/generation/api/generation-api";
+import { cancelGenerationTask, generationQueryKeys, listGenerationMessages, listGenerationSessions } from "@/features/generation/api/generation-api";
 import { GenerationComposer } from "@/features/generation/ui/generation-composer";
 import { useGenerationEventStream, type GenerationSessionIndicator } from "@/features/generation/model/generation-event-stream-provider";
+import {
+  mergeGenerationMessagePageData,
+  type GenerationMessagePage,
+} from "@/features/generation/model/generation-message-cache";
 import { cn } from "@/lib/utils";
 import { getApiErrorCode } from "@/shared/api/api-response";
 
@@ -31,7 +35,6 @@ export function GenerateWorkspace() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const sessionId = searchParams.get("sessionId");
-  const taskId = searchParams.get("taskId");
   const { sessionIndicators } = useGenerationEventStream();
   const sessionsQuery = useInfiniteQuery({
     queryKey: generationQueryKeys.sessions(),
@@ -58,7 +61,7 @@ export function GenerateWorkspace() {
           </div>
         </aside>
 
-        {sessionId ? <ConversationPanel sessionId={sessionId} taskId={taskId} /> : <NewConversationPanel />}
+        {sessionId ? <ConversationPanel sessionId={sessionId} /> : <NewConversationPanel />}
       </div>
     </section>
   );
@@ -75,31 +78,35 @@ function NewConversationPanel() {
   );
 }
 
-function ConversationPanel({ sessionId, taskId }: { sessionId: string; taskId: string | null }) {
+function ConversationPanel({ sessionId }: { sessionId: string }) {
   const queryClient = useQueryClient();
   const { acknowledgeSession, sessionIndicators } = useGenerationEventStream();
-  const messagesQuery = useInfiniteQuery({
+  const messagesQuery = useInfiniteQuery<
+    GenerationMessagePage,
+    Error,
+    InfiniteData<GenerationMessagePage>,
+    ReturnType<typeof generationQueryKeys.messages>,
+    string | undefined
+  >({
     queryKey: generationQueryKeys.messages(sessionId),
     queryFn: ({ pageParam }) => listGenerationMessages(sessionId, pageParam),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) => lastPage.nextBefore ?? undefined,
+    structuralSharing: mergeGenerationMessagePageData,
   });
   const messages = messagesQuery.data ? [...messagesQuery.data.pages].reverse().flatMap((page) => page.items) : undefined;
-  const taskQuery = useQuery({ queryKey: taskId ? generationQueryKeys.task(taskId) : ["generation", "task", "none"], queryFn: () => getGenerationTask(taskId!), enabled: Boolean(taskId) });
   const cancelTask = useMutation({
     mutationFn: cancelGenerationTask,
-    onSuccess: (_task, cancelledTaskId) => {
+    onSuccess: () => {
       void Promise.all([
         queryClient.invalidateQueries({ queryKey: generationQueryKeys.sessions() }),
         queryClient.invalidateQueries({ queryKey: generationQueryKeys.messages(sessionId) }),
-        queryClient.invalidateQueries({ queryKey: generationQueryKeys.task(cancelledTaskId) }),
       ]);
     },
-    onError: (_error, cancelledTaskId) => {
+    onError: () => {
       void Promise.all([
         queryClient.invalidateQueries({ queryKey: generationQueryKeys.sessions() }),
         queryClient.invalidateQueries({ queryKey: generationQueryKeys.messages(sessionId) }),
-        queryClient.invalidateQueries({ queryKey: generationQueryKeys.task(cancelledTaskId) }),
       ]);
     },
   });
@@ -128,9 +135,6 @@ function ConversationPanel({ sessionId, taskId }: { sessionId: string; taskId: s
     }
   }, [acknowledgeSession, sessionId, sessionIndicators]);
   const activeMessageTask = messages?.find((message) => message.generation.status === "QUEUED" || message.generation.status === "RUNNING")?.generation;
-  const currentTask = !activeMessageTask || (taskQuery.data && taskQuery.data.version >= activeMessageTask.version)
-    ? taskQuery.data
-    : activeMessageTask;
 
   return (
     <main className="flex min-h-[calc(100dvh-8rem)] min-w-0 flex-col lg:h-dvh lg:min-h-0">
@@ -141,8 +145,8 @@ function ConversationPanel({ sessionId, taskId }: { sessionId: string; taskId: s
           {messagesQuery.isError ? <div role="alert" className="rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive"><p>历史对话加载失败，请重试。</p><button type="button" onClick={() => void (messagesQuery.hasNextPage ? messagesQuery.fetchNextPage() : messagesQuery.refetch())} className="mt-1 font-medium underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">重试</button></div> : null}
           {messagesQuery.hasNextPage ? <div className="mb-5 flex justify-center"><button type="button" onClick={() => void messagesQuery.fetchNextPage()} disabled={messagesQuery.isFetchingNextPage} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-border bg-card px-3 text-sm text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60">{messagesQuery.isFetchingNextPage ? <LoaderCircle className="size-4 animate-spin" /> : null}加载更早的对话</button></div> : null}
         {messages?.map((message) => <ConversationMessage key={message.id} message={message} />)}
-          {!messagesQuery.isLoading && !messages?.length && !taskQuery.data ? <div className="flex min-h-56 items-center justify-center"><p className="text-sm text-muted-foreground">这个会话还没有可展示的历史内容。</p></div> : null}
-          {currentTask ? <div className="flex justify-start"><div className="w-full max-w-4xl"><TaskNotice task={currentTask} isCancelling={cancelTask.isPending} cancellationError={cancelTask.error} onCancel={() => cancelTask.mutate(currentTask.id)} /></div></div> : null}
+          {!messagesQuery.isLoading && !messages?.length ? <div className="flex min-h-56 items-center justify-center"><p className="text-sm text-muted-foreground">这个会话还没有可展示的历史内容。</p></div> : null}
+          {activeMessageTask ? <div className="flex justify-start"><div className="w-full max-w-4xl"><TaskNotice task={activeMessageTask} isCancelling={cancelTask.isPending} cancellationError={cancelTask.error} onCancel={() => cancelTask.mutate(activeMessageTask.id)} /></div></div> : null}
         </div>
       </section>
       <footer className="border-t border-border bg-card px-4 py-4 pb-24 sm:px-8 lg:pb-5"><div className="mx-auto max-w-5xl"><GenerationComposer sessionId={sessionId} hasActiveTask={Boolean(activeMessageTask)} /></div></footer>

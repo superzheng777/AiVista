@@ -1,10 +1,14 @@
 "use client";
 
-import { useQueryClient } from "@tanstack/react-query";
+import { type InfiniteData, useQueryClient } from "@tanstack/react-query";
 import { createContext, type ReactNode, use, useCallback, useEffect, useRef, useState } from "react";
 
 import type { GenerationTask } from "@/entities/generation/model/generation";import { generationQueryKeys, getGenerationTask, listActiveGenerationTasks } from "@/features/generation/api/generation-api";
 import { useAuthStore } from "@/features/auth/model/auth-store";
+import {
+  applyGenerationTaskUpdateToMessages,
+  type GenerationMessagePage,
+} from "@/features/generation/model/generation-message-cache";
 import {
   consumeSseStream,
   isTerminalStatus,
@@ -107,16 +111,16 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
   }, [queryClient, trackTask]);
 
   const applyTaskUpdate = useCallback((event: GenerationTaskUpdateEvent) => {
-    knownTaskIdsRef.current.add(event.taskId);
+    if (isTerminalStatus(event.status)) {
+      knownTaskIdsRef.current.delete(event.taskId);
+    } else {
+      knownTaskIdsRef.current.add(event.taskId);
+    }
     trackTask({ id: event.taskId, sessionId: event.sessionId, status: event.status, version: event.taskVersion });
-    const taskKey = generationQueryKeys.task(event.taskId);
     void (async () => {
-      await queryClient.cancelQueries({ queryKey: taskKey });
-      queryClient.setQueryData<GenerationTask>(taskKey, (current) => {
-        if (!current || event.taskVersion < current.version) return current;
-        return { ...current, status: event.status, version: event.taskVersion,
-          retryCount: event.retryCount, maxRetryCount: event.maxRetryCount };
-      });
+      await queryClient.cancelQueries({ queryKey: generationQueryKeys.messages(event.sessionId) });
+      queryClient.setQueryData<InfiniteData<GenerationMessagePage>>(generationQueryKeys.messages(event.sessionId), (current) =>
+        applyGenerationTaskUpdateToMessages(current, event));
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: generationQueryKeys.sessions() }),
         queryClient.invalidateQueries({ queryKey: generationQueryKeys.messages(event.sessionId) }),
@@ -125,14 +129,9 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
         if (event.status === "SUCCEEDED" || event.status === "PARTIALLY_SUCCEEDED") {
           await queryClient.invalidateQueries({ queryKey: ["assets"] });
         }
-        try {
-          mergeTaskSnapshot(await getGenerationTask(event.taskId));
-        } catch {
-          // Keep the task ID for the next connection reconciliation.
-        }
       }
     })();
-  }, [mergeTaskSnapshot, queryClient, trackTask]);
+  }, [queryClient, trackTask]);
 
   const applyPublicationUpdate = useCallback(() => {
     // The SSE event carries no unread count or message body; consumers refresh their own queries.
@@ -299,9 +298,10 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
         const activeTasks = await listActiveGenerationTasks();
         if (lifecycleController.signal.aborted) return;
         for (const task of activeTasks) mergeTaskSnapshot(task);
-        void startBatch();
       } catch {
         // A failed probe must not prevent the connection attempt from starting.
+      } finally {
+        if (!lifecycleController.signal.aborted) void startBatch();
       }
     })();
     return () => {
@@ -345,6 +345,7 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
   const acknowledgeCompletedResults = useCallback(() => setCompletedSessionIds(new Set()), []);
 
   const registerSubmittedTask = useCallback((task: Pick<GenerationTask, "id" | "sessionId" | "status" | "version">) => {
+    knownTaskIdsRef.current.add(task.id);
     trackTask(task);
   }, [trackTask]);
 
