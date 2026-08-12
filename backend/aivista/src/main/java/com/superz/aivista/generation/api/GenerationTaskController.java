@@ -15,7 +15,6 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.ExampleObject;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;
@@ -75,14 +74,6 @@ public class GenerationTaskController {
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore().cachePrivate())
                 .body(ResponseUtils.success(response));
-    }
-
-    @Operation(summary = "查询活跃生成任务", description = "供 SSE 首次连接或重连后对账当前用户的排队中和执行中任务")
-    @GetMapping("/active")
-    public ResponseEntity<ApiResponse<List<GenerationTaskSnapshotResponse>>> active(Authentication authentication) {
-        return ResponseEntity.ok()
-                .cacheControl(CacheControl.noStore().cachePrivate())
-                .body(ResponseUtils.success(queryService.listActive(currentUserId(authentication))));
     }
 
     @Operation(summary = "取消生成任务", description = "直接取消当前用户未结束的任务；重复取消属于幂等成功。")

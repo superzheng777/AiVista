@@ -95,23 +95,6 @@ class GenerationTaskQueryServiceTests {
     }
 
     @Test
-    void listsActiveTasksWithRetryProgressForStreamReconciliation() {
-        GenerationTaskMapper taskMapper = mock(GenerationTaskMapper.class);
-        GenerationTask queued = task("QUEUED");
-        queued.setAttemptCount(2);
-        when(taskMapper.selectActiveOwnedByUserId(7L)).thenReturn(List.of(queued));
-
-        List<GenerationTaskSnapshotResponse> response = service(
-                taskMapper, mock(GenerationImageMapper.class), mock(OSS.class)).listActive(7L);
-
-        assertThat(response).singleElement().satisfies(snapshot -> {
-            assertThat(snapshot.status()).isEqualTo("QUEUED");
-            assertThat(snapshot.retryCount()).isEqualTo(2);
-            assertThat(snapshot.maxRetryCount()).isEqualTo(3);
-        });
-    }
-
-    @Test
     void hidesTasksThatDoNotBelongToCurrentUser() {
         GenerationTaskMapper taskMapper = mock(GenerationTaskMapper.class);
         when(taskMapper.selectOwnedById(7L, 301L)).thenReturn(null);

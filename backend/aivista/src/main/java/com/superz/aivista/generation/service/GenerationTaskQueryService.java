@@ -58,14 +58,6 @@ public class GenerationTaskQueryService {
         return snapshot(task, taskImages);
     }
 
-    /** 返回当前用户全部非终态任务，用于 SSE 首次连接和重连后的状态对账。 */
-    @Transactional(readOnly = true)
-    public List<GenerationTaskSnapshotResponse> listActive(long userId) {
-        return taskMapper.selectActiveOwnedByUserId(userId).stream()
-                .map(task -> snapshot(task, List.of()))
-                .toList();
-    }
-
     /**
      * 将已查询出的任务及图片组装为响应快照，供批量历史查询复用，避免为每条消息重复查询图片。
      */

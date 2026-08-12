@@ -65,9 +65,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
 function GenerationStreamNotice({ status, attempt, onRetry }: { status: string; attempt: number; onRetry: () => void }) {
   if (status === "READY" || status === "DISCONNECTED") return null;
-  const message = status === "SYNCING"
-    ? "实时连接已建立，正在同步任务状态…"
-    : status === "RECONNECTING"
+  const message = status === "RECONNECTING"
       ? `实时连接已中断，正在自动重连（已尝试 ${attempt} 次）…`
       : `正在建立实时连接（第 ${Math.max(1, attempt)} 次尝试）…`;
   return <div role="status" className="fixed inset-x-0 top-0 z-50 flex items-center justify-center gap-3 border-b border-amber-300/60 bg-amber-50 px-4 py-2 text-center text-xs text-amber-900 shadow-sm dark:border-amber-700/60 dark:bg-amber-950 dark:text-amber-100"><span>{message}</span><button type="button" onClick={onRetry} className="font-medium underline underline-offset-4">重新连接</button></div>;
@@ -86,7 +84,7 @@ function SidebarLink({
   compact?: boolean;
   authStatus: AuthStatus;
   onAuthRequired: () => void;
-  generationBadge?: Pick<ReturnType<typeof useGenerationEventStream>, "activeTaskCount" | "hasAttention" | "hasCompletedResults">;
+  generationBadge?: Pick<ReturnType<typeof useGenerationEventStream>, "hasAttention" | "hasCompletedResults">;
 }) {
   const Icon = item.icon;
   function handleClick(event: MouseEvent<HTMLAnchorElement>) {
@@ -99,9 +97,7 @@ function SidebarLink({
   }
   const hasAttention = generationBadge?.hasAttention;
   const hasCompletion = generationBadge?.hasCompletedResults;
-  const badge = generationBadge?.activeTaskCount
-    ? <span aria-label={`有 ${generationBadge.activeTaskCount} 个生成任务正在进行`} className={cn("absolute -right-1 -top-1 grid min-w-4 place-items-center rounded-full px-1 text-[10px] font-semibold leading-4 text-white", hasAttention ? "bg-destructive" : "bg-sky-600")}>{generationBadge.activeTaskCount}</span>
-    : hasAttention
+  const badge = hasAttention
       ? <span aria-label="有生成任务失败或已取消" className="absolute -right-0.5 -top-0.5 size-2.5 rounded-full bg-destructive ring-2 ring-sidebar" />
       : hasCompletion
         ? <span aria-label="有新的生成结果" className="absolute -right-0.5 -top-0.5 size-2.5 rounded-full bg-sky-500 ring-2 ring-sidebar" />

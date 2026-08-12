@@ -32,10 +32,11 @@ function taskStatusText(task: Pick<GenerationTask, "status" | "retryCount" | "ma
 }
 
 export function GenerateWorkspace() {
+  const queryClient = useQueryClient();
   const router = useRouter();
   const searchParams = useSearchParams();
   const sessionId = searchParams.get("sessionId");
-  const { sessionIndicators } = useGenerationEventStream();
+  const { sessionIndicators, syncVersion } = useGenerationEventStream();
   const sessionsQuery = useInfiniteQuery({
     queryKey: generationQueryKeys.sessions(),
     queryFn: ({ pageParam }) => listGenerationSessions(pageParam),
@@ -43,6 +44,10 @@ export function GenerateWorkspace() {
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
   });
   const sessions = sessionsQuery.data?.pages.flatMap((page) => page.items);
+
+  useEffect(() => {
+    if (syncVersion > 0) void queryClient.refetchQueries({ queryKey: generationQueryKeys.sessions(), type: "active" });
+  }, [queryClient, syncVersion]);
 
   function selectSession(nextSessionId: string): void {
     router.push(`/generate?sessionId=${encodeURIComponent(nextSessionId)}`);
@@ -80,7 +85,7 @@ function NewConversationPanel() {
 
 function ConversationPanel({ sessionId }: { sessionId: string }) {
   const queryClient = useQueryClient();
-  const { acknowledgeSession, sessionIndicators } = useGenerationEventStream();
+  const { acknowledgeSession, sessionIndicators, syncVersion } = useGenerationEventStream();
   const messagesQuery = useInfiniteQuery<
     GenerationMessagePage,
     Error,
@@ -95,6 +100,9 @@ function ConversationPanel({ sessionId }: { sessionId: string }) {
     structuralSharing: mergeGenerationMessagePageData,
   });
   const messages = messagesQuery.data ? [...messagesQuery.data.pages].reverse().flatMap((page) => page.items) : undefined;
+  useEffect(() => {
+    if (syncVersion > 0) void queryClient.refetchQueries({ queryKey: generationQueryKeys.messages(sessionId), type: "active" });
+  }, [queryClient, sessionId, syncVersion]);
   const cancelTask = useMutation({
     mutationFn: cancelGenerationTask,
     onSuccess: () => {
@@ -167,7 +175,8 @@ function SessionList({ sessions, indicators, isLoading, isError, hasNextPage, is
 }
 
 function SessionListItem({ session, indicator, active, onSelect }: { session: GenerationSession; indicator?: GenerationSessionIndicator; active: boolean; onSelect: (sessionId: string) => void }) {
-  const statusIndicator = indicator === "ACTIVE"
+  const latestTaskIsActive = session.latestTask?.status === "QUEUED" || session.latestTask?.status === "RUNNING";
+  const statusIndicator = latestTaskIsActive
     ? <LoaderCircle aria-label="正在生成" className="ml-auto size-3.5 shrink-0 animate-spin text-sky-600" />
     : indicator === "ATTENTION"
       ? <span aria-label="生成失败或已取消" className="ml-auto size-2 shrink-0 rounded-full bg-destructive" />

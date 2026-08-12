@@ -128,7 +128,6 @@ export function GenerationComposer({ sessionId, hasActiveTask = false }: Generat
     mutationFn: ({ input, idempotencyKey }: { input: CreateGenerationTaskInput; idempotencyKey: string }) =>
       createGenerationTask(input, idempotencyKey),
     onSuccess: (task) => {
-      generationStream.registerSubmittedTask(task);
       pendingSubmission.current = null;
       window.sessionStorage.removeItem(PENDING_SUBMISSION_STORAGE_KEY);
       void Promise.all([

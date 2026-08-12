@@ -99,18 +99,6 @@ public interface GenerationTaskMapper extends BaseMapper<GenerationTask> {
                    provider_request_id, provider_result_snapshot,
                    failure_code, created_at, updated_at, started_at, completed_at
             FROM generation_tasks
-            WHERE user_id = #{userId} AND status IN ('QUEUED', 'RUNNING')
-            ORDER BY created_at, id
-            """)
-    List<GenerationTask> selectActiveOwnedByUserId(@Param("userId") long userId);
-
-    @Select("""
-            SELECT id, user_id, session_id, source_message_id, model, status, task_version,
-                   attempt_count, provider_call_started_at, final_prompt, final_negative_prompt,
-                   width, height, prompt_extend, requested_image_count, completed_image_count, quota_refunded_at,
-                   provider_request_id, provider_result_snapshot,
-                   failure_code, created_at, updated_at, started_at, completed_at
-            FROM generation_tasks
             WHERE id = #{taskId}
             FOR UPDATE
             """)
