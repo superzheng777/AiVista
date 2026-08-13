@@ -2,6 +2,7 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { Dialog } from "@base-ui/react/dialog";
+import { useRouter } from "next/navigation";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell, CheckCheck, Eye, FolderOpen, Trash2, X } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
@@ -11,8 +12,6 @@ import type { InteractionNotification, OfficialNotification } from "@/entities/n
 import { AssetDetail } from "@/features/assets/ui/assets-workspace";
 import { deleteGenerationAssets, getGenerationAsset, setGenerationImageFavorites } from "@/features/assets/api/asset-api";
 import { useGenerationEventStream } from "@/features/generation/model/generation-event-stream-provider";
-import { PublicImageDetail } from "@/features/inspiration/ui/public-image-detail";
-import { getInspiration } from "@/features/inspiration/api/inspiration-api";
 import { deleteInteractionNotification, deleteInteractionNotifications, interactionNotificationQueryKeys, listInteractionNotifications, markAllInteractionNotificationsRead, markInteractionNotificationRead } from "@/features/interaction-notifications/api/interaction-notifications-api";
 import { deleteOfficialNotification, deleteOfficialNotifications, fetchOfficialNotificationUnreadCount, listOfficialNotifications, markAllOfficialNotificationsRead, markOfficialNotificationRead, officialNotificationQueryKeys } from "@/features/official-notifications/api/official-notifications-api";
 import { isPublicationFailed, isPublicationRejected, notificationEventLabel, violationText } from "@/features/official-notifications/model/notification-display";
@@ -29,6 +28,7 @@ export function retainFirstNotificationPage(client: ReturnType<typeof useQueryCl
 }
 
 export function OfficialNotificationsBell() {
+  const router = useRouter();
   const client = useQueryClient();
   const { notificationRefreshVersion, publicationRefreshVersion } = useGenerationEventStream();
   const [open, setOpen] = useState(false); const [tab, setTab] = useState<Tab>("interaction"); const [image, setImage] = useState<GenerationAsset | null>(null); const [openingImageId, setOpeningImageId] = useState<string | null>(null); const [openImageError, setOpenImageError] = useState<string | null>(null);
@@ -39,6 +39,11 @@ export function OfficialNotificationsBell() {
     if (open && tab === "official" && publicationRefreshVersion) void retainFirstNotificationPage(client, officialNotificationQueryKeys.list);
   }, [client, notificationRefreshVersion, open, publicationRefreshVersion, tab]);
   async function openImage(item: GenerationAsset): Promise<void> {
+    if (item.publicationReviewStatus === "APPROVED") {
+      setOpen(false);
+      router.push(`/inspirations/${item.id}`);
+      return;
+    }
     if (!needsImageUrlRefresh(item.urlExpiresAt)) {
       setImage(item);
       return;
@@ -46,7 +51,7 @@ export function OfficialNotificationsBell() {
     setOpeningImageId(item.id);
     try {
       setOpenImageError(null);
-      setImage(item.publicationReviewStatus === "APPROVED" ? await getInspiration(item.id) : await getGenerationAsset(item.id));
+      setImage(await getGenerationAsset(item.id));
     } catch {
       setOpenImageError("图片访问地址刷新失败，请稍后重试。");
     } finally {
@@ -79,5 +84,5 @@ function NotificationList<T extends Message>({ open, queryKey, fetchPage, markRe
 function DeleteButton({ onDelete }: { onDelete: () => void }) { return <button type="button" onClick={onDelete} className="shrink-0 text-muted-foreground hover:text-destructive"><Trash2 className="size-4" /></button>; }
 function ListToolbar({ unread, onAllRead, managing, onManage }: { unread: number; onAllRead: () => void; managing: boolean; onManage: () => void }) { return <div className="flex items-center justify-between border-b px-5 py-3 text-xs"><span>{unread ? `${unread} 条未读` : "没有未读消息"}</span><div className="flex gap-2"><button type="button" onClick={onAllRead} disabled={!unread} className="inline-flex items-center gap-1 disabled:opacity-40"><CheckCheck className="size-3.5" />全部已读</button><button type="button" onClick={onManage}>{managing ? "完成" : "管理"}</button></div></div>; }
 function Empty() { return <div className="grid h-full place-items-center text-center text-sm text-muted-foreground"><div><FolderOpen className="mx-auto size-6" /><p className="mt-2">暂无消息</p></div></div>; }
-function MessageImage({ image, onClose }: { image: GenerationAsset; onClose: () => void }) { return image.publicationReviewStatus === "APPROVED" ? <PublicImageDetail image={image} onClose={onClose} /> : <OfficialAssetDetail image={image} onClose={onClose} />; }
+function MessageImage({ image, onClose }: { image: GenerationAsset; onClose: () => void }) { return <OfficialAssetDetail image={image} onClose={onClose} />; }
 function OfficialAssetDetail({ image, onClose }: { image: GenerationAsset; onClose: () => void }) { const [current, setCurrent] = useState(image); const [publish, setPublish] = useState(false); const favorite = useMutation({ mutationFn: (value: boolean) => setGenerationImageFavorites([current.id], value), onSuccess: (_result, value) => setCurrent((asset) => ({ ...asset, favorited: value })) }); const remove = useMutation({ mutationFn: () => deleteGenerationAssets([current.id]), onSuccess: onClose }); return <AssetDetail asset={current} onClose={onClose} onPublish={() => setPublish(true)} onDelete={() => { if (window.confirm("删除图片？")) remove.mutate(); }} isDeleting={remove.isPending} isFavorite={current.favorited} isFavoriteUpdating={favorite.isPending} onFavorite={() => favorite.mutate(!current.favorited)} deleteDialog={null} publishDialog={publish ? <PublicationFormDialog asset={current} onClose={() => setPublish(false)} onSuccess={(result) => { setPublish(false); setCurrent((asset) => ({ ...asset, publicationReviewStatus: result.status })); }} /> : null} />; }

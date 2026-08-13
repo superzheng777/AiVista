@@ -24,8 +24,22 @@ public interface GenerationImageMapper extends BaseMapper<GenerationImage> {
     @Update("UPDATE generation_images SET like_count = like_count + #{delta} WHERE id = #{imageId} AND like_count + #{delta} >= 0")
     int changeLikeCount(@Param("imageId") long imageId, @Param("delta") int delta);
 
-    @Select("SELECT i.*, t.final_prompt AS publication_prompt, t.final_negative_prompt AS publication_negative_prompt, t.requested_image_count AS publication_requested_image_count, t.prompt_extend AS publication_prompt_extend FROM generation_images i INNER JOIN generation_tasks t ON t.id = i.task_id WHERE i.public_at IS NOT NULL AND i.publication_review_status = 'APPROVED' ORDER BY i.public_at DESC, i.id DESC LIMIT #{limit}")
-    List<GenerationImage> selectPublished(@Param("limit") int limit);
+    @Select("""
+            SELECT i.*, t.final_prompt AS publication_prompt, t.final_negative_prompt AS publication_negative_prompt,
+                   t.requested_image_count AS publication_requested_image_count, t.prompt_extend AS publication_prompt_extend
+            FROM generation_images i INNER JOIN generation_tasks t ON t.id = i.task_id
+            WHERE i.public_at IS NOT NULL
+              AND i.publication_review_status = 'APPROVED'
+              AND (#{cursorPublicAt} IS NULL
+                   OR i.public_at < #{cursorPublicAt}
+                   OR (i.public_at = #{cursorPublicAt} AND i.id < #{cursorImageId}))
+            ORDER BY i.public_at DESC, i.id DESC
+            LIMIT #{limit}
+            """)
+    List<GenerationImage> selectPublishedPage(
+            @Param("cursorPublicAt") Instant cursorPublicAt,
+            @Param("cursorImageId") Long cursorImageId,
+            @Param("limit") int limit);
 
     @Select("SELECT i.*, t.final_prompt AS publication_prompt, t.final_negative_prompt AS publication_negative_prompt, t.requested_image_count AS publication_requested_image_count, t.prompt_extend AS publication_prompt_extend FROM generation_images i INNER JOIN generation_tasks t ON t.id = i.task_id WHERE i.id = #{imageId} AND i.public_at IS NOT NULL AND i.publication_review_status = 'APPROVED'")
     GenerationImage selectPublishedById(@Param("imageId") long imageId);

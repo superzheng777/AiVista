@@ -7,11 +7,14 @@ import com.superz.aivista.common.exception.ErrorCode;
 import com.superz.aivista.generation.dto.GenerationAssetImageResponse;
 import com.superz.aivista.generation.entity.GenerationImage;
 import com.superz.aivista.generation.mapper.GenerationImageMapper;
+import com.superz.aivista.publication.dto.InspirationPageResponse;
 import com.superz.aivista.publication.dto.LikedPublicationResponse;
 import com.superz.aivista.publication.entity.GenerationImageLike;
 import com.superz.aivista.publication.mapper.GenerationImageLikeMapper;
 import java.time.Clock;
 import java.time.Instant;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
@@ -22,6 +25,7 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class InspirationQueryService {
+    private static final int PAGE_SIZE = 30;
     private final GenerationImageMapper images;
     private final GenerationImageLikeMapper likes;
     private final OSS oss;
@@ -37,9 +41,16 @@ public class InspirationQueryService {
         this.clock = clock;
     }
 
-    public List<GenerationAssetImageResponse> list(Long viewerUserId) {
-        List<GenerationImage> rows = images.selectPublished(36);
-        return toImages(rows, false, likedImageIds(viewerUserId, rows));
+    public InspirationPageResponse list(Long viewerUserId, String cursor) {
+        Cursor position = decodeCursor(cursor);
+        List<GenerationImage> page = images.selectPublishedPage(
+                position == null ? null : position.publicAt(),
+                position == null ? null : position.imageId(), PAGE_SIZE + 1);
+        boolean hasMore = page.size() > PAGE_SIZE;
+        List<GenerationImage> rows = hasMore ? page.subList(0, PAGE_SIZE) : page;
+        List<GenerationAssetImageResponse> items = toImages(rows, false, likedImageIds(viewerUserId, rows));
+        String nextCursor = hasMore ? encodeCursor(rows.getLast()) : null;
+        return new InspirationPageResponse(items, nextCursor);
     }
 
     public List<GenerationAssetImageResponse> listByUserId(long userId) {
@@ -101,5 +112,27 @@ public class InspirationQueryService {
                 image.getPublicationTitle(), image.getPublicationDescription(), String.valueOf(image.getUserId()),
                 image.getLikeCount() == null ? 0L : image.getLikeCount(), likedImageIds.contains(image.getId())))
                 .toList();
+    }
+
+    private static String encodeCursor(GenerationImage image) {
+        String value = image.getPublicAt().toEpochMilli() + ":" + image.getId();
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(value.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static Cursor decodeCursor(String cursor) {
+        if (cursor == null) return null;
+        try {
+            String value = new String(Base64.getUrlDecoder().decode(cursor), StandardCharsets.UTF_8);
+            String[] parts = value.split(":", -1);
+            if (parts.length != 2) throw new IllegalArgumentException("Invalid cursor structure");
+            long imageId = Long.parseLong(parts[1]);
+            if (imageId <= 0) throw new IllegalArgumentException("Invalid image id");
+            return new Cursor(Instant.ofEpochMilli(Long.parseLong(parts[0])), imageId);
+        } catch (IllegalArgumentException exception) {
+            throw new BusinessException(ErrorCode.INVALID_CURSOR);
+        }
+    }
+
+    private record Cursor(Instant publicAt, long imageId) {
     }
 }

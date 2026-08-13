@@ -12,13 +12,15 @@ type ImageDetailShellProps = {
   actions?: ReactNode;
   author?: ReactNode;
   allowCopy?: boolean;
+  timeLabel?: string;
+  timeValue?: string | null;
 };
 
 function createdAtText(value: string): string {
   return new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(value));
 }
 
-export function ImageDetailShell({ image, onClose, actions, author, allowCopy = false }: ImageDetailShellProps) {
+export function ImageDetailShell({ image, onClose, actions, author, allowCopy = false, timeLabel = "生成时间", timeValue = image.createdAt }: ImageDetailShellProps) {
   const [imageUnavailable, setImageUnavailable] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
   function download(): void {
@@ -48,7 +50,7 @@ export function ImageDetailShell({ image, onClose, actions, author, allowCopy = 
     <aside className="min-h-0 overflow-y-auto border-l border-border bg-card">
       <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card/95 px-5 py-4 backdrop-blur"><button type="button" onClick={onClose} className="grid size-9 place-items-center rounded-lg text-muted-foreground hover:bg-muted" aria-label="关闭详情"><X className="size-5" /></button><div className="flex gap-1"><button type="button" onClick={download} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border px-3 text-sm font-medium hover:bg-muted"><Download className="size-4" />下载</button>{allowCopy ? <button type="button" onClick={() => void copy()} className="grid size-9 place-items-center rounded-lg text-muted-foreground hover:bg-muted" aria-label="复制图片"><Clipboard className="size-4" /></button> : null}</div></div>
       <div className="space-y-6 p-5">{copyFailed ? <p role="status" className="rounded-xl bg-rose-50 px-3 py-2 text-xs text-rose-700">复制失败，请使用下载。</p> : null}{author}{actions}
-        <section><h2 className="text-sm font-semibold">作品信息</h2><dl className="mt-3 space-y-3 text-sm"><div><dt className="text-xs text-muted-foreground">标题</dt><dd className="mt-1 break-words font-medium">{image.title ?? "未命名作品"}</dd></div><div><dt className="text-xs text-muted-foreground">描述</dt><dd className="mt-1 whitespace-pre-wrap break-words leading-6">{image.description ?? "—"}</dd></div><div><dt className="text-xs text-muted-foreground">生成时间</dt><dd className="mt-1 font-medium">{createdAtText(image.createdAt)}</dd></div></dl></section>
+        <section><h2 className="text-sm font-semibold">作品信息</h2><dl className="mt-3 space-y-3 text-sm"><div><dt className="text-xs text-muted-foreground">标题</dt><dd className="mt-1 break-words font-medium">{image.title ?? "未命名作品"}</dd></div><div><dt className="text-xs text-muted-foreground">描述</dt><dd className="mt-1 whitespace-pre-wrap break-words leading-6">{image.description ?? "—"}</dd></div><div><dt className="text-xs text-muted-foreground">{timeLabel}</dt><dd className="mt-1 font-medium">{timeValue ? createdAtText(timeValue) : "—"}</dd></div></dl></section>
         <section className="border-t border-border pt-6"><h2 className="text-sm font-semibold">提示词</h2><p className="mt-3 whitespace-pre-wrap break-words rounded-xl bg-muted/60 p-3 text-sm leading-6">{image.finalPrompt}</p>{image.finalNegativePrompt ? <p className="mt-3 whitespace-pre-wrap break-words rounded-xl bg-muted/60 p-3 text-sm leading-6 text-muted-foreground">{image.finalNegativePrompt}</p> : null}</section>
         <section className="border-t border-border pt-6"><h2 className="text-sm font-semibold">本次生成</h2><dl className="mt-3 grid grid-cols-2 gap-4 text-sm"><div><dt className="text-xs text-muted-foreground">尺寸</dt><dd className="mt-1 font-medium">{image.width} × {image.height}</dd></div><div><dt className="text-xs text-muted-foreground">生成数量</dt><dd className="mt-1 font-medium">{image.requestedImageCount} 张</dd></div></dl></section>
       </div>

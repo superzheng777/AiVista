@@ -44,13 +44,20 @@ class InspirationQueryServiceTests {
     }
 
     @Test
-    void keepsAnonymousInspirationListBoundedToThirtySixImages() throws Exception {
+    void returnsThirtyImagesAndAnOpaqueCursorWhenAnotherPageExists() throws Exception {
         GenerationImageMapper images = mock(GenerationImageMapper.class);
         OSS oss = mock(OSS.class);
-        when(images.selectPublished(36)).thenReturn(List.of());
+        List<GenerationImage> imagesOnPage = java.util.stream.LongStream.rangeClosed(1, 31)
+                .mapToObj(InspirationQueryServiceTests::image).toList();
+        when(images.selectPublishedPage(null, null, 31)).thenReturn(imagesOnPage);
+        when(oss.generatePresignedUrl(anyString(), anyString(), any()))
+                .thenReturn(new URL("https://oss.example/signed"));
 
-        assertThat(service(images, oss).list(null)).isEmpty();
-        verify(images).selectPublished(36);
+        var response = service(images, oss).list(null, null);
+
+        assertThat(response.items()).hasSize(30);
+        assertThat(response.nextCursor()).isNotBlank();
+        verify(images).selectPublishedPage(null, null, 31);
     }
 
     @Test

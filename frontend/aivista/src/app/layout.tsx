@@ -21,8 +21,10 @@ const themeBootstrapScript = `
 
 export default function RootLayout({
   children,
+  modal,
 }: Readonly<{
   children: React.ReactNode;
+  modal: React.ReactNode;
 }>) {
   return (
     <html lang="zh-CN" className="h-full antialiased" suppressHydrationWarning>
@@ -30,7 +32,7 @@ export default function RootLayout({
         <Script id="theme-bootstrap" strategy="beforeInteractive" dangerouslySetInnerHTML={{ __html: themeBootstrapScript }} />
         <ThemeProvider>
           <QueryProvider>
-            <AuthProviders>{children}</AuthProviders>
+            <AuthProviders>{children}{modal}</AuthProviders>
           </QueryProvider>
         </ThemeProvider>
       </body>

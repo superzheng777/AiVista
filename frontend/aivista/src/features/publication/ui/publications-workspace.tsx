@@ -5,10 +5,10 @@ import { Dialog } from "@base-ui/react/dialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FolderOpen, LoaderCircle, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 
 import { needsImageUrlRefresh, type GenerationAsset } from "@/entities/generation/model/generation";
 import { ImageDetailShell } from "@/entities/generation/ui/image-detail-shell";
-import { PublicImageDetail } from "@/features/inspiration/ui/public-image-detail";
 import { useGenerationEventStream } from "@/features/generation/model/generation-event-stream-provider";
 import { listMyPublications, publicationQueryKeys, removePublication } from "@/features/publication/api/publication-api";
 import { getGenerationAsset } from "@/features/assets/api/asset-api";
@@ -19,6 +19,7 @@ function createdAtText(value: string): string {
 }
 
 export function PublicationsWorkspace() {
+  const router = useRouter();
   const queryClient = useQueryClient();
   const { publicationRefreshVersion } = useGenerationEventStream();
   const [detailId, setDetailId] = useState<string | null>(null);
@@ -30,6 +31,10 @@ export function PublicationsWorkspace() {
   const detailAsset = publications.find((asset) => asset.id === detailId) ?? null;
 
   async function openDetail(asset: GenerationAsset): Promise<void> {
+    if (asset.publicationReviewStatus === "APPROVED") {
+      router.push(`/inspirations/${asset.id}`);
+      return;
+    }
     if (!needsImageUrlRefresh(asset.urlExpiresAt)) {
       setDetailId(asset.id);
       return;
@@ -63,7 +68,6 @@ export function PublicationsWorkspace() {
     onError: (_error, _imageId, context) => { if (context?.previous) queryClient.setQueryData(publicationQueryKeys.mine, context.previous); setDeleteId(null); setNotice("操作失败，请重试"); },
   });
 
-  if (detailAsset?.publicationReviewStatus === "APPROVED") return <PublicImageDetail image={detailAsset} onClose={() => setDetailId(null)} />;
   if (detailAsset) return <PublicationDetail asset={detailAsset} isDeleting={deleteMutation.isPending} onClose={() => setDetailId(null)} onDelete={() => setDeleteId(detailAsset.id)} deleteDialog={deleteId ? <DeletePublicationDialog isApproved={false} isDeleting={deleteMutation.isPending} onCancel={() => setDeleteId(null)} onConfirm={() => deleteMutation.mutate(deleteId)} /> : null} />;
 
   return <div className="flex min-h-0 min-w-0 flex-col"><header className="flex min-h-12 items-center justify-between gap-4 border-b border-border px-6 py-3"><div><h2 className="text-base font-semibold text-card-foreground">发布区</h2><p className="mt-0.5 text-xs text-muted-foreground">{publications.length ? `共 ${publications.length} 项` : "审核中的作品会显示在这里"}</p></div></header>

@@ -2,15 +2,15 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { Check, Heart, LogOut, Pencil, X } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type FormEvent, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 
-import { needsImageUrlRefresh, type GenerationAsset } from "@/entities/generation/model/generation";
+import { type GenerationAsset } from "@/entities/generation/model/generation";
 import { useAuthDialog } from "@/features/auth/model/auth-dialog-provider";
 import { useSession } from "@/features/auth/model/session-provider";
 import { LogoutConfirmDialog } from "@/features/auth/ui/logout-confirm-dialog";
-import { PublicImageDetail } from "@/features/inspiration/ui/public-image-detail";
 import { PublicationsWorkspace } from "@/features/publication/ui/publications-workspace";
 import {
   getPublicAuthor,
@@ -19,16 +19,12 @@ import {
   setFollowing,
   setLikedPublicationsVisibility,
 } from "@/features/public-user/api/public-user-api";
-import { getInspiration } from "@/features/inspiration/api/inspiration-api";
 
 export function PublicUserPage({ userId }: { userId: string }) {
   const router = useRouter();
   const { status, user, logout, updateProfile } = useSession();
   const { open } = useAuthDialog();
   const isSelf = user?.id === userId;
-  const [selected, setSelected] = useState<GenerationAsset | null>(null);
-  const [openingId, setOpeningId] = useState<string | null>(null);
-  const [openImageError, setOpenImageError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [nickname, setNickname] = useState("");
   const [bio, setBio] = useState("");
@@ -59,23 +55,6 @@ export function PublicUserPage({ userId }: { userId: string }) {
   function cancelEditing() { setEditing(false); setSaveError(""); }
   function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); if (nickname.trim()) save.mutate(); }
   async function confirmLogout() { await logout(); router.replace("/"); }
-  async function openImage(image: GenerationAsset): Promise<void> {
-    if (!needsImageUrlRefresh(image.urlExpiresAt)) {
-      setSelected(image);
-      return;
-    }
-    setOpeningId(image.id);
-    try {
-      setOpenImageError(null);
-      setSelected(await getInspiration(image.id));
-    } catch {
-      setOpenImageError("图片访问地址刷新失败，请稍后重试。");
-    } finally {
-      setOpeningId(null);
-    }
-  }
-
-  if (selected) return <PublicImageDetail image={selected} onClose={() => setSelected(null)} />;
   if (profile.isLoading) return <main className="p-10 text-sm text-muted-foreground">加载作者资料中…</main>;
   if (profile.isError || !profile.data) return <main className="p-10 text-sm text-destructive">作者不存在或暂时不可用。</main>;
 
@@ -96,14 +75,13 @@ export function PublicUserPage({ userId }: { userId: string }) {
       </div> : null}
       {isSelf && editing ? <form className="mt-5 space-y-3 border-t pt-5" onSubmit={submit}><input aria-label="昵称" value={nickname} onChange={(event) => setNickname(event.target.value)} required minLength={1} maxLength={32} className="h-10 w-full rounded-lg border bg-background px-3 text-sm" /><textarea aria-label="个人简介" value={bio} onChange={(event) => setBio(event.target.value)} maxLength={500} rows={4} className="w-full rounded-lg border bg-background px-3 py-2 text-sm" />{saveError ? <p className="text-sm text-destructive">{saveError}</p> : null}<div className="flex justify-end gap-2"><button type="button" onClick={cancelEditing} disabled={save.isPending} className="inline-flex h-9 items-center gap-1 rounded-lg border px-3 text-sm"><X className="size-3.5" />取消</button><button type="submit" disabled={save.isPending} className="inline-flex h-9 items-center gap-1 rounded-lg bg-primary px-3 text-sm text-primary-foreground disabled:opacity-50"><Check className="size-3.5" />保存</button></div></form> : null}
     </section>
-    {openImageError ? <p role="status" className="mt-5 text-sm text-destructive">{openImageError}</p> : null}
-    <Section title="作品" loading={works.isLoading} images={works.data ?? []} openingId={openingId} onOpen={openImage} />
-    {(isSelf || author.likesPublic) ? <Section title="点赞" loading={likes.isLoading} images={likes.data ?? []} openingId={openingId} onOpen={openImage} /> : null}
+    <Section title="作品" loading={works.isLoading} images={works.data ?? []} />
+    {(isSelf || author.likesPublic) ? <Section title="点赞" loading={likes.isLoading} images={likes.data ?? []} /> : null}
     {isSelf ? <section className="mt-8 overflow-hidden rounded-3xl border bg-card"><PublicationsWorkspace /></section> : null}
     <LogoutConfirmDialog isOpen={logoutOpen} onClose={() => setLogoutOpen(false)} onConfirm={confirmLogout} />
   </main>;
 }
 
-function Section({ title, images, loading, openingId, onOpen }: { title: string; images: GenerationAsset[]; loading: boolean; openingId: string | null; onOpen: (image: GenerationAsset) => Promise<void> }) {
-  return <section className="mt-8"><h2 className="text-lg font-semibold">{title}</h2>{loading ? <p className="mt-3 text-sm text-muted-foreground">加载中…</p> : !images.length ? <p className="mt-3 text-sm text-muted-foreground">暂无{title}。</p> : <div className="mt-4 grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-4">{images.map((image) => <button key={image.id} type="button" disabled={openingId === image.id} onClick={() => void onOpen(image)} className="overflow-hidden rounded-2xl border bg-card text-left hover:shadow-md disabled:opacity-60"><img src={image.url} alt={image.title ?? title} loading="lazy" decoding="async" className="aspect-square w-full object-cover" /><div className="flex justify-between gap-2 p-3 text-sm"><span className="truncate">{image.title ?? "未命名作品"}</span><span className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground"><Heart className="size-3" />{image.likeCount}</span></div></button>)}</div>}</section>;
+function Section({ title, images, loading }: { title: string; images: GenerationAsset[]; loading: boolean }) {
+  return <section className="mt-8"><h2 className="text-lg font-semibold">{title}</h2>{loading ? <p className="mt-3 text-sm text-muted-foreground">加载中…</p> : !images.length ? <p className="mt-3 text-sm text-muted-foreground">暂无{title}。</p> : <div className="mt-4 grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-4">{images.map((image) => <Link key={image.id} href={`/inspirations/${image.id}`} className="overflow-hidden rounded-2xl border bg-card text-left hover:shadow-md"><img src={image.url} alt={image.title ?? title} loading="lazy" decoding="async" className="aspect-square w-full object-cover" /><div className="flex justify-between gap-2 p-3 text-sm"><span className="truncate">{image.title ?? "未命名作品"}</span><span className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground"><Heart className="size-3" />{image.likeCount}</span></div></Link>)}</div>}</section>;
 }
