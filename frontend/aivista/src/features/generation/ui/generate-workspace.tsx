@@ -118,25 +118,6 @@ function ConversationPanel({ sessionId }: { sessionId: string }) {
       ]);
     },
   });
-  const earliestUrlExpiryAt = messages?.flatMap((message) => message.generation.images)
-    .reduce<number | null>((earliest, image) => {
-      if (!image.url || !image.urlExpiresAt) {
-        return earliest;
-      }
-      const expiresAt = Date.parse(image.urlExpiresAt);
-      return Number.isNaN(expiresAt) || (earliest !== null && earliest <= expiresAt) ? earliest : expiresAt;
-    }, null) ?? null;
-  useEffect(() => {
-    if (earliestUrlExpiryAt === null) {
-      return;
-    }
-
-    const refreshAfterMs = Math.max(0, earliestUrlExpiryAt - Date.now() - 30_000);
-    const timeout = window.setTimeout(() => {
-      void queryClient.invalidateQueries({ queryKey: generationQueryKeys.messages(sessionId) });
-    }, refreshAfterMs);
-    return () => window.clearTimeout(timeout);
-  }, [earliestUrlExpiryAt, queryClient, sessionId]);
   useEffect(() => {
     if (sessionIndicators[sessionId] === "COMPLETED" || sessionIndicators[sessionId] === "ATTENTION") {
       acknowledgeSession(sessionId);

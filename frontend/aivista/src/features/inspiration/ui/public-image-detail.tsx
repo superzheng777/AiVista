@@ -6,7 +6,7 @@ import { Heart, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 
-import type { GenerationAsset } from "@/entities/generation/model/generation";
+import { needsImageUrlRefresh, type GenerationAsset } from "@/entities/generation/model/generation";
 import { ImageDetailShell } from "@/entities/generation/ui/image-detail-shell";
 import { useAuthDialog } from "@/features/auth/model/auth-dialog-provider";
 import { useSession } from "@/features/auth/model/session-provider";
@@ -23,10 +23,22 @@ export function PublicImageDetail({ image, onClose }: { image: GenerationAsset; 
   const like = useMutation({ mutationFn: (liked: boolean) => setImageLike(current.id, current.publicationVersion, liked) });
   const follow = useMutation({ mutationFn: (following: boolean) => setFollowing(image.authorId, following), onSuccess: () => void author.refetch() });
   const withdraw = useMutation({ mutationFn: () => removePublication(image.id), onSuccess: () => { void queryClient.invalidateQueries({ queryKey: inspirationQueryKeys.all }); void queryClient.invalidateQueries({ queryKey: publicationQueryKeys.mine }); onClose(); } });
-  useEffect(() => { void getInspiration(image.id).then(setCurrent).catch(() => undefined); }, [image.id]);
+  async function refreshImage(imageId: string): Promise<GenerationAsset> {
+    const refreshed = await getInspiration(imageId);
+    setCurrent(refreshed);
+    updateInspirationImage(queryClient, refreshed);
+    return refreshed;
+  }
+  useEffect(() => {
+    if (!needsImageUrlRefresh(image.urlExpiresAt)) return;
+    void getInspiration(image.id).then((refreshed) => {
+      setCurrent(refreshed);
+      updateInspirationImage(queryClient, refreshed);
+    }).catch(() => undefined);
+  }, [image.id, image.urlExpiresAt, queryClient]);
   const requireLogin = (action: () => void) => { if (status !== "authenticated") open(); else action(); };
   function toggleLike(): void { const previous = current; const liked = !previous.likedByCurrentUser; const next = { ...previous, likedByCurrentUser: liked, likeCount: Math.max(0, previous.likeCount + (liked ? 1 : -1)) }; setLikeError(false); setCurrent(next); updateInspirationImage(queryClient, next); like.mutate(liked, { onError: () => { setCurrent(previous); setLikeError(true); updateInspirationImage(queryClient, previous); } }); }
-  return <ImageDetailShell image={current} onClose={onClose} timeLabel="发布时间" timeValue={current.publicAt} author={<AuthorCard author={author.data} loading={author.isLoading} isSelf={isSelf} following={follow.isPending} onFollow={() => requireLogin(() => follow.mutate(!(author.data?.viewerFollowing ?? false)))} />} actions={<section><p className="text-xs font-medium tracking-wide text-muted-foreground">公开互动</p>{likeError ? <p role="status" className="mt-2 text-xs text-destructive">点赞状态更新失败，已恢复原状态。</p> : null}<button type="button" disabled={like.isPending} onClick={() => requireLogin(toggleLike)} className="mt-3 inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-border text-sm font-medium hover:bg-muted disabled:opacity-50"><Heart className={`size-4 ${current.likedByCurrentUser ? "fill-rose-500 text-rose-500" : ""}`} />{current.likedByCurrentUser ? "取消点赞" : "点赞"} · {current.likeCount}</button>{isSelf ? <button type="button" disabled={withdraw.isPending} onClick={() => withdraw.mutate()} className="mt-2 inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-destructive/10 text-sm font-medium text-destructive hover:bg-destructive/20 disabled:opacity-50"><Trash2 className="size-4" />撤销发布</button> : null}</section>} />;
+  return <ImageDetailShell image={current} refreshImage={refreshImage} onClose={onClose} timeLabel="发布时间" timeValue={current.publicAt} author={<AuthorCard author={author.data} loading={author.isLoading} isSelf={isSelf} following={follow.isPending} onFollow={() => requireLogin(() => follow.mutate(!(author.data?.viewerFollowing ?? false)))} />} actions={<section><p className="text-xs font-medium tracking-wide text-muted-foreground">公开互动</p>{likeError ? <p role="status" className="mt-2 text-xs text-destructive">点赞状态更新失败，已恢复原状态。</p> : null}<button type="button" disabled={like.isPending} onClick={() => requireLogin(toggleLike)} className="mt-3 inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-border text-sm font-medium hover:bg-muted disabled:opacity-50"><Heart className={`size-4 ${current.likedByCurrentUser ? "fill-rose-500 text-rose-500" : ""}`} />{current.likedByCurrentUser ? "取消点赞" : "点赞"} · {current.likeCount}</button>{isSelf ? <button type="button" disabled={withdraw.isPending} onClick={() => withdraw.mutate()} className="mt-2 inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-destructive/10 text-sm font-medium text-destructive hover:bg-destructive/20 disabled:opacity-50"><Trash2 className="size-4" />撤销发布</button> : null}</section>} />;
 }
 
 function updateInspirationImage(queryClient: ReturnType<typeof useQueryClient>, image: GenerationAsset): void {

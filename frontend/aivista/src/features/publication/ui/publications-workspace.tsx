@@ -30,6 +30,12 @@ export function PublicationsWorkspace() {
   const publications = publicationsQuery.data ?? [];
   const detailAsset = publications.find((asset) => asset.id === detailId) ?? null;
 
+  async function refreshPublicationImage(imageId: string): Promise<GenerationAsset> {
+    const refreshed = await getGenerationAsset(imageId);
+    queryClient.setQueryData<GenerationAsset[]>(publicationQueryKeys.mine, (current) => current?.map((item) => item.id === refreshed.id ? refreshed : item));
+    return refreshed;
+  }
+
   async function openDetail(asset: GenerationAsset): Promise<void> {
     if (asset.publicationReviewStatus === "APPROVED") {
       router.push(`/inspirations/${asset.id}`);
@@ -41,8 +47,7 @@ export function PublicationsWorkspace() {
     }
     setOpeningId(asset.id);
     try {
-      const refreshed = await getGenerationAsset(asset.id);
-      queryClient.setQueryData<GenerationAsset[]>(publicationQueryKeys.mine, (current) => current?.map((item) => item.id === refreshed.id ? refreshed : item));
+      const refreshed = await refreshPublicationImage(asset.id);
       setDetailId(refreshed.id);
     } catch {
       setNotice("图片访问地址刷新失败，请稍后重试。");
@@ -68,7 +73,7 @@ export function PublicationsWorkspace() {
     onError: (_error, _imageId, context) => { if (context?.previous) queryClient.setQueryData(publicationQueryKeys.mine, context.previous); setDeleteId(null); setNotice("操作失败，请重试"); },
   });
 
-  if (detailAsset) return <PublicationDetail asset={detailAsset} isDeleting={deleteMutation.isPending} onClose={() => setDetailId(null)} onDelete={() => setDeleteId(detailAsset.id)} deleteDialog={deleteId ? <DeletePublicationDialog isApproved={false} isDeleting={deleteMutation.isPending} onCancel={() => setDeleteId(null)} onConfirm={() => deleteMutation.mutate(deleteId)} /> : null} />;
+  if (detailAsset) return <PublicationDetail asset={detailAsset} refreshImage={refreshPublicationImage} isDeleting={deleteMutation.isPending} onClose={() => setDetailId(null)} onDelete={() => setDeleteId(detailAsset.id)} deleteDialog={deleteId ? <DeletePublicationDialog isApproved={false} isDeleting={deleteMutation.isPending} onCancel={() => setDeleteId(null)} onConfirm={() => deleteMutation.mutate(deleteId)} /> : null} />;
 
   return <div className="flex min-h-0 min-w-0 flex-col"><header className="flex min-h-12 items-center justify-between gap-4 border-b border-border px-6 py-3"><div><h2 className="text-base font-semibold text-card-foreground">发布区</h2><p className="mt-0.5 text-xs text-muted-foreground">{publications.length ? `共 ${publications.length} 项` : "审核中的作品会显示在这里"}</p></div></header>
     {notice ? <div role="status" className="flex items-center justify-between border-b border-border px-6 py-2.5 text-xs text-muted-foreground"><span>{notice}</span><button type="button" onClick={() => setNotice(null)} className="rounded p-0.5 hover:bg-muted" aria-label="关闭提示"><X className="size-3.5" /></button></div> : null}
@@ -79,8 +84,8 @@ export function PublicationsWorkspace() {
   </div>;
 }
 
-function PublicationDetail({ asset, onClose, onDelete, isDeleting, deleteDialog }: { asset: GenerationAsset; onClose: () => void; onDelete: () => void; isDeleting: boolean; deleteDialog: React.ReactNode }) {
-  return <><ImageDetailShell image={asset} onClose={onClose} actions={<section><p className="text-xs font-medium tracking-wide text-muted-foreground">发布操作</p><div className="mt-3 rounded-xl bg-muted/60 px-3 py-2.5 text-sm text-muted-foreground">作品正在等待审核</div><button type="button" onClick={onDelete} disabled={isDeleting} className="mt-3 inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-destructive/10 text-sm font-medium text-destructive hover:bg-destructive/20 disabled:opacity-50"><Trash2 className="size-4" />取消审核</button><dl className="mt-5 space-y-3 border-t border-border pt-5 text-sm"><div><dt className="text-xs text-muted-foreground">提交时间</dt><dd className="mt-1 font-medium">{createdAtText(asset.createdAt)}</dd></div></dl></section>} />{deleteDialog}</>;
+function PublicationDetail({ asset, refreshImage, onClose, onDelete, isDeleting, deleteDialog }: { asset: GenerationAsset; refreshImage: (imageId: string) => Promise<GenerationAsset>; onClose: () => void; onDelete: () => void; isDeleting: boolean; deleteDialog: React.ReactNode }) {
+  return <><ImageDetailShell image={asset} refreshImage={refreshImage} onClose={onClose} actions={<section><p className="text-xs font-medium tracking-wide text-muted-foreground">发布操作</p><div className="mt-3 rounded-xl bg-muted/60 px-3 py-2.5 text-sm text-muted-foreground">作品正在等待审核</div><button type="button" onClick={onDelete} disabled={isDeleting} className="mt-3 inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-destructive/10 text-sm font-medium text-destructive hover:bg-destructive/20 disabled:opacity-50"><Trash2 className="size-4" />取消审核</button><dl className="mt-5 space-y-3 border-t border-border pt-5 text-sm"><div><dt className="text-xs text-muted-foreground">提交时间</dt><dd className="mt-1 font-medium">{createdAtText(asset.createdAt)}</dd></div></dl></section>} />{deleteDialog}</>;
 }
 
 function DeletePublicationDialog({ isApproved, isDeleting, onCancel, onConfirm }: { isApproved: boolean; isDeleting: boolean; onCancel: () => void; onConfirm: () => void }) {

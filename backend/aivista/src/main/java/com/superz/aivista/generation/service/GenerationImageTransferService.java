@@ -10,7 +10,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.net.URI;
 import java.net.URLConnection;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import javax.imageio.ImageIO;
@@ -20,7 +19,6 @@ import org.springframework.stereotype.Service;
 @Service
 public class GenerationImageTransferService {
     private static final byte[] PNG_SIGNATURE = {(byte) 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A};
-    private static final Duration SIGNED_URL_CACHE_SAFETY_MARGIN = Duration.ofSeconds(30);
 
     private final OSS ossClient;
     private final GenerationOssProperties properties;
@@ -42,8 +40,7 @@ public class GenerationImageTransferService {
                 ObjectMetadata metadata = new ObjectMetadata();
                 metadata.setContentType("image/png");
                 metadata.setContentLength(image.bytes().length);
-                metadata.setCacheControl("private, max-age=" + Math.max(0,
-                        properties.signedUrlTtl().minus(SIGNED_URL_CACHE_SAFETY_MARGIN).toSeconds()));
+                metadata.setCacheControl("private, max-age=" + properties.signedUrlTtl().toSeconds());
                 ossClient.putObject(properties.bucket(), objectKey, new ByteArrayInputStream(image.bytes()), metadata);
                 result.add(new TransferredImage(index, objectKey, image.bytes().length,
                         image.image().getWidth(), image.image().getHeight()));
