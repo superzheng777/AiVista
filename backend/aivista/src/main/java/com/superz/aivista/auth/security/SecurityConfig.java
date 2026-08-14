@@ -46,7 +46,7 @@ public class SecurityConfig {
                         .permitAll()
                         .requestMatchers(
                                 "/health",
-                                "/inspirations",
+                                "/inspirations/**",
                                 "/policies/user-agreement",
                                 "/auth/register",
                                 "/auth/login",
