@@ -25,13 +25,22 @@ public class InspirationController {
         this.service = service;
     }
 
-    @Operation(summary = "获取灵感列表", description = "按公开时间倒序，以不透明游标固定每页返回 30 张已发布图片。")
+    @Operation(summary = "获取灵感列表", description = "按公开时间倒序；首次最多返回 20 张，后续每次最多返回 40 张。")
     @GetMapping
     public ApiResponse<InspirationPageResponse> list(
             Authentication authentication,
             @Parameter(description = "上一页最后一项返回的不透明游标") @RequestParam(required = false) String cursor) {
         Long viewerUserId = authentication != null && authentication.getPrincipal() instanceof Number id ? id.longValue() : null;
         return ResponseUtils.success(service.list(viewerUserId, cursor));
+    }
+
+    @Operation(summary = "获取关注列表", description = "按公开时间倒序返回当前用户所关注作者的公开作品；首次最多 20 张，后续每次最多 40 张。")
+    @GetMapping("/following")
+    public ApiResponse<InspirationPageResponse> listFollowing(
+            Authentication authentication,
+            @Parameter(description = "上一页最后一项返回的不透明游标") @RequestParam(required = false) String cursor) {
+        long viewerUserId = ((Number) authentication.getPrincipal()).longValue();
+        return ResponseUtils.success(service.listFollowing(viewerUserId, cursor));
     }
 
     @Operation(summary = "获取公开作品详情", description = "仅返回仍处于已发布状态的单张作品，并签发新的短期图片 URL。")

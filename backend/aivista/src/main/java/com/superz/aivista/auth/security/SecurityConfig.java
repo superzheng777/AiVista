@@ -46,7 +46,6 @@ public class SecurityConfig {
                         .permitAll()
                         .requestMatchers(
                                 "/health",
-                                "/inspirations/**",
                                 "/policies/user-agreement",
                                 "/auth/register",
                                 "/auth/login",
@@ -58,6 +57,10 @@ public class SecurityConfig {
                                 "/v3/api-docs/**",
                                 "/webjars/**",
                                 "/swagger-resources/**")
+                        .permitAll()
+                        .requestMatchers(HttpMethod.GET, "/inspirations/following")
+                        .authenticated()
+                        .requestMatchers(HttpMethod.GET, "/inspirations", "/inspirations/*")
                         .permitAll()
                         .requestMatchers(HttpMethod.GET, "/users/*", "/users/*/publications",
                                 "/users/*/liked-publications")

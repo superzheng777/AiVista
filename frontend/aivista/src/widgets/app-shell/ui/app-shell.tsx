@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
 type NavigationItem = { href: string; label: string; icon: typeof Home; requiresAuth?: boolean };
 
 const navigationItems: NavigationItem[] = [
-  { href: "/", label: "灵感", icon: Home },
+  { href: "/inspirations", label: "灵感", icon: Home },
   { href: "/generate", label: "生成", icon: Sparkles, requiresAuth: true },
   { href: "/assets", label: "资产", icon: FolderOpen, requiresAuth: true },
 ];
@@ -34,7 +34,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (status === "anonymous" && isProtectedPath(pathname)) {
-      router.replace("/");
+      router.replace("/inspirations");
     }
   }, [pathname, router, status]);
 
@@ -43,9 +43,9 @@ export function AppShell({ children }: { children: ReactNode }) {
       <GenerationStreamNotice status={generationStream.status} attempt={generationStream.reconnectAttempt}
         onRetry={() => { void generationStream.retryNow(); }} />
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-24 flex-col items-center border-r border-sidebar-border bg-sidebar py-5 md:flex">
-        <Link href="/" aria-label="AiVista 首页" className="grid size-11 place-items-center rounded-2xl bg-gradient-to-br from-cyan-300 via-sky-500 to-violet-500 text-white shadow-[0_10px_26px_-12px_rgba(14,165,233,0.9)]"><Palette className="size-5" strokeWidth={2.4} /></Link>
+        <Link href="/inspirations" aria-label="AiVista 首页" className="grid size-11 place-items-center rounded-2xl bg-gradient-to-br from-cyan-300 via-sky-500 to-violet-500 text-white shadow-[0_10px_26px_-12px_rgba(14,165,233,0.9)]"><Palette className="size-5" strokeWidth={2.4} /></Link>
         <nav className="mt-24 flex w-full flex-col items-center gap-3">
-          {navigationItems.map((item) => <SidebarLink key={item.href} item={item} active={pathname === item.href} authStatus={status} onAuthRequired={openAuthDialog}
+          {navigationItems.map((item) => <SidebarLink key={item.href} item={item} active={pathname === item.href || (item.href === "/inspirations" && pathname.startsWith("/inspirations/"))} authStatus={status} onAuthRequired={openAuthDialog}
             generationBadge={item.href === "/generate" && !pathname.startsWith("/generate") ? generationStream : undefined} />)}
         </nav>
         <div className="mt-auto space-y-1">{status === "authenticated" ? <OfficialNotificationsBell /> : null}<AccountControl /></div>
@@ -54,7 +54,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <main className="min-h-screen pb-20 md:ml-24 md:pb-0">{children}</main>
       {/*移动端访问web适配*/}
       <nav className="fixed inset-x-0 bottom-0 z-30 flex h-16 items-center justify-around border-t border-sidebar-border bg-sidebar/95 px-3 backdrop-blur md:hidden">
-        {navigationItems.map((item) => <SidebarLink key={item.href} item={item} active={pathname === item.href} compact authStatus={status} onAuthRequired={openAuthDialog}
+        {navigationItems.map((item) => <SidebarLink key={item.href} item={item} active={pathname === item.href || (item.href === "/inspirations" && pathname.startsWith("/inspirations/"))} compact authStatus={status} onAuthRequired={openAuthDialog}
           generationBadge={item.href === "/generate" && !pathname.startsWith("/generate") ? generationStream : undefined} />)}
         {status === "authenticated" ? <OfficialNotificationsBell /> : null}
         <AccountControl compact />

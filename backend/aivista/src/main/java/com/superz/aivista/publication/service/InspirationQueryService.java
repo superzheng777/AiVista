@@ -25,7 +25,8 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class InspirationQueryService {
-    private static final int PAGE_SIZE = 30;
+    private static final int FIRST_PAGE_SIZE = 20;
+    private static final int NEXT_PAGE_SIZE = 40;
     private final GenerationImageMapper images;
     private final GenerationImageLikeMapper likes;
     private final OSS oss;
@@ -42,14 +43,30 @@ public class InspirationQueryService {
     }
 
     public InspirationPageResponse list(Long viewerUserId, String cursor) {
-        Cursor position = decodeCursor(cursor);
+        Cursor position = decodeCursor(cursor, CursorScope.DISCOVERY);
+        int pageSize = cursor == null ? FIRST_PAGE_SIZE : NEXT_PAGE_SIZE;
         List<GenerationImage> page = images.selectPublishedPage(
                 position == null ? null : position.publicAt(),
-                position == null ? null : position.imageId(), PAGE_SIZE + 1);
-        boolean hasMore = page.size() > PAGE_SIZE;
-        List<GenerationImage> rows = hasMore ? page.subList(0, PAGE_SIZE) : page;
+                position == null ? null : position.imageId(), pageSize + 1);
+        return toPage(page, pageSize, CursorScope.DISCOVERY, viewerUserId);
+    }
+
+    public InspirationPageResponse listFollowing(long viewerUserId, String cursor) {
+        Cursor position = decodeCursor(cursor, CursorScope.FOLLOWING);
+        int pageSize = cursor == null ? FIRST_PAGE_SIZE : NEXT_PAGE_SIZE;
+        List<GenerationImage> page = images.selectFollowingPublishedPage(
+                viewerUserId,
+                position == null ? null : position.publicAt(),
+                position == null ? null : position.imageId(), pageSize + 1);
+        return toPage(page, pageSize, CursorScope.FOLLOWING, viewerUserId);
+    }
+
+    private InspirationPageResponse toPage(List<GenerationImage> page, int pageSize, CursorScope scope,
+            Long viewerUserId) {
+        boolean hasMore = page.size() > pageSize;
+        List<GenerationImage> rows = hasMore ? page.subList(0, pageSize) : page;
         List<GenerationAssetImageResponse> items = toImages(rows, false, likedImageIds(viewerUserId, rows));
-        String nextCursor = hasMore ? encodeCursor(rows.getLast()) : null;
+        String nextCursor = hasMore ? encodeCursor(scope, rows.getLast()) : null;
         return new InspirationPageResponse(items, nextCursor);
     }
 
@@ -114,22 +131,35 @@ public class InspirationQueryService {
                 .toList();
     }
 
-    private static String encodeCursor(GenerationImage image) {
-        String value = image.getPublicAt().toEpochMilli() + ":" + image.getId();
+    private static String encodeCursor(CursorScope scope, GenerationImage image) {
+        String value = "v1:" + scope.code + ":" + image.getPublicAt().toEpochMilli() + ":" + image.getId();
         return Base64.getUrlEncoder().withoutPadding().encodeToString(value.getBytes(StandardCharsets.UTF_8));
     }
 
-    private static Cursor decodeCursor(String cursor) {
+    private static Cursor decodeCursor(String cursor, CursorScope expectedScope) {
         if (cursor == null) return null;
         try {
             String value = new String(Base64.getUrlDecoder().decode(cursor), StandardCharsets.UTF_8);
             String[] parts = value.split(":", -1);
-            if (parts.length != 2) throw new IllegalArgumentException("Invalid cursor structure");
-            long imageId = Long.parseLong(parts[1]);
+            if (parts.length != 4 || !"v1".equals(parts[0]) || !expectedScope.code.equals(parts[1])) {
+                throw new IllegalArgumentException("Invalid cursor structure");
+            }
+            long imageId = Long.parseLong(parts[3]);
             if (imageId <= 0) throw new IllegalArgumentException("Invalid image id");
-            return new Cursor(Instant.ofEpochMilli(Long.parseLong(parts[0])), imageId);
+            return new Cursor(Instant.ofEpochMilli(Long.parseLong(parts[2])), imageId);
         } catch (IllegalArgumentException exception) {
             throw new BusinessException(ErrorCode.INVALID_CURSOR);
+        }
+    }
+
+    private enum CursorScope {
+        DISCOVERY("discovery"),
+        FOLLOWING("following");
+
+        private final String code;
+
+        CursorScope(String code) {
+            this.code = code;
         }
     }
 

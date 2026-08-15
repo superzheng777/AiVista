@@ -62,6 +62,24 @@ class SecurityConfigTests {
         assertThat(response.getStatus()).isEqualTo(401);
     }
 
+    @Test
+    void permitsPublicInspirationListAndDetail() throws Exception {
+        assertThat(statusOf("/inspirations")).isEqualTo(200);
+        assertThat(statusOf("/inspirations/42")).isEqualTo(200);
+    }
+
+    @Test
+    void rejectsUnauthenticatedFollowingFeedRequest() throws Exception {
+        assertThat(statusOf("/inspirations/following")).isEqualTo(401);
+    }
+
+    private int statusOf(String path) throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", path);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        securityFilterChain.doFilter(request, response, new MockFilterChain());
+        return response.getStatus();
+    }
+
     @Configuration
     static class TestBeans {
         @Bean

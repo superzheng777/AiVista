@@ -5,5 +5,5 @@ import { InspirationHome } from "@/components/app/inspiration-home";
 import { PublicInspirationModal } from "@/features/inspiration/ui/public-inspiration-modal";
 
 export function PublicInspirationPage({ image }: { image: GenerationAsset }) {
-  return <><InspirationHome /><PublicInspirationModal image={image} closeTo="/" /></>;
+  return <><InspirationHome /><PublicInspirationModal image={image} closeTo="/inspirations" /></>;
 }

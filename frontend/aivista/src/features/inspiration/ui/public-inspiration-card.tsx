@@ -4,11 +4,14 @@
 import { Heart } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { needsImageUrlRefresh, type GenerationAsset } from "@/entities/generation/model/generation";
 import { getInspiration } from "@/features/inspiration/api/inspiration-api";
+import { updateInspirationInFeeds } from "@/features/inspiration/model/inspiration-cache";
 
 function useVisibleImageSource(image: GenerationAsset, priority: boolean) {
+  const queryClient = useQueryClient();
   const cardRef = useRef<HTMLAnchorElement>(null);
   const retryUsedRef = useRef(false);
   const [nearViewport, setNearViewport] = useState(priority);
@@ -36,14 +39,17 @@ function useVisibleImageSource(image: GenerationAsset, priority: boolean) {
       }
       try {
         const refreshed = await getInspiration(image.id);
-        if (!cancelled) setSource(refreshed.url);
+        if (!cancelled) {
+          setSource(refreshed.url);
+          updateInspirationInFeeds(queryClient, refreshed);
+        }
       } catch {
         if (!cancelled) setSource(image.url);
       }
     }
     void setCurrentSource();
     return () => { cancelled = true; };
-  }, [image.id, image.url, image.urlExpiresAt, nearViewport]);
+  }, [image.id, image.url, image.urlExpiresAt, nearViewport, queryClient]);
 
   async function refreshAfterError() {
     if (retryUsedRef.current) return;
@@ -51,6 +57,7 @@ function useVisibleImageSource(image: GenerationAsset, priority: boolean) {
     try {
       const refreshed = await getInspiration(image.id);
       setSource(refreshed.url);
+      updateInspirationInFeeds(queryClient, refreshed);
     } catch {
       // Keep the failed image state instead of retrying indefinitely.
     }

@@ -1,10 +1,5 @@
-import { AppShell } from "@/widgets/app-shell/ui/app-shell";
-import { InspirationHome } from "@/components/app/inspiration-home";
+import { redirect } from "next/navigation";
 
 export default function Home() {
-  return (
-    <AppShell>
-      <InspirationHome />
-    </AppShell>
-  );
+  redirect("/inspirations");
 }

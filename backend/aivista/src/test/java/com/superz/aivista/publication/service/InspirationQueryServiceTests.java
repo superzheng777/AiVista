@@ -1,6 +1,7 @@
 package com.superz.aivista.publication.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
@@ -11,6 +12,8 @@ import com.aliyun.oss.OSS;
 import com.superz.aivista.generation.config.GenerationOssProperties;
 import com.superz.aivista.generation.entity.GenerationImage;
 import com.superz.aivista.generation.mapper.GenerationImageMapper;
+import com.superz.aivista.common.exception.BusinessException;
+import com.superz.aivista.common.exception.ErrorCode;
 import com.superz.aivista.publication.mapper.GenerationImageLikeMapper;
 import java.net.URL;
 import java.time.Clock;
@@ -44,20 +47,67 @@ class InspirationQueryServiceTests {
     }
 
     @Test
-    void returnsThirtyImagesAndAnOpaqueCursorWhenAnotherPageExists() throws Exception {
+    void returnsTwentyImagesAndAnOpaqueCursorOnTheFirstDiscoveryPage() throws Exception {
         GenerationImageMapper images = mock(GenerationImageMapper.class);
         OSS oss = mock(OSS.class);
-        List<GenerationImage> imagesOnPage = java.util.stream.LongStream.rangeClosed(1, 31)
+        List<GenerationImage> imagesOnPage = java.util.stream.LongStream.rangeClosed(1, 21)
                 .mapToObj(InspirationQueryServiceTests::image).toList();
-        when(images.selectPublishedPage(null, null, 31)).thenReturn(imagesOnPage);
+        when(images.selectPublishedPage(null, null, 21)).thenReturn(imagesOnPage);
         when(oss.generatePresignedUrl(anyString(), anyString(), any()))
                 .thenReturn(new URL("https://oss.example/signed"));
 
         var response = service(images, oss).list(null, null);
 
-        assertThat(response.items()).hasSize(30);
+        assertThat(response.items()).hasSize(20);
         assertThat(response.nextCursor()).isNotBlank();
-        verify(images).selectPublishedPage(null, null, 31);
+        verify(images).selectPublishedPage(null, null, 21);
+    }
+
+    @Test
+    void returnsFortyImagesOnTheNextDiscoveryPage() throws Exception {
+        GenerationImageMapper images = mock(GenerationImageMapper.class);
+        OSS oss = mock(OSS.class);
+        when(images.selectPublishedPage(null, null, 21)).thenReturn(java.util.stream.LongStream.rangeClosed(1, 21)
+                .mapToObj(InspirationQueryServiceTests::image).toList());
+        when(oss.generatePresignedUrl(anyString(), anyString(), any()))
+                .thenReturn(new URL("https://oss.example/signed"));
+        InspirationQueryService service = service(images, oss);
+        String cursor = service.list(null, null).nextCursor();
+        GenerationImage boundary = image(20L);
+        when(images.selectPublishedPage(boundary.getPublicAt(), 20L, 41)).thenReturn(
+                java.util.stream.LongStream.rangeClosed(101, 141)
+                        .mapToObj(InspirationQueryServiceTests::image).toList());
+
+        var response = service.list(null, cursor);
+
+        assertThat(response.items()).hasSize(40);
+        assertThat(response.nextCursor()).isNotBlank();
+        verify(images).selectPublishedPage(boundary.getPublicAt(), 20L, 41);
+    }
+
+    @Test
+    void listsCurrentFollowedAuthorsAndRejectsDiscoveryCursorReuse() throws Exception {
+        GenerationImageMapper images = mock(GenerationImageMapper.class);
+        GenerationImageLikeMapper likes = mock(GenerationImageLikeMapper.class);
+        OSS oss = mock(OSS.class);
+        when(images.selectFollowingPublishedPage(7L, null, null, 21)).thenReturn(List.of(image(11L)));
+        when(likes.selectCurrentLikedImageIds(7L, List.of(11L))).thenReturn(List.of());
+        when(images.selectPublishedPage(null, null, 21)).thenReturn(java.util.stream.LongStream.rangeClosed(1, 21)
+                .mapToObj(InspirationQueryServiceTests::image).toList());
+        when(oss.generatePresignedUrl(anyString(), anyString(), any()))
+                .thenReturn(new URL("https://oss.example/signed"));
+        InspirationQueryService service = service(images, likes, oss);
+
+        var following = service.listFollowing(7L, null);
+        String discoveryCursor = service.list(null, null).nextCursor();
+
+        assertThat(following.items()).singleElement().satisfies(item -> assertThat(item.imageId()).isEqualTo("11"));
+        assertThat(following.nextCursor()).isNull();
+        verify(images).selectFollowingPublishedPage(7L, null, null, 21);
+        assertThatThrownBy(() -> service.listFollowing(7L, discoveryCursor))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(error -> assertThat(((BusinessException) error).getErrorCode())
+                        .isEqualTo(ErrorCode.INVALID_CURSOR));
     }
 
     @Test
@@ -76,7 +126,12 @@ class InspirationQueryServiceTests {
     }
 
     private static InspirationQueryService service(GenerationImageMapper images, OSS oss) {
-        return new InspirationQueryService(images, mock(GenerationImageLikeMapper.class), oss,
+        return service(images, mock(GenerationImageLikeMapper.class), oss);
+    }
+
+    private static InspirationQueryService service(GenerationImageMapper images, GenerationImageLikeMapper likes,
+            OSS oss) {
+        return new InspirationQueryService(images, likes, oss,
                 new GenerationOssProperties("oss.example", "private-bucket", "id", "secret", "users",
                         Duration.ofMinutes(10), Duration.ofSeconds(5), Duration.ofSeconds(60), "30MiB"),
                 Clock.fixed(NOW, ZoneOffset.UTC));
