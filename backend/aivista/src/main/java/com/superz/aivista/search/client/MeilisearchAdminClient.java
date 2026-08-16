@@ -71,9 +71,11 @@ public class MeilisearchAdminClient {
                 .body(MeilisearchDtos.TaskSummary.class));
     }
 
-    public long deleteDocument(String uid, long imageId) {
-        return taskUid(() -> client.delete().uri("/indexes/{uid}/documents/{imageId}", uid, imageId)
-                .retrieve().body(MeilisearchDtos.TaskSummary.class));
+    public long deleteDocuments(String uid, List<Long> imageIds) {
+        if (imageIds.isEmpty()) return -1;
+        return taskUid(() -> client.post().uri("/indexes/{uid}/documents/delete-batch", uid)
+                .contentType(MediaType.APPLICATION_JSON).body(imageIds).retrieve()
+                .body(MeilisearchDtos.TaskSummary.class));
     }
 
     public long deleteIndex(String uid) {

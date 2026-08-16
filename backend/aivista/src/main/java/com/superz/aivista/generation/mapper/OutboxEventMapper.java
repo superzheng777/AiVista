@@ -51,6 +51,16 @@ public interface OutboxEventMapper extends BaseMapper<OutboxEvent> {
     int markPublished(@Param("id") long id, @Param("publishedAt") Instant publishedAt);
 
     @Update("""
+            <script>
+            UPDATE outbox_events
+            SET status = 'PUBLISHED', published_at = #{publishedAt}, locked_at = NULL, last_error = NULL
+            WHERE status = 'PROCESSING' AND id IN
+            <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+            </script>
+            """)
+    int markPublishedBatch(@Param("ids") List<Long> ids, @Param("publishedAt") Instant publishedAt);
+
+    @Update("""
             UPDATE outbox_events
             SET status = 'PENDING', retry_count = #{retryCount}, available_at = #{availableAt},
                 locked_at = NULL, last_error = #{lastError}
@@ -60,11 +70,42 @@ public interface OutboxEventMapper extends BaseMapper<OutboxEvent> {
             @Param("availableAt") Instant availableAt, @Param("lastError") String lastError);
 
     @Update("""
+            <script>
+            UPDATE outbox_events
+            SET status = 'PENDING',
+                retry_count = CASE id
+                <foreach collection="events" item="event">
+                    WHEN #{event.id} THEN #{event.retryCount}
+                </foreach>
+                ELSE retry_count END,
+                available_at = CASE id
+                <foreach collection="events" item="event">
+                    WHEN #{event.id} THEN #{event.availableAt}
+                </foreach>
+                ELSE available_at END,
+                locked_at = NULL, last_error = #{lastError}
+            WHERE status = 'PROCESSING' AND id IN
+            <foreach collection="events" item="event" open="(" separator="," close=")">#{event.id}</foreach>
+            </script>
+            """)
+    int rescheduleBatch(@Param("events") List<OutboxEvent> events, @Param("lastError") String lastError);
+
+    @Update("""
             UPDATE outbox_events
             SET status = 'FAILED', locked_at = NULL, last_error = #{lastError}
             WHERE id = #{id} AND status = 'PROCESSING'
             """)
     int markFailed(@Param("id") long id, @Param("lastError") String lastError);
+
+    @Update("""
+            <script>
+            UPDATE outbox_events
+            SET status = 'FAILED', locked_at = NULL, last_error = #{lastError}
+            WHERE status = 'PROCESSING' AND id IN
+            <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+            </script>
+            """)
+    int markFailedBatch(@Param("ids") List<Long> ids, @Param("lastError") String lastError);
 
     @Select("SELECT COALESCE(MAX(id), 0) FROM outbox_events")
     long selectMaxId();

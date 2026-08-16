@@ -65,7 +65,7 @@ public class SearchIndexRebuildService {
         log.info("Search index rebuild completed; previous active index retained as {}", temporaryUid);
     }
 
-    private void catchUpAndSwap(String temporaryUid, long startWatermark) {
+    void catchUpAndSwap(String temporaryUid, long startWatermark) {
         long throughId = outbox.selectMaxId();
         long afterId = startWatermark;
         while (afterId < throughId) {
@@ -75,7 +75,7 @@ public class SearchIndexRebuildService {
             if (events.isEmpty()) break;
             Set<Long> imageIds = new LinkedHashSet<>();
             for (OutboxEvent event : events) imageIds.add(event.getAggregateId());
-            for (Long imageId : imageIds) dispatcher.syncImageTo(temporaryUid, imageId);
+            dispatcher.syncImagesTo(temporaryUid, imageIds);
             afterId = events.getLast().getId();
         }
         client.waitForTask(client.swapIndexes(properties.indexUid(), temporaryUid));

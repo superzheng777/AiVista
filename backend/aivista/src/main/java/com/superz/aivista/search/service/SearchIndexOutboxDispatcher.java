@@ -11,7 +11,11 @@ import com.superz.aivista.search.config.MeilisearchProperties;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -20,7 +24,7 @@ import org.springframework.stereotype.Service;
 @Service
 public class SearchIndexOutboxDispatcher {
     private static final Logger log = LoggerFactory.getLogger(SearchIndexOutboxDispatcher.class);
-    private static final Duration LEASE = Duration.ofMinutes(1);
+    private static final Duration MINIMUM_LEASE = Duration.ofSeconds(90);
     private static final long[] RETRY_SECONDS = {5, 30, 120, 300};
     private final MeilisearchProperties properties;
     private final SearchIndexInitializer initializer;
@@ -47,9 +51,11 @@ public class SearchIndexOutboxDispatcher {
         recoverExpired(now);
         List<OutboxEvent> events = outbox.selectAvailableByEventType(
                 OutboxEventType.PUBLICATION_SEARCH_INDEX_SYNC.name(), now, properties.syncBatchSize());
+        List<OutboxEvent> claimed = new ArrayList<>(events.size());
         for (OutboxEvent event : events) {
-            if (outbox.claimPending(event.getId(), now, now) == 1) process(event);
+            if (outbox.claimPending(event.getId(), now, now) == 1) claimed.add(event);
         }
+        if (!claimed.isEmpty()) process(claimed);
     }
 
     public synchronized void runPaused(Runnable operation) {
@@ -61,43 +67,60 @@ public class SearchIndexOutboxDispatcher {
         }
     }
 
-    void syncImageTo(String indexUid, long imageId) {
-        GenerationImage image = images.selectPublishedById(imageId);
-        long taskUid = image == null
-                ? client.deleteDocument(indexUid, imageId)
-                : client.upsertDocuments(indexUid, List.of(SearchIndexProjectionMapper.toDocument(image)));
-        client.waitForTask(taskUid);
+    void syncImagesTo(String indexUid, Collection<Long> requestedImageIds) {
+        List<Long> imageIds = new ArrayList<>(new LinkedHashSet<>(requestedImageIds));
+        if (imageIds.isEmpty()) return;
+        List<GenerationImage> published = images.selectPublishedByIds(imageIds);
+        Set<Long> publishedIds = new LinkedHashSet<>();
+        for (GenerationImage image : published) publishedIds.add(image.getId());
+        List<Long> deletedIds = imageIds.stream().filter(imageId -> !publishedIds.contains(imageId)).toList();
+        long upsertTaskUid = client.upsertDocuments(indexUid,
+                published.stream().map(SearchIndexProjectionMapper::toDocument).toList());
+        long deleteTaskUid = client.deleteDocuments(indexUid, deletedIds);
+        client.waitForTask(upsertTaskUid);
+        client.waitForTask(deleteTaskUid);
     }
 
-    private void process(OutboxEvent event) {
+    private void process(List<OutboxEvent> events) {
+        List<Long> eventIds = events.stream().map(OutboxEvent::getId).toList();
         try {
-            syncImageTo(properties.indexUid(), event.getAggregateId());
-            outbox.markPublished(event.getId(), clock.instant());
+            syncImagesTo(properties.indexUid(), events.stream().map(OutboxEvent::getAggregateId).toList());
+            outbox.markPublishedBatch(eventIds, clock.instant());
         } catch (MeilisearchAdminException exception) {
             if (exception.kind() == MeilisearchAdminException.Kind.REQUIRES_ACTION) {
-                outbox.markFailed(event.getId(), safeError(exception));
-                log.error("Search index event requires action: outboxId={}, imageId={}, reason={}",
-                        event.getId(), event.getAggregateId(), safeError(exception));
+                outbox.markFailedBatch(eventIds, safeError(exception));
+                log.error("Search index event batch requires action: count={}, firstOutboxId={}, reason={}",
+                        events.size(), events.getFirst().getId(), safeError(exception));
             } else {
                 if (exception.kind() == MeilisearchAdminException.Kind.INDEX_NOT_FOUND) initializer.markUnavailable();
-                reschedule(event, safeError(exception));
+                reschedule(events, clock.instant(), safeError(exception));
             }
         } catch (Exception exception) {
-            reschedule(event, exception.getClass().getSimpleName());
+            reschedule(events, clock.instant(), exception.getClass().getSimpleName());
         }
     }
 
     private void recoverExpired(Instant now) {
-        for (OutboxEvent event : outbox.selectProcessingLockedBefore(
-                OutboxEventType.PUBLICATION_SEARCH_INDEX_SYNC.name(), now.minus(LEASE), properties.syncBatchSize())) {
-            int retry = nextRetryCount(event.getRetryCount());
-            outbox.reschedule(event.getId(), retry, now.plusSeconds(delaySeconds(retry)), "Search sync lease expired");
-        }
+        List<OutboxEvent> expired = outbox.selectProcessingLockedBefore(
+                OutboxEventType.PUBLICATION_SEARCH_INDEX_SYNC.name(), now.minus(processingLease()),
+                properties.syncBatchSize());
+        if (!expired.isEmpty()) reschedule(expired, now, "Search sync lease expired");
     }
 
-    private void reschedule(OutboxEvent event, String reason) {
-        int retry = nextRetryCount(event.getRetryCount());
-        outbox.reschedule(event.getId(), retry, clock.instant().plusSeconds(delaySeconds(retry)), reason);
+    private void reschedule(List<OutboxEvent> events, Instant now, String reason) {
+        for (OutboxEvent event : events) {
+            int retry = nextRetryCount(event.getRetryCount());
+            event.setRetryCount(retry);
+            event.setAvailableAt(now.plusSeconds(delaySeconds(retry)));
+        }
+        outbox.rescheduleBatch(events, reason);
+    }
+
+    private Duration processingLease() {
+        Duration budget = properties.taskWaitTimeout().multipliedBy(2)
+                .plus(properties.indexRequestTimeout().multipliedBy(4))
+                .plusSeconds(10);
+        return budget.compareTo(MINIMUM_LEASE) < 0 ? MINIMUM_LEASE : budget;
     }
 
     private static int nextRetryCount(int retryCount) {

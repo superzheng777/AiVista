@@ -9,6 +9,7 @@ import com.superz.aivista.generation.mapper.GenerationMessageMapper;
 import com.superz.aivista.generation.mapper.GenerationSessionMapper;
 import com.superz.aivista.generation.mapper.GenerationTaskMapper;
 import com.superz.aivista.generation.mapper.OutboxEventMapper;
+import com.superz.aivista.generation.entity.OutboxEvent;
 import com.superz.aivista.generation.mapper.UserConsentMapper;
 import com.superz.aivista.generation.mapper.UserGenerationDailyUsageMapper;
 import com.superz.aivista.user.entity.User;
@@ -79,6 +80,7 @@ class DataAccessIntegrationIT {
 
     @BeforeEach
     void cleanDatabase() {
+        jdbcTemplate.update("DELETE FROM outbox_events");
         jdbcTemplate.update("DELETE FROM auth_sessions");
         jdbcTemplate.update("DELETE FROM users");
     }
@@ -173,6 +175,42 @@ class DataAccessIntegrationIT {
                 .isEqualTo(1);
     }
 
+    @Test
+    void outboxMapperUpdatesClaimedEventsInBatches() {
+        Instant now = Instant.parse("2026-08-15T12:00:00Z");
+        OutboxEvent publishedOne = createOutboxEvent(42, 0, now);
+        OutboxEvent publishedTwo = createOutboxEvent(43, 0, now);
+
+        assertThat(outboxEventMapper.markPublishedBatch(
+                java.util.List.of(publishedOne.getId(), publishedTwo.getId()), now)).isEqualTo(2);
+        assertThat(outboxEventMapper.selectOneById(publishedOne.getId()).getStatus()).isEqualTo("PUBLISHED");
+        assertThat(outboxEventMapper.selectOneById(publishedTwo.getId()).getPublishedAt()).isEqualTo(now);
+
+        OutboxEvent retryOne = createOutboxEvent(44, 0, now);
+        OutboxEvent retryTwo = createOutboxEvent(45, 2, now);
+        retryOne.setRetryCount(1);
+        retryOne.setAvailableAt(now.plusSeconds(5));
+        retryTwo.setRetryCount(3);
+        retryTwo.setAvailableAt(now.plusSeconds(120));
+
+        assertThat(outboxEventMapper.rescheduleBatch(
+                java.util.List.of(retryOne, retryTwo), "temporary")).isEqualTo(2);
+        OutboxEvent storedRetryOne = outboxEventMapper.selectOneById(retryOne.getId());
+        OutboxEvent storedRetryTwo = outboxEventMapper.selectOneById(retryTwo.getId());
+        assertThat(storedRetryOne.getStatus()).isEqualTo("PENDING");
+        assertThat(storedRetryOne.getRetryCount()).isEqualTo(1);
+        assertThat(storedRetryOne.getAvailableAt()).isEqualTo(now.plusSeconds(5));
+        assertThat(storedRetryTwo.getRetryCount()).isEqualTo(3);
+        assertThat(storedRetryTwo.getAvailableAt()).isEqualTo(now.plusSeconds(120));
+
+        OutboxEvent failedOne = createOutboxEvent(46, 0, now);
+        OutboxEvent failedTwo = createOutboxEvent(47, 0, now);
+        assertThat(outboxEventMapper.markFailedBatch(
+                java.util.List.of(failedOne.getId(), failedTwo.getId()), "permanent")).isEqualTo(2);
+        assertThat(outboxEventMapper.selectOneById(failedOne.getId()).getStatus()).isEqualTo("FAILED");
+        assertThat(outboxEventMapper.selectOneById(failedTwo.getId()).getLastError()).isEqualTo("permanent");
+    }
+
     private User createUser(String loginName) {
         User user = new User();
         user.setLoginName(loginName);
@@ -180,6 +218,22 @@ class DataAccessIntegrationIT {
         user.setNickname(loginName);
         userMapper.insertSelective(user);
         return user;
+    }
+
+    private OutboxEvent createOutboxEvent(long imageId, int retryCount, Instant now) {
+        OutboxEvent event = new OutboxEvent();
+        event.setEventType("PUBLICATION_SEARCH_INDEX_SYNC");
+        event.setAggregateType("GENERATION_IMAGE");
+        event.setAggregateId(imageId);
+        event.setAggregateVersion(1L);
+        event.setStatus("PROCESSING");
+        event.setRetryCount(retryCount);
+        event.setAvailableAt(now);
+        event.setLockedAt(now);
+        event.setCreatedAt(now);
+        event.setUpdatedAt(now);
+        outboxEventMapper.insertSelective(event);
+        return event;
     }
 
     private static byte[] sha256(String value) {
