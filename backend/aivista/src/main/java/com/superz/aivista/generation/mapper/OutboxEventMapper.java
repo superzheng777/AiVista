@@ -65,4 +65,27 @@ public interface OutboxEventMapper extends BaseMapper<OutboxEvent> {
             WHERE id = #{id} AND status = 'PROCESSING'
             """)
     int markFailed(@Param("id") long id, @Param("lastError") String lastError);
+
+    @Select("SELECT COALESCE(MAX(id), 0) FROM outbox_events")
+    long selectMaxId();
+
+    @Select("""
+            SELECT id, event_type, aggregate_type, aggregate_id, aggregate_version, payload_json,
+                   status, retry_count, available_at, locked_at, published_at, last_error, created_at, updated_at
+            FROM outbox_events
+            WHERE event_type = #{eventType} AND id > #{afterId} AND id <= #{throughId}
+            ORDER BY id
+            LIMIT #{limit}
+            """)
+    List<OutboxEvent> selectByEventTypeAndIdRange(@Param("eventType") String eventType,
+            @Param("afterId") long afterId, @Param("throughId") long throughId, @Param("limit") int limit);
+
+    @Select("SELECT COUNT(*) FROM outbox_events WHERE event_type = #{eventType} AND status = 'FAILED'")
+    long countFailedByEventType(@Param("eventType") String eventType);
+
+    @Select("""
+            SELECT MIN(created_at) FROM outbox_events
+            WHERE event_type = #{eventType} AND status IN ('PENDING', 'PROCESSING')
+            """)
+    Instant selectOldestIncompleteCreatedAt(@Param("eventType") String eventType);
 }

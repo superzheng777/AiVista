@@ -23,6 +23,12 @@ export function getApiErrorMessage(error: unknown): string | null {
   return typeof message === "string" && message.trim() ? message : null;
 }
 
+export function getRetryAfterSeconds(error: unknown): number {
+  if (!isAxiosError(error)) return 0;
+  const value = Number(error.response?.headers?.["retry-after"]);
+  return Number.isFinite(value) && value > 0 ? Math.ceil(value) : 0;
+}
+
 export function unwrapApiResponse<T>(response: ApiResponse<T>): T {
   if (response.code !== 0) {
     throw new Error(response.message);

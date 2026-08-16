@@ -87,6 +87,7 @@ class PublicationServiceTests {
         verify(likes).deleteByImageAndVersion(IMAGE_ID, 0L);
         verify(users).changeReceivedLikeCount(USER_ID, -2);
         verify(images).withdrawPublication(IMAGE_ID, NOW);
+        verify(outbox).insertSelective(any());
     }
 
     private static GenerationImage imageWithStatus(String status) {

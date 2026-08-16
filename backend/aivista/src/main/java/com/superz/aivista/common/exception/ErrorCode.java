@@ -6,6 +6,7 @@ import org.springframework.http.HttpStatus;
 public enum ErrorCode {
     LIKE_RATE_LIMITED(42902, "点赞操作过于频繁，请稍后重试", HttpStatus.TOO_MANY_REQUESTS),
     FOLLOW_RATE_LIMITED(42903, "关注操作过于频繁，请稍后重试", HttpStatus.TOO_MANY_REQUESTS),
+    SEARCH_RATE_LIMITED(42904, "搜索请求过于频繁，请稍后重试", HttpStatus.TOO_MANY_REQUESTS),
     SUCCESS(0, "ok", HttpStatus.OK),
     BAD_REQUEST(40000, "请求参数错误", HttpStatus.BAD_REQUEST),
     UNAUTHORIZED(40100, "未登录或登录已失效", HttpStatus.UNAUTHORIZED),
@@ -27,7 +28,8 @@ public enum ErrorCode {
     INVALID_CURSOR(42201, "分页游标无效", HttpStatus.UNPROCESSABLE_CONTENT),
     RATE_LIMITED(42900, "请求过于频繁，请稍后重试", HttpStatus.TOO_MANY_REQUESTS),
     DAILY_GENERATION_QUOTA_EXCEEDED(42901, "今日生成图片额度已用尽", HttpStatus.TOO_MANY_REQUESTS),
-    SYSTEM_ERROR(50000, "系统繁忙，请稍后重试", HttpStatus.INTERNAL_SERVER_ERROR);
+    SYSTEM_ERROR(50000, "系统繁忙，请稍后重试", HttpStatus.INTERNAL_SERVER_ERROR),
+    SEARCH_UNAVAILABLE(50301, "搜索服务暂不可用，请稍后重试", HttpStatus.SERVICE_UNAVAILABLE);
 
     private final int code;
     private final String message;

@@ -15,6 +15,7 @@ import com.superz.aivista.user.mapper.UserNotificationMapper;
 import java.time.Clock;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.superz.aivista.search.service.SearchIndexOutboxEvent;
 
 @Service
 public class GenerationImageLikeService {
@@ -66,6 +67,8 @@ public class GenerationImageLikeService {
                 || userMapper.changeReceivedLikeCount(image.getUserId(), liked ? 1 : -1) != 1) {
             throw new IllegalStateException("Like counters are inconsistent");
         }
+        outboxEventMapper.insertSelective(SearchIndexOutboxEvent.create(
+                imageId, publicationVersion, clock.instant()));
         if (liked && userId != image.getUserId()) {
             createImageLikeNotification(userId, imageId, publicationVersion, image.getUserId());
         }

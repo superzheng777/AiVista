@@ -13,6 +13,20 @@ spring:
     password: "<your-db-password>"
 
 app:
+  meilisearch:
+    enabled: false
+    endpoint: "http://127.0.0.1:7700"
+    search-key: "<your-meilisearch-search-key>"
+    admin-key: "<your-meilisearch-admin-key>"
+    index-uid: public_images
+    search-connect-timeout: 1s
+    search-request-timeout: 2s
+    index-connect-timeout: 2s
+    index-request-timeout: 5s
+    task-wait-timeout: 30s
+    sync-batch-size: 100
+    rebuild-on-startup: false
+    trust-forwarded-for: false
   auth:
     jwt:
       # 至少 32 个 UTF-8 字节；application-local.yaml 已被 Git 忽略。

@@ -3,6 +3,7 @@ package com.superz.aivista.publication.service;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.times;
 
 import com.superz.aivista.generation.entity.GenerationImage;
 import com.superz.aivista.generation.entity.OutboxEvent;
@@ -36,10 +37,13 @@ class PublicationReviewOutcomeServiceTests {
         ArgumentCaptor<UserNotification> notification = ArgumentCaptor.forClass(UserNotification.class);
         ArgumentCaptor<OutboxEvent> event = ArgumentCaptor.forClass(OutboxEvent.class);
         verify(notifications).insertSelective(notification.capture());
-        verify(outbox).insertSelective(event.capture());
+        verify(outbox, times(2)).insertSelective(event.capture());
         org.assertj.core.api.Assertions.assertThat(notification.getValue().getEventType()).isEqualTo("PUBLICATION_APPROVED");
-        org.assertj.core.api.Assertions.assertThat(event.getValue().getEventType()).isEqualTo("PUBLICATION_STATUS_CHANGED");
-        org.assertj.core.api.Assertions.assertThat(event.getValue().getPayloadJson()).isEqualTo("{\"status\":\"APPROVED\"}");
+        org.assertj.core.api.Assertions.assertThat(event.getAllValues())
+                .extracting(OutboxEvent::getEventType)
+                .containsExactly("PUBLICATION_STATUS_CHANGED", "PUBLICATION_SEARCH_INDEX_SYNC");
+        org.assertj.core.api.Assertions.assertThat(event.getAllValues().getFirst().getPayloadJson())
+                .isEqualTo("{\"status\":\"APPROVED\"}");
     }
 
     @Test

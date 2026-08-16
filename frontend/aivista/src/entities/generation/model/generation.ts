@@ -74,7 +74,7 @@ export function needsImageUrlRefresh(urlExpiresAt: string, now = Date.now()): bo
   return Number.isNaN(expiresAt) || expiresAt <= now;
 }
 
-/** 资产、个人发布和灵感列表共用的后端完整图片 DTO，字段与 `GenerationAssetImageResponse` 对齐。 */
+/** 资产、个人发布和发现列表共用的后端完整图片 DTO，字段与 `GenerationAssetImageResponse` 对齐。 */
 export type GenerationAssetImageDto = {
   imageId: string;
   url: string;

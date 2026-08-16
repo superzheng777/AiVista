@@ -8,6 +8,7 @@ import com.superz.aivista.generation.mapper.OutboxEventMapper;
 import com.superz.aivista.publication.model.PublicationViolation;
 import com.superz.aivista.user.entity.UserNotification;
 import com.superz.aivista.user.mapper.UserNotificationMapper;
+import com.superz.aivista.search.service.SearchIndexOutboxEvent;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
@@ -67,6 +68,9 @@ public class PublicationReviewOutcomeService {
         notification.setCreatedAt(now);
         notifications.insertSelective(notification);
         outbox.insertSelective(PublicationStatusOutboxEvent.create(image.getId(), version, status, now));
+        if ("APPROVED".equals(status)) {
+            outbox.insertSelective(SearchIndexOutboxEvent.create(image.getId(), version, now));
+        }
     }
 
     private String metadataJson(List<PublicationViolation> violations) {

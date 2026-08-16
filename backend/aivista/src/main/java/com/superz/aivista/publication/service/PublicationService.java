@@ -15,6 +15,7 @@ import java.time.Clock;
 import java.time.Instant;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.superz.aivista.search.service.SearchIndexOutboxEvent;
 
 @Service
 public class PublicationService {
@@ -75,14 +76,20 @@ public class PublicationService {
             throw new BusinessException(ErrorCode.GENERATION_RESOURCE_NOT_FOUND);
         }
         long likeCount = image.getLikeCount() == null ? 0 : image.getLikeCount();
-        if (image.getPublicAt() != null) {
+        boolean wasPublic = image.getPublicAt() != null;
+        if (wasPublic) {
             int deleted = likeMapper.deleteByImageAndVersion(imageId, image.getPublicationVersion());
             if (deleted != likeCount || userMapper.selectIdForUpdate(image.getUserId()) == null
                     || userMapper.changeReceivedLikeCount(image.getUserId(), -deleted) != 1) {
                 throw new IllegalStateException("Publication like counters are inconsistent");
             }
         }
-        imageMapper.withdrawPublication(imageId, clock.instant());
+        Instant now = clock.instant();
+        imageMapper.withdrawPublication(imageId, now);
+        if (wasPublic) {
+            outboxEventMapper.insertSelective(SearchIndexOutboxEvent.create(
+                    imageId, image.getPublicationVersion() == null ? 0 : image.getPublicationVersion(), now));
+        }
     }
 
     private static boolean canRequestPublication(String reviewStatus) {

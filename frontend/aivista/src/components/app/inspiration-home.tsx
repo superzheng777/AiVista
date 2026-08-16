@@ -12,6 +12,7 @@ import {
   listInspirations,
 } from "@/features/inspiration/api/inspiration-api";
 import { MasonryFeed } from "@/features/inspiration/ui/masonry-feed";
+import { InspirationSearchForm } from "@/features/inspiration/ui/inspiration-search-form";
 import { PublicInspirationCard } from "@/features/inspiration/ui/public-inspiration-card";
 import { getPublicAuthor } from "@/features/public-user/api/public-user-api";
 import { cn } from "@/lib/utils";
@@ -68,8 +69,9 @@ export function InspirationHome({ view = "discovery" }: { view?: InspirationFeed
       </header>
 
       <nav aria-label="作品列表" className="sticky top-0 z-20 mb-6 flex border-b border-border bg-background/95 backdrop-blur">
-        <FeedTab href="/inspirations" active={!following}>灵感</FeedTab>
+        <FeedTab href="/inspirations" active={!following}>发现</FeedTab>
         <FeedTab href="/inspirations?view=following" active={following}>关注</FeedTab>
+        <InspirationSearchForm compact />
       </nav>
 
       {following && status === "anonymous" ? (
@@ -82,7 +84,7 @@ export function InspirationHome({ view = "discovery" }: { view?: InspirationFeed
       {enabled && inspirations.isLoading ? <FeedSkeleton /> : null}
       {enabled && inspirations.isError ? (
         <section role="alert" className="rounded-2xl border border-destructive/20 bg-card p-8 text-center">
-          <p className="text-sm text-destructive">{following ? "关注列表加载失败。" : "灵感列表加载失败。"}</p>
+          <p className="text-sm text-destructive">{following ? "关注列表加载失败。" : "发现列表加载失败。"}</p>
           <button type="button" onClick={() => void inspirations.refetch()} className="mt-3 text-sm font-medium underline">重新加载</button>
         </section>
       ) : null}
@@ -91,10 +93,10 @@ export function InspirationHome({ view = "discovery" }: { view?: InspirationFeed
           ? "正在确认关注状态…"
           : following
           ? selfProfile.data?.followingCount === 0
-            ? "你还没有关注创作者，可以先去灵感列表发现喜欢的作品。"
+            ? "你还没有关注创作者，可以先去发现列表寻找喜欢的作品。"
             : "你关注的作者暂时还没有公开作品。"
           : "暂时还没有公开作品。"}
-          action={following && selfProfile.data?.followingCount === 0 ? "浏览灵感" : undefined}
+          action={following && selfProfile.data?.followingCount === 0 ? "浏览发现" : undefined}
           href={following && selfProfile.data?.followingCount === 0 ? "/inspirations" : undefined} />
       ) : null}
       {images.length ? (

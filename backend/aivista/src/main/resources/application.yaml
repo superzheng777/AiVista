@@ -28,6 +28,20 @@ server:
     context-path: /api
 
 app:
+  meilisearch:
+    enabled: ${MEILISEARCH_ENABLED:false}
+    endpoint: ${MEILISEARCH_ENDPOINT:http://127.0.0.1:7700}
+    search-key: ${MEILISEARCH_SEARCH_KEY:}
+    admin-key: ${MEILISEARCH_ADMIN_KEY:}
+    index-uid: public_images
+    search-connect-timeout: 1s
+    search-request-timeout: 2s
+    index-connect-timeout: 2s
+    index-request-timeout: 5s
+    task-wait-timeout: 30s
+    sync-batch-size: 100
+    rebuild-on-startup: false
+    trust-forwarded-for: false
   cors:
     # 多个来源以英文逗号分隔；生产环境请配置为实际前端域名。
     allowed-origins: ${AIVISTA_CORS_ALLOWED_ORIGINS:http://localhost:3000,http://127.0.0.1:3000}

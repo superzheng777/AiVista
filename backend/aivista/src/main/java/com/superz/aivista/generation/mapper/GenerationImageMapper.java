@@ -76,6 +76,20 @@ public interface GenerationImageMapper extends BaseMapper<GenerationImage> {
             """)
     List<GenerationImage> selectPublishedByIds(@Param("imageIds") List<Long> imageIds);
 
+    @Select("""
+            SELECT i.*, t.final_prompt AS publication_prompt
+            FROM generation_images i INNER JOIN generation_tasks t ON t.id = i.task_id
+            WHERE i.public_at IS NOT NULL AND i.publication_review_status = 'APPROVED'
+              AND i.id > #{afterImageId}
+            ORDER BY i.id ASC
+            LIMIT #{limit}
+            """)
+    List<GenerationImage> selectPublishedForSearchIndex(
+            @Param("afterImageId") long afterImageId, @Param("limit") int limit);
+
+    @Select("SELECT COUNT(*) FROM generation_images WHERE public_at IS NOT NULL AND publication_review_status = 'APPROVED'")
+    long countPublishedForSearchIndex();
+
     @Select("SELECT i.*, t.final_prompt AS publication_prompt, t.final_negative_prompt AS publication_negative_prompt, t.requested_image_count AS publication_requested_image_count, t.prompt_extend AS publication_prompt_extend FROM generation_images i INNER JOIN generation_tasks t ON t.id = i.task_id WHERE i.user_id = #{userId} AND i.publication_review_status IN ('PENDING', 'APPROVED') ORDER BY i.publication_review_started_at DESC, i.id DESC")
     List<GenerationImage> selectPublishedByUserId(@Param("userId") long userId);
 

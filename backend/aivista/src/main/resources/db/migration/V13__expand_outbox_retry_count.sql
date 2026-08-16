@@ -1,0 +1,2 @@
+ALTER TABLE `outbox_events`
+    MODIFY COLUMN `retry_count` INT UNSIGNED NOT NULL DEFAULT 0;

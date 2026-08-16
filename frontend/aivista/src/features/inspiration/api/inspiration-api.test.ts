@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/shared/api/browser-client", () => ({ browserApiClient: { get: vi.fn(), put: vi.fn(), delete: vi.fn() } }));
 
-import { listFollowingInspirations, listInspirations } from "@/features/inspiration/api/inspiration-api";
+import { listFollowingInspirations, listInspirations, searchInspirations } from "@/features/inspiration/api/inspiration-api";
 import { browserApiClient } from "@/shared/api/browser-client";
 
 const client = vi.mocked(browserApiClient);
@@ -37,5 +37,16 @@ describe("inspiration-api", () => {
 
     expect(client.get).toHaveBeenNthCalledWith(1, "/inspirations", { params: undefined });
     expect(client.get).toHaveBeenNthCalledWith(2, "/inspirations/following", { params: { cursor: "cursor-1" } });
+  });
+
+  it("uses raw Meilisearch offset returned by the server", async () => {
+    client.get.mockResolvedValueOnce({ data: { code: 0, message: "ok", data: { items: [image], nextOffset: 24 } } } as never);
+
+    await expect(searchInspirations("AI 星空", null)).resolves.toMatchObject({ items: [{ id: "11" }], nextOffset: 24 });
+    expect(client.get).toHaveBeenCalledWith("/inspirations/search", { params: { q: "AI 星空" } });
+
+    client.get.mockResolvedValueOnce({ data: { code: 0, message: "ok", data: { items: [], nextOffset: null } } } as never);
+    await searchInspirations("AI 星空", 24);
+    expect(client.get).toHaveBeenLastCalledWith("/inspirations/search", { params: { q: "AI 星空", offset: 24 } });
   });
 });
