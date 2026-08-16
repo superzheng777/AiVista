@@ -14,10 +14,11 @@ spring:
 
 app:
   meilisearch:
-    enabled: false
-    endpoint: "http://127.0.0.1:7700"
+    enabled: true
+    endpoint: "http://<your-meilisearch-host>:7700"
     search-key: "<your-meilisearch-search-key>"
     admin-key: "<your-meilisearch-admin-key>"
+    task-key: "<your-meilisearch-task-key>"
     index-uid: public_images
     search-connect-timeout: 1s
     search-request-timeout: 2s

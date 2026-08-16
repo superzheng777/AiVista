@@ -17,20 +17,23 @@ import org.springframework.web.client.RestClientResponseException;
 @Component
 public class MeilisearchAdminClient {
     private static final Duration TASK_POLL_INTERVAL = Duration.ofMillis(200);
-    private final RestClient client;
+    private final RestClient adminClient;
+    private final RestClient taskClient;
     private final MeilisearchProperties properties;
     private final ObjectMapper objectMapper;
 
-    public MeilisearchAdminClient(@Qualifier("meilisearchAdminRestClient") RestClient client,
+    public MeilisearchAdminClient(@Qualifier("meilisearchAdminRestClient") RestClient adminClient,
+            @Qualifier("meilisearchTaskRestClient") RestClient taskClient,
             MeilisearchProperties properties, ObjectMapper objectMapper) {
-        this.client = client;
+        this.adminClient = adminClient;
+        this.taskClient = taskClient;
         this.properties = properties;
         this.objectMapper = objectMapper;
     }
 
     public boolean indexExists(String uid) {
         try {
-            client.get().uri("/indexes/{uid}", uid).retrieve().body(MeilisearchDtos.IndexInfo.class);
+            adminClient.get().uri("/indexes/{uid}", uid).retrieve().body(MeilisearchDtos.IndexInfo.class);
             return true;
         } catch (RestClientResponseException exception) {
             MeilisearchAdminException classified = classify(exception);
@@ -42,7 +45,7 @@ public class MeilisearchAdminClient {
     }
 
     public long createIndex(String uid) {
-        return taskUid(() -> client.post().uri("/indexes").contentType(MediaType.APPLICATION_JSON)
+        return taskUid(() -> adminClient.post().uri("/indexes").contentType(MediaType.APPLICATION_JSON)
                 .body(Map.of("uid", uid, "primaryKey", "imageId")).retrieve()
                 .body(MeilisearchDtos.TaskSummary.class));
     }
@@ -59,45 +62,45 @@ public class MeilisearchAdminClient {
                 Map.entry("localizedAttributes", List.of(Map.of(
                         "attributePatterns", List.of("title", "finalPrompt"), "locales", List.of("cmn")))),
                 Map.entry("prefixSearch", "indexingTime"));
-        return taskUid(() -> client.patch().uri("/indexes/{uid}/settings", uid)
+        return taskUid(() -> adminClient.patch().uri("/indexes/{uid}/settings", uid)
                 .contentType(MediaType.APPLICATION_JSON).body(settings).retrieve()
                 .body(MeilisearchDtos.TaskSummary.class));
     }
 
     public long upsertDocuments(String uid, List<SearchIndexDocument> documents) {
         if (documents.isEmpty()) return -1;
-        return taskUid(() -> client.put().uri("/indexes/{uid}/documents", uid)
+        return taskUid(() -> adminClient.put().uri("/indexes/{uid}/documents", uid)
                 .contentType(MediaType.APPLICATION_JSON).body(documents).retrieve()
                 .body(MeilisearchDtos.TaskSummary.class));
     }
 
     public long deleteDocuments(String uid, List<Long> imageIds) {
         if (imageIds.isEmpty()) return -1;
-        return taskUid(() -> client.post().uri("/indexes/{uid}/documents/delete-batch", uid)
+        return taskUid(() -> adminClient.post().uri("/indexes/{uid}/documents/delete-batch", uid)
                 .contentType(MediaType.APPLICATION_JSON).body(imageIds).retrieve()
                 .body(MeilisearchDtos.TaskSummary.class));
     }
 
     public long deleteIndex(String uid) {
-        return taskUid(() -> client.delete().uri("/indexes/{uid}", uid).retrieve()
+        return taskUid(() -> adminClient.delete().uri("/indexes/{uid}", uid).retrieve()
                 .body(MeilisearchDtos.TaskSummary.class));
     }
 
     public long renameIndex(String currentUid, String newUid) {
-        return taskUid(() -> client.patch().uri("/indexes/{uid}", currentUid)
+        return taskUid(() -> adminClient.patch().uri("/indexes/{uid}", currentUid)
                 .contentType(MediaType.APPLICATION_JSON).body(Map.of("uid", newUid)).retrieve()
                 .body(MeilisearchDtos.TaskSummary.class));
     }
 
     public long swapIndexes(String firstUid, String secondUid) {
-        return taskUid(() -> client.post().uri("/swap-indexes").contentType(MediaType.APPLICATION_JSON)
+        return taskUid(() -> adminClient.post().uri("/swap-indexes").contentType(MediaType.APPLICATION_JSON)
                 .body(List.of(Map.of("indexes", List.of(firstUid, secondUid)))).retrieve()
                 .body(MeilisearchDtos.TaskSummary.class));
     }
 
     public long documentCount(String uid) {
         try {
-            MeilisearchDtos.IndexStats stats = client.get().uri("/indexes/{uid}/stats", uid).retrieve()
+            MeilisearchDtos.IndexStats stats = adminClient.get().uri("/indexes/{uid}/stats", uid).retrieve()
                     .body(MeilisearchDtos.IndexStats.class);
             return stats == null || stats.numberOfDocuments() == null ? 0 : stats.numberOfDocuments();
         } catch (RestClientResponseException exception) {
@@ -128,7 +131,7 @@ public class MeilisearchAdminClient {
 
     private MeilisearchDtos.Task getTask(long taskUid) {
         try {
-            return client.get().uri("/tasks/{taskUid}", taskUid).retrieve().body(MeilisearchDtos.Task.class);
+            return taskClient.get().uri("/tasks/{taskUid}", taskUid).retrieve().body(MeilisearchDtos.Task.class);
         } catch (RestClientResponseException exception) {
             throw classify(exception);
         } catch (RestClientException exception) {

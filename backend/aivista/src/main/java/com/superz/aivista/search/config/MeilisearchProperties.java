@@ -9,6 +9,7 @@ public record MeilisearchProperties(
         String endpoint,
         String searchKey,
         String adminKey,
+        String taskKey,
         String indexUid,
         Duration searchConnectTimeout,
         Duration searchRequestTimeout,
@@ -28,7 +29,9 @@ public record MeilisearchProperties(
         requirePositive("index-request-timeout", indexRequestTimeout);
         requirePositive("task-wait-timeout", taskWaitTimeout);
         if (syncBatchSize <= 0) throw new IllegalArgumentException("app.meilisearch.sync-batch-size must be positive");
-        if (enabled && (searchKey == null || searchKey.isBlank() || adminKey == null || adminKey.isBlank())) {
+        if (enabled && (searchKey == null || searchKey.isBlank()
+                || adminKey == null || adminKey.isBlank()
+                || taskKey == null || taskKey.isBlank())) {
             throw new IllegalArgumentException("Meilisearch keys must be configured when enabled");
         }
     }

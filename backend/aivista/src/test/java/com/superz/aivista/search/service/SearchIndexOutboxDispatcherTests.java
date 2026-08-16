@@ -145,7 +145,7 @@ class SearchIndexOutboxDispatcherTests {
 
     private static Fixture fixture() {
         MeilisearchProperties properties = new MeilisearchProperties(true, "http://meili.test", "search", "admin",
-                "public_images", Duration.ofSeconds(1), Duration.ofSeconds(2), Duration.ofSeconds(2),
+                "task", "public_images", Duration.ofSeconds(1), Duration.ofSeconds(2), Duration.ofSeconds(2),
                 Duration.ofSeconds(5), Duration.ofSeconds(30), 100, false, false);
         SearchIndexInitializer initializer = mock(SearchIndexInitializer.class);
         MeilisearchAdminClient client = mock(MeilisearchAdminClient.class);

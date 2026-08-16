@@ -46,7 +46,7 @@ class SearchIndexRebuildServiceTests {
     }
 
     private static MeilisearchProperties properties() {
-        return new MeilisearchProperties(true, "http://meili.test", "search", "admin", "public_images",
+        return new MeilisearchProperties(true, "http://meili.test", "search", "admin", "task", "public_images",
                 Duration.ofSeconds(1), Duration.ofSeconds(2), Duration.ofSeconds(2), Duration.ofSeconds(5),
                 Duration.ofSeconds(30), 100, false, false);
     }

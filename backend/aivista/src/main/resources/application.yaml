@@ -30,9 +30,10 @@ server:
 app:
   meilisearch:
     enabled: ${MEILISEARCH_ENABLED:false}
-    endpoint: ${MEILISEARCH_ENDPOINT:http://127.0.0.1:7700}
+    endpoint: ${MEILISEARCH_ENDPOINT:}
     search-key: ${MEILISEARCH_SEARCH_KEY:}
     admin-key: ${MEILISEARCH_ADMIN_KEY:}
+    task-key: ${MEILISEARCH_TASK_KEY:}
     index-uid: public_images
     search-connect-timeout: 1s
     search-request-timeout: 2s
