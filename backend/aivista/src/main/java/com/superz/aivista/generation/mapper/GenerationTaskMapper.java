@@ -8,7 +8,7 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
-/** 生成任务数据访问接口。条件更新将在任务创建闭环阶段补充。 */
+/** 生成任务数据访问接口，包含各阶段的条件状态迁移与超时扫描。 */
 public interface GenerationTaskMapper extends BaseMapper<GenerationTask> {
 
     @Select("""
@@ -80,7 +80,7 @@ public interface GenerationTaskMapper extends BaseMapper<GenerationTask> {
             SELECT COUNT(*)
             FROM generation_tasks
             WHERE user_id = #{userId}
-              AND status IN ('QUEUED', 'RUNNING')
+              AND status IN ('QUEUED', 'RUNNING', 'TRANSFERRING')
             """)
     int countActiveByUserId(@Param("userId") long userId);
 
@@ -88,7 +88,7 @@ public interface GenerationTaskMapper extends BaseMapper<GenerationTask> {
             SELECT COUNT(*)
             FROM generation_tasks
             WHERE session_id = #{sessionId}
-              AND status IN ('QUEUED', 'RUNNING')
+              AND status IN ('QUEUED', 'RUNNING', 'TRANSFERRING')
             """)
     int countActiveBySessionId(@Param("sessionId") long sessionId);
 
@@ -96,7 +96,7 @@ public interface GenerationTaskMapper extends BaseMapper<GenerationTask> {
             SELECT id, user_id, session_id, source_message_id, model, status, task_version,
                    attempt_count, provider_call_started_at, final_prompt, final_negative_prompt,
                    width, height, prompt_extend, requested_image_count, completed_image_count, quota_refunded_at,
-                   provider_request_id, provider_result_snapshot,
+                   provider_request_id, provider_result_snapshot, transfer_started_at,
                    failure_code, created_at, updated_at, started_at, completed_at
             FROM generation_tasks
             WHERE id = #{taskId}
@@ -153,12 +153,36 @@ public interface GenerationTaskMapper extends BaseMapper<GenerationTask> {
 
     @Update("""
             UPDATE generation_tasks
-            SET provider_request_id = #{providerRequestId}, provider_result_snapshot = CAST(#{snapshot} AS JSON),
-                updated_at = #{now}
-            WHERE id = #{taskId} AND status = 'RUNNING'
+            SET status = 'TRANSFERRING', task_version = task_version + 1,
+                provider_request_id = #{providerRequestId}, provider_result_snapshot = CAST(#{snapshot} AS JSON),
+                transfer_started_at = NULL, updated_at = #{now}
+            WHERE id = #{taskId} AND status = 'RUNNING' AND task_version = #{taskVersion}
             """)
-    int saveProviderResult(@Param("taskId") long taskId, @Param("providerRequestId") String providerRequestId,
-            @Param("snapshot") String snapshot, @Param("now") Instant now);
+    int markReadyForTransfer(@Param("taskId") long taskId, @Param("taskVersion") int taskVersion,
+            @Param("providerRequestId") String providerRequestId, @Param("snapshot") String snapshot,
+            @Param("now") Instant now);
+
+    @Update("""
+            UPDATE generation_tasks
+            SET transfer_started_at = #{now}, updated_at = #{now}
+            WHERE id = #{taskId} AND status = 'TRANSFERRING' AND task_version = #{taskVersion}
+              AND transfer_started_at IS NULL
+            """)
+    int markTransferStarted(@Param("taskId") long taskId, @Param("taskVersion") int taskVersion,
+            @Param("now") Instant now);
+
+    @Select("""
+            SELECT id, user_id, session_id, source_message_id, model, status, task_version,
+                   attempt_count, provider_call_started_at, final_prompt, final_negative_prompt,
+                   width, height, prompt_extend, requested_image_count, completed_image_count, quota_refunded_at,
+                   provider_request_id, provider_result_snapshot, transfer_started_at,
+                   failure_code, created_at, updated_at, started_at, completed_at
+            FROM generation_tasks
+            WHERE status = 'TRANSFERRING' AND transfer_started_at IS NULL AND updated_at < #{before}
+            ORDER BY updated_at, id
+            LIMIT #{limit}
+            """)
+    List<GenerationTask> selectTransferWaitingBefore(@Param("before") Instant before, @Param("limit") int limit);
 
     @Update("""
             UPDATE generation_tasks
@@ -184,11 +208,21 @@ public interface GenerationTaskMapper extends BaseMapper<GenerationTask> {
             UPDATE generation_tasks
             SET status = #{status}, task_version = task_version + 1, completed_image_count = #{completedImageCount},
                 failure_code = #{failureCode}, provider_result_snapshot = NULL, completed_at = #{now}, updated_at = #{now}
-            WHERE id = #{taskId} AND status = 'RUNNING'
+            WHERE id = #{taskId} AND status = 'TRANSFERRING' AND task_version = #{taskVersion}
             """)
-    int completeRunning(@Param("taskId") long taskId, @Param("status") String status,
+    int completeTransferring(@Param("taskId") long taskId, @Param("taskVersion") int taskVersion,
+            @Param("status") String status,
             @Param("completedImageCount") int completedImageCount, @Param("failureCode") String failureCode,
             @Param("now") Instant now);
+
+    @Update("""
+            UPDATE generation_tasks
+            SET status = 'FAILED', task_version = task_version + 1, failure_code = #{failureCode},
+                provider_result_snapshot = NULL, completed_at = #{now}, updated_at = #{now}
+            WHERE id = #{taskId} AND status = 'TRANSFERRING' AND task_version = #{taskVersion}
+            """)
+    int failTransferring(@Param("taskId") long taskId, @Param("taskVersion") int taskVersion,
+            @Param("failureCode") String failureCode, @Param("now") Instant now);
 
     @Update("""
             UPDATE generation_tasks

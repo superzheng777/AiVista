@@ -7,10 +7,12 @@ import java.time.Clock;
 import java.time.Instant;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
 /** 消费执行消息；只有任务已安全收敛或确认无需处理时才向 RabbitMQ ACK。 */
 @Service
+@ConditionalOnProperty(prefix = "app.generation.queue", name = "enabled", havingValue = "true")
 public class GenerationTaskExecuteListener {
     private static final int MAX_REDELIVERIES = 3;
     private final ObjectMapper objectMapper;
@@ -22,7 +24,7 @@ public class GenerationTaskExecuteListener {
      * 创建执行队列的消费者。
      *
      * @param objectMapper 将 RabbitMQ 消息体解析为任务定位信息
-     * @param executionService 执行百炼调用、OSS 转存和任务状态更新
+     * @param executionService 执行百炼调用并可靠创建后续转存命令
      * @param queuedTaskFailureService 消费多次失败后收敛任务、返还额度并创建状态事件
      * @param clock 为失败收敛写入统一的当前时间
      */
@@ -40,7 +42,7 @@ public class GenerationTaskExecuteListener {
      * <p>消息可正常处理或任务已安全收敛时 ACK；可恢复的消费者异常 NACK 后重新入队。
      * 无法解析的消息没有可靠的任务 ID，直接 ACK 以避免永久占用队列。</p>
      */
-    @RabbitListener(queues = "${app.generation.queue.name}",
+    @RabbitListener(queues = "${app.generation.queue.generation-name}",
             containerFactory = "generationTaskListenerContainerFactory")
     public void consume(Message message, Channel channel) throws Exception {
         long deliveryTag = message.getMessageProperties().getDeliveryTag();

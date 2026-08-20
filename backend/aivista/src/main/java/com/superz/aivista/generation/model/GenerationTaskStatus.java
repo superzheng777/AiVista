@@ -6,6 +6,8 @@ public enum GenerationTaskStatus {
     QUEUED,
     /** 工作器已通过条件更新领取任务。 */
     RUNNING,
+    /** 服务商结果已可靠保存，等待或正在转存私有 OSS。 */
+    TRANSFERRING,
     SUCCEEDED,
     PARTIALLY_SUCCEEDED,
     FAILED,

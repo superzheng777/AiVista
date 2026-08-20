@@ -12,9 +12,8 @@ public record GenerationOssProperties(
         String accessKeySecret,
         String objectPrefix,
         Duration signedUrlTtl,
-        Duration connectTimeout,
-        Duration readTimeout,
-        String maxObjectSize) {
+        Duration uploadConnectTimeout,
+        Duration uploadReadTimeout) {
 
     public GenerationOssProperties {
         requireConfigured("app.generation.oss.endpoint", endpoint);
@@ -23,9 +22,8 @@ public record GenerationOssProperties(
         requireConfigured("app.generation.oss.access-key-secret", accessKeySecret);
         requireConfigured("app.generation.oss.object-prefix", objectPrefix);
         requirePositive("app.generation.oss.signed-url-ttl", signedUrlTtl);
-        requirePositive("app.generation.oss.connect-timeout", connectTimeout);
-        requirePositive("app.generation.oss.read-timeout", readTimeout);
-        parseMebibytes("app.generation.oss.max-object-size", maxObjectSize);
+        requirePositive("app.generation.oss.upload-connect-timeout", uploadConnectTimeout);
+        requirePositive("app.generation.oss.upload-read-timeout", uploadReadTimeout);
     }
 
     private static void requireConfigured(String name, String value) {
@@ -40,24 +38,4 @@ public record GenerationOssProperties(
         }
     }
 
-    /** 配置固定使用 MiB，避免将 30MiB 悄悄按十进制 30MB 解释。 */
-    public long maxObjectSizeBytes() {
-        return parseMebibytes("app.generation.oss.max-object-size", maxObjectSize);
-    }
-
-    private static long parseMebibytes(String name, String value) {
-        requireConfigured(name, value);
-        if (!value.endsWith("MiB")) {
-            throw new IllegalArgumentException(name + " must use the MiB unit");
-        }
-        try {
-            long mebibytes = Long.parseLong(value.substring(0, value.length() - 3));
-            if (mebibytes <= 0) {
-                throw new IllegalArgumentException(name + " must be positive");
-            }
-            return Math.multiplyExact(mebibytes, 1024L * 1024L);
-        } catch (NumberFormatException exception) {
-            throw new IllegalArgumentException(name + " must be a whole number of MiB", exception);
-        }
-    }
 }

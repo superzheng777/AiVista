@@ -45,7 +45,8 @@ public class GenerationTaskCancellationService {
         if (isFinished(task.getStatus())) {
             throw new BusinessException(ErrorCode.TASK_ALREADY_FINISHED);
         }
-        if (!"QUEUED".equals(task.getStatus()) && !"RUNNING".equals(task.getStatus())) {
+        if (!"QUEUED".equals(task.getStatus()) && !"RUNNING".equals(task.getStatus())
+                && !"TRANSFERRING".equals(task.getStatus())) {
             throw new BusinessException(ErrorCode.TASK_ALREADY_FINISHED);
         }
 

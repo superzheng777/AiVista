@@ -1,10 +1,8 @@
 package com.superz.aivista.generation.service;
 
-import com.superz.aivista.generation.entity.GenerationImage;
 import com.superz.aivista.generation.config.GenerationBailianProperties;
 import com.superz.aivista.generation.entity.GenerationTask;
 import com.superz.aivista.generation.entity.OutboxEvent;
-import com.superz.aivista.generation.mapper.GenerationImageMapper;
 import com.superz.aivista.generation.mapper.GenerationTaskMapper;
 import com.superz.aivista.generation.mapper.OutboxEventMapper;
 import com.superz.aivista.generation.mapper.UserGenerationDailyUsageMapper;
@@ -17,7 +15,6 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
-import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,29 +29,25 @@ public class GenerationTaskExecutionService {
     private static final Logger log = LoggerFactory.getLogger(GenerationTaskExecutionService.class);
 
     private final GenerationTaskMapper taskMapper;
-    private final GenerationImageMapper imageMapper;
     private final OutboxEventMapper outboxEventMapper;
     private final UserGenerationDailyUsageMapper dailyUsageMapper;
     private final GenerationBailianClient bailianClient;
     private final GenerationProviderCallGate providerCallGate;
-    private final GenerationImageTransferService imageTransferService;
     private final GenerationBailianProperties bailianProperties;
     private final TransactionTemplate transactions;
     private final Clock clock;
 
     /** 注入状态持久化、外部执行器与事务模板；网络调用始终不持有数据库事务。 */
-    public GenerationTaskExecutionService(GenerationTaskMapper taskMapper, GenerationImageMapper imageMapper,
+    public GenerationTaskExecutionService(GenerationTaskMapper taskMapper,
             OutboxEventMapper outboxEventMapper, UserGenerationDailyUsageMapper dailyUsageMapper,
             GenerationBailianClient bailianClient, GenerationProviderCallGate providerCallGate,
-            GenerationImageTransferService imageTransferService, PlatformTransactionManager transactionManager,
+            PlatformTransactionManager transactionManager,
             GenerationBailianProperties bailianProperties, Clock clock) {
         this.taskMapper = taskMapper;
-        this.imageMapper = imageMapper;
         this.outboxEventMapper = outboxEventMapper;
         this.dailyUsageMapper = dailyUsageMapper;
         this.bailianClient = bailianClient;
         this.providerCallGate = providerCallGate;
-        this.imageTransferService = imageTransferService;
         this.bailianProperties = bailianProperties;
         this.transactions = new TransactionTemplate(transactionManager);
         this.clock = clock;
@@ -68,30 +61,16 @@ public class GenerationTaskExecutionService {
         }
         GenerationBailianClient.ProviderResult result;
         try {
-            if (plan.kind() == PlanKind.CALL_PROVIDER) {
-                try (GenerationProviderCallGate.Permit ignored = providerCallGate.acquire()) {
-                    boolean callStarted = inTransaction(() -> taskMapper.markProviderCallStarted(
-                            plan.task().getId(), clock.instant()) == 1);
-                    if (!callStarted) {
-                        return true;
-                    }
-                    result = bailianClient.generate(plan.task());
-                }
-                GenerationBailianClient.ProviderResult saved = result;
-                boolean snapshotSaved = inTransaction(() -> taskMapper.saveProviderResult(
-                        plan.task().getId(), saved.requestId(), saved.snapshot(), clock.instant()) == 1);
-                if (!snapshotSaved) {
+            try (GenerationProviderCallGate.Permit ignored = providerCallGate.acquire()) {
+                boolean callStarted = inTransaction(() -> taskMapper.markProviderCallStarted(
+                        plan.task().getId(), clock.instant()) == 1);
+                if (!callStarted) {
                     return true;
                 }
-            } else {
-                result = bailianClient.restore(plan.task().getProviderResultSnapshot());
+                result = bailianClient.generate(plan.task());
             }
-            List<GenerationImageTransferService.TransferredImage> images = imageTransferService.transfer(plan.task(), result.imageUrls());
-            GenerationBailianClient.ProviderResult completedResult = result;
-            boolean completed = inTransaction(() -> complete(plan.task(), images, completedResult, clock.instant()));
-            if (!completed) {
-                imageTransferService.deleteTransferred(images);
-            }
+            GenerationBailianClient.ProviderResult saved = result;
+            inTransaction(() -> handoffToTransfer(plan.task(), saved, clock.instant()));
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             return false;
@@ -122,7 +101,7 @@ public class GenerationTaskExecutionService {
         return true;
     }
 
-    /** 在行锁内判断消息是否过期，并决定调用百炼、恢复转存或直接确认。 */
+    /** 在行锁内判断消息是否过期，并决定调用百炼或直接确认。 */
     private ExecutionPlan prepare(TaskExecuteMessage message, Instant now) {
         GenerationTask task = taskMapper.selectByIdForUpdate(message.taskId());
         if (task == null || isTerminal(task.getStatus())) {
@@ -142,9 +121,6 @@ public class GenerationTaskExecutionService {
         if (!"RUNNING".equals(task.getStatus())) {
             return new ExecutionPlan(PlanKind.ACK, task);
         }
-        if (task.getProviderResultSnapshot() != null) {
-            return new ExecutionPlan(PlanKind.TRANSFER_SNAPSHOT, task);
-        }
         if (task.getProviderCallStartedAt() != null) {
             fail(task, GenerationFailureCode.PROVIDER_CALL_OUTCOME_UNKNOWN, null, now);
             return new ExecutionPlan(PlanKind.ACK, task);
@@ -152,43 +128,35 @@ public class GenerationTaskExecutionService {
         return new ExecutionPlan(PlanKind.CALL_PROVIDER, task);
     }
 
-    /** 在同一事务中保存成功图片、写入终态并创建状态变化 Outbox 事件。 */
-    private boolean complete(GenerationTask task, List<GenerationImageTransferService.TransferredImage> images,
-            GenerationBailianClient.ProviderResult result, Instant now) {
+    /** 可靠保存服务商结果，并在同一事务创建转存命令和用户可见状态事件。 */
+    private boolean handoffToTransfer(GenerationTask task, GenerationBailianClient.ProviderResult result, Instant now) {
         GenerationTask current = taskMapper.selectByIdForUpdate(task.getId());
         if (current == null || !"RUNNING".equals(current.getStatus())) {
             return false;
         }
-        for (GenerationImageTransferService.TransferredImage image : images) {
-            if ((result.declaredWidth() != null && image.width() != result.declaredWidth())
-                    || (result.declaredHeight() != null && image.height() != result.declaredHeight())
-                    || image.width() != current.getWidth() || image.height() != current.getHeight()) {
-                throw new IllegalStateException("Transferred image dimensions do not match the generation response");
-            }
+        if ((result.declaredWidth() != null && !current.getWidth().equals(result.declaredWidth()))
+                || (result.declaredHeight() != null && !current.getHeight().equals(result.declaredHeight()))) {
+            throw new IllegalStateException("Generation response dimensions do not match the task");
         }
-        for (GenerationImageTransferService.TransferredImage image : images) {
-            GenerationImage entity = new GenerationImage();
-            entity.setTaskId(current.getId());
-            entity.setUserId(current.getUserId());
-            entity.setObjectKey(image.objectKey());
-            entity.setContentType("image/png");
-            entity.setFileSize(image.fileSize());
-            entity.setWidth(image.width());
-            entity.setHeight(image.height());
-            entity.setSourceIndex(image.sourceIndex());
-            entity.setCreatedAt(now);
-            imageMapper.insertSelective(entity);
+        int transferVersion = current.getTaskVersion() + 1;
+        if (taskMapper.markReadyForTransfer(current.getId(), current.getTaskVersion(),
+                result.requestId(), result.snapshot(), now) != 1) {
+            return false;
         }
-        String status = images.size() == result.imageUrls().size() ? GenerationTaskStatus.SUCCEEDED.name()
-                : images.isEmpty() ? GenerationTaskStatus.FAILED.name() : GenerationTaskStatus.PARTIALLY_SUCCEEDED.name();
-        String failureCode = GenerationTaskStatus.SUCCEEDED.name().equals(status) ? null
-                : images.isEmpty() ? GenerationFailureCode.IMAGE_TRANSFER_FAILED.name()
-                : GenerationFailureCode.IMAGE_TRANSFER_PARTIAL_FAILURE.name();
-        if (taskMapper.completeRunning(current.getId(), status, images.size(), failureCode, now) != 1) {
-            throw new IllegalStateException("Cannot complete generation task " + current.getId());
-        }
+        OutboxEvent transferEvent = new OutboxEvent();
+        transferEvent.setEventType(OutboxEventType.GENERATION_IMAGE_TRANSFER.name());
+        transferEvent.setAggregateType("GENERATION_TASK");
+        transferEvent.setAggregateId(current.getId());
+        transferEvent.setAggregateVersion((long) transferVersion);
+        transferEvent.setStatus(OutboxStatus.PENDING.name());
+        transferEvent.setRetryCount(0);
+        transferEvent.setAvailableAt(now);
+        transferEvent.setCreatedAt(now);
+        transferEvent.setUpdatedAt(now);
+        outboxEventMapper.insertSelective(transferEvent);
         outboxEventMapper.insertSelective(GenerationStatusOutboxEvent.create(
-                current.getId(), current.getTaskVersion() + 1, status, modelRetryCount(current), now));
+                current.getId(), transferVersion, GenerationTaskStatus.TRANSFERRING.name(),
+                modelRetryCount(current), now));
         return true;
     }
 
@@ -286,7 +254,7 @@ public class GenerationTaskExecutionService {
         return task.getAttemptCount() == null ? 0 : task.getAttemptCount();
     }
 
-    private enum PlanKind { ACK, CALL_PROVIDER, TRANSFER_SNAPSHOT }
+    private enum PlanKind { ACK, CALL_PROVIDER }
 
     private record ExecutionPlan(PlanKind kind, GenerationTask task) { }
 

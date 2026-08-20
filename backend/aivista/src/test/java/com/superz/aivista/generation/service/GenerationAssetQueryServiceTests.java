@@ -105,7 +105,7 @@ class GenerationAssetQueryServiceTests {
     private static GenerationAssetQueryService service(GenerationImageMapper imageMapper, OSS ossClient) {
         return new GenerationAssetQueryService(imageMapper, ossClient,
                 new GenerationOssProperties("oss.example", "private-bucket", "key-id", "key-secret", "users",
-                        Duration.ofMinutes(10), Duration.ofSeconds(5), Duration.ofSeconds(60), "30MiB"),
+                        Duration.ofMinutes(10), Duration.ofSeconds(5), Duration.ofSeconds(60)),
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 

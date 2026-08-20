@@ -5,8 +5,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.superz.aivista.generation.config.GenerationQueueProperties;
 import com.superz.aivista.generation.entity.OutboxEvent;
 import com.superz.aivista.generation.mapper.OutboxEventMapper;
-import com.superz.aivista.generation.model.OutboxEventType;
+import com.superz.aivista.generation.message.ImageTransferMessage;
 import com.superz.aivista.generation.message.TaskExecuteMessage;
+import com.superz.aivista.generation.model.OutboxEventType;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
@@ -23,11 +24,11 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 /**
- * 将事务已提交的 {@code TASK_EXECUTE} Outbox 事件可靠投递到 RabbitMQ。
+ * 将事务已提交的生成与图片转存 Outbox 命令可靠投递到 RabbitMQ。
  *
  * <p>创建任务时不直接发送 MQ 消息，而是与任务记录同事务写入 Outbox；本服务随后条件领取事件，
- * 并仅在收到 RabbitMQ Publisher Confirm 后标记为 {@code PUBLISHED}。投递失败会有限重试，
- * 重试耗尽后由 {@link GenerationQueuedTaskFailureService} 收敛仍未被领取的任务。</p>
+ * 并仅在消息被目标队列接收且收到 Publisher Confirm 后标记为 {@code PUBLISHED}。投递失败会有限重试，
+ * 重试耗尽后按事件类型收敛仍未被相应消费者领取的任务。</p>
  */
 @Service
 @ConditionalOnProperty(prefix = "app.generation.queue", name = "enabled", havingValue = "true")
@@ -36,6 +37,7 @@ public class GenerationOutboxDispatcher {
 
     private final OutboxEventMapper outboxEventMapper;
     private final GenerationQueuedTaskFailureService queuedTaskFailureService;
+    private final GenerationImageTransferFailureService transferFailureService;
     private final RabbitTemplate rabbitTemplate;
     private final ObjectMapper objectMapper;
     private final GenerationQueueProperties properties;
@@ -43,39 +45,49 @@ public class GenerationOutboxDispatcher {
 
     public GenerationOutboxDispatcher(OutboxEventMapper outboxEventMapper,
             GenerationQueuedTaskFailureService queuedTaskFailureService,
+            GenerationImageTransferFailureService transferFailureService,
             RabbitTemplate rabbitTemplate, ObjectMapper objectMapper,
             GenerationQueueProperties properties, Clock clock) {
         this.outboxEventMapper = outboxEventMapper;
         this.queuedTaskFailureService = queuedTaskFailureService;
+        this.transferFailureService = transferFailureService;
         this.rabbitTemplate = rabbitTemplate;
         this.objectMapper = objectMapper;
         this.properties = properties;
         this.clock = clock;
     }
 
-    /** 按固定周期扫描并条件领取当前可投递的执行事件。 */
+    /** 按固定周期扫描并条件领取当前可投递的生成与转存命令。 */
     @Scheduled(fixedDelayString = "${app.generation.queue.dispatcher-fixed-delay}")
     public void dispatchAvailableEvents() {
         Instant now = clock.instant();
+        dispatchAvailableEvents(OutboxEventType.GENERATION_TASK_EXECUTE, properties.generationRoutingKey(), now);
+        dispatchAvailableEvents(OutboxEventType.GENERATION_IMAGE_TRANSFER, properties.transferRoutingKey(), now);
+    }
+
+    private void dispatchAvailableEvents(OutboxEventType eventType, String routingKey, Instant now) {
         List<OutboxEvent> events = outboxEventMapper.selectAvailableByEventType(
-                OutboxEventType.GENERATION_TASK_EXECUTE.name(), now, properties.dispatcherBatchSize());
+                eventType.name(), now, properties.dispatcherBatchSize());
         for (OutboxEvent event : events) {
             if (outboxEventMapper.claimPending(event.getId(), now, now) == 1) {
-                dispatch(event);
+                dispatch(event, routingKey);
             }
         }
     }
 
     /** 发送最小任务标识消息，并在确认结果返回前保持事件为 PROCESSING。 */
-    private void dispatch(OutboxEvent event) {
+    private void dispatch(OutboxEvent event, String routingKey) {
         Instant now = clock.instant();
         try {
             CorrelationData correlation = new CorrelationData("outbox-" + event.getId());
-            rabbitTemplate.send("", properties.name(), taskMessage(event), correlation);
+            rabbitTemplate.send(properties.exchange(), routingKey, taskMessage(event), correlation);
             CorrelationData.Confirm confirm = correlation.getFuture()
                     .get(10, TimeUnit.SECONDS);
             if (!confirm.ack()) {
                 throw new IllegalStateException("RabbitMQ publisher confirm rejected: " + confirm.reason());
+            }
+            if (correlation.getReturned() != null) {
+                throw new IllegalStateException("RabbitMQ message was not routed to a queue");
             }
             outboxEventMapper.markPublished(event.getId(), now);
         } catch (Exception exception) {
@@ -84,9 +96,12 @@ public class GenerationOutboxDispatcher {
     }
 
     private Message taskMessage(OutboxEvent event) throws JsonProcessingException {
-        byte[] body = objectMapper.writeValueAsBytes(
-                new TaskExecuteMessage(event.getId(), event.getAggregateId(),
-                        Math.toIntExact(event.getAggregateVersion())));
+        Object command = OutboxEventType.GENERATION_IMAGE_TRANSFER.name().equals(event.getEventType())
+                ? new ImageTransferMessage(event.getId(), event.getAggregateId(),
+                        Math.toIntExact(event.getAggregateVersion()))
+                : new TaskExecuteMessage(event.getId(), event.getAggregateId(),
+                        Math.toIntExact(event.getAggregateVersion()));
+        byte[] body = objectMapper.writeValueAsBytes(command);
         return MessageBuilder.withBody(body)
                 .setContentType(MessageProperties.CONTENT_TYPE_JSON)
                 .setContentEncoding(StandardCharsets.UTF_8.name())
@@ -102,8 +117,13 @@ public class GenerationOutboxDispatcher {
                     now.plus(properties.deliveryRetryDelay().multipliedBy(retries)), error);
             return;
         }
+        if (OutboxEventType.GENERATION_IMAGE_TRANSFER.name().equals(event.getEventType())) {
+            transferFailureService.failDelivery(event.getId(), event.getAggregateId(),
+                    Math.toIntExact(event.getAggregateVersion()), now, error);
+        } else {
             queuedTaskFailureService.failDelivery(event.getId(), event.getAggregateId(),
                     Math.toIntExact(event.getAggregateVersion()), now, error);
+        }
     }
 
 

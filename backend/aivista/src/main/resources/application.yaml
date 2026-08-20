@@ -9,6 +9,9 @@ spring:
     virtual-host: ${AIVISTA_RABBITMQ_VHOST:/aivista}
     connection-timeout: 5s
     publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
   datasource:
     url: ${AIVISTA_DB_URL:}
     username: ${AIVISTA_DB_USERNAME:}
@@ -80,14 +83,21 @@ app:
     queue:
       # 当前所有开发配置统一维护在本文件；未配置 RabbitMQ 时保持 false，避免启动分发器。
       enabled: true
-      name: generation.task.execute
-      consumer-concurrency: 40
+      exchange: aivista.generation.commands
+      generation-name: generation.task.execute
+      generation-routing-key: generation.task.execute
+      generation-consumer-concurrency: 25
+      transfer-name: generation.image.transfer
+      transfer-routing-key: generation.image.transfer
+      transfer-consumer-concurrency: 15
       dispatcher-fixed-delay: 1s
       dispatcher-batch-size: 20
       delivery-max-attempts: 5
       delivery-retry-delay: 5s
       queue-timeout: 3m
       queue-timeout-fixed-delay: 30s
+      transfer-timeout: 2m
+      transfer-timeout-fixed-delay: 30s
     bailian:
       endpoint: ${AIVISTA_BAILIAN_ENDPOINT:}
       api-key: ${AIVISTA_BAILIAN_API_KEY:}
@@ -96,6 +106,9 @@ app:
       max-concurrent-calls: 25
       rate-limit-per-second: 2
       max-retries: 3
+    image-transfer:
+      source-connect-timeout: 5s
+      source-read-timeout: 30s
     oss:
       endpoint: ${AIVISTA_OSS_ENDPOINT:}
       bucket: ${AIVISTA_OSS_BUCKET:}
@@ -103,9 +116,8 @@ app:
       access-key-secret: ${AIVISTA_OSS_ACCESS_KEY_SECRET:}
       object-prefix: users
       signed-url-ttl: 10m
-      connect-timeout: 5s
-      read-timeout: 30s
-      max-object-size: 30MiB
+      upload-connect-timeout: 5s
+      upload-read-timeout: 30s
     asset-cleanup:
       fixed-delay: 1m
       retry-delay: 10m

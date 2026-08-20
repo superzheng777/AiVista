@@ -1,6 +1,8 @@
 package com.superz.aivista.generation.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
@@ -17,7 +19,14 @@ import org.springframework.scheduling.annotation.EnableScheduling;
         GenerationQueueProperties.class,
         GenerationAssetCleanupProperties.class,
         GenerationBailianProperties.class,
+        GenerationImageTransferProperties.class,
         GenerationOssProperties.class
 })
 public class GenerationConfig {
+
+    /** 生成模块的响应快照与队列消息共用同一 JSON 序列化器。 */
+    @Bean
+    ObjectMapper generationObjectMapper() {
+        return new ObjectMapper();
+    }
 }

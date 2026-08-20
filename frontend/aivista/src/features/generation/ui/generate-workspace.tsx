@@ -7,7 +7,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 
 import { useEffect, useState } from "react";
 
-import type { GenerationMessage, GenerationSession, GenerationTask } from "@/entities/generation/model/generation";
+import { isActiveGenerationStatus, type GenerationMessage, type GenerationSession, type GenerationTask } from "@/entities/generation/model/generation";
 import { cancelGenerationTask, generationQueryKeys, listGenerationMessages, listGenerationSessions } from "@/features/generation/api/generation-api";
 import { GenerationComposer } from "@/features/generation/ui/generation-composer";
 import { useGenerationEventStream, type GenerationSessionIndicator } from "@/features/generation/model/generation-event-stream-provider";
@@ -23,7 +23,8 @@ function taskStatusText(task: Pick<GenerationTask, "status" | "retryCount" | "ma
   if (task.status === "QUEUED" && task.retryCount > 0) return `模型调用失败，正在重试（${retryProgress}）`;
   if (task.status === "QUEUED") return "已排队，正在等待生成";
   if (task.status === "RUNNING" && task.retryCount > 0) return `正在处理中（已重试 ${retryProgress}）`;
-  if (task.status === "RUNNING") return "正在处理中";
+  if (task.status === "RUNNING") return "正在生成图片";
+  if (task.status === "TRANSFERRING") return "图片已生成，正在保存";
   if (task.status === "SUCCEEDED") return "生成已完成";
   if (task.status === "PARTIALLY_SUCCEEDED") return "部分图片已生成";
   if (task.status === "FAILED") return "生成失败";
@@ -123,7 +124,7 @@ function ConversationPanel({ sessionId }: { sessionId: string }) {
       acknowledgeSession(sessionId);
     }
   }, [acknowledgeSession, sessionId, sessionIndicators]);
-  const activeMessageTask = messages?.find((message) => message.generation.status === "QUEUED" || message.generation.status === "RUNNING")?.generation;
+  const activeMessageTask = messages?.find((message) => isActiveGenerationStatus(message.generation.status))?.generation;
 
   return (
     <main className="flex min-h-[calc(100dvh-8rem)] min-w-0 flex-col lg:h-dvh lg:min-h-0">
@@ -156,7 +157,7 @@ function SessionList({ sessions, indicators, isLoading, isError, hasNextPage, is
 }
 
 function SessionListItem({ session, indicator, active, onSelect }: { session: GenerationSession; indicator?: GenerationSessionIndicator; active: boolean; onSelect: (sessionId: string) => void }) {
-  const latestTaskIsActive = session.latestTask?.status === "QUEUED" || session.latestTask?.status === "RUNNING";
+  const latestTaskIsActive = session.latestTask ? isActiveGenerationStatus(session.latestTask.status) : false;
   const statusIndicator = latestTaskIsActive
     ? <LoaderCircle aria-label="正在生成" className="ml-auto size-3.5 shrink-0 animate-spin text-sky-600" />
     : indicator === "ATTENTION"
@@ -217,7 +218,7 @@ function TaskOutcome({ task }: { task: GenerationTask }) {
 
 function TaskNotice({ task, isCancelling, cancellationError, onCancel }: { task: GenerationTask; isCancelling: boolean; cancellationError: unknown; onCancel: () => void }) {
   const [isConfirmingCancellation, setIsConfirmingCancellation] = useState(false);
-  const isActive = task.status === "QUEUED" || task.status === "RUNNING";
+  const isActive = isActiveGenerationStatus(task.status);
   const cancellationMessage = getApiErrorCode(cancellationError) === 40907
     ? "任务已结束，状态已刷新。"
     : cancellationError ? "取消请求未完成，请重试。" : null;
@@ -229,7 +230,7 @@ function TaskNotice({ task, isCancelling, cancellationError, onCancel }: { task:
         {isActive && !isConfirmingCancellation ? <button type="button" onClick={() => setIsConfirmingCancellation(true)} disabled={isCancelling} className="inline-flex min-h-10 items-center rounded-lg border border-sky-200 px-3 text-sm font-medium text-sky-900 transition hover:bg-sky-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60 dark:border-sky-800 dark:text-sky-100">取消生成</button> : null}
       </div>
       <TaskOutcome task={task} />
-      {isActive && isConfirmingCancellation ? <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-sky-200/70 pt-3 dark:border-sky-800/70"><p className="mr-auto text-xs text-sky-800 dark:text-sky-100">取消后本次任务不会继续生成。</p><button type="button" onClick={() => setIsConfirmingCancellation(false)} disabled={isCancelling} className="min-h-10 rounded-lg px-3 text-sm font-medium transition hover:bg-sky-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60">继续生成</button><button type="button" onClick={onCancel} disabled={isCancelling} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-sky-900 px-3 text-sm font-medium text-white transition hover:bg-sky-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60">{isCancelling ? <LoaderCircle className="size-4 animate-spin" /> : <X className="size-4" />}确认取消</button></div> : null}
+      {isActive && isConfirmingCancellation ? <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-sky-200/70 pt-3 dark:border-sky-800/70"><p className="mr-auto text-xs text-sky-800 dark:text-sky-100">取消后本次任务将停止处理。</p><button type="button" onClick={() => setIsConfirmingCancellation(false)} disabled={isCancelling} className="min-h-10 rounded-lg px-3 text-sm font-medium transition hover:bg-sky-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60">继续生成</button><button type="button" onClick={onCancel} disabled={isCancelling} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-sky-900 px-3 text-sm font-medium text-white transition hover:bg-sky-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60">{isCancelling ? <LoaderCircle className="size-4 animate-spin" /> : <X className="size-4" />}确认取消</button></div> : null}
       {cancellationMessage ? <p role="alert" className="mt-3 text-xs text-destructive">{cancellationMessage}</p> : null}
     </div>
   );

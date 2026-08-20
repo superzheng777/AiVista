@@ -7,12 +7,19 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties("app.generation.queue")
 public record GenerationQueueProperties(
         boolean enabled,
-        String name,
-        int consumerConcurrency,
+        String exchange,
+        String generationName,
+        String generationRoutingKey,
+        int generationConsumerConcurrency,
+        String transferName,
+        String transferRoutingKey,
+        int transferConsumerConcurrency,
         Duration dispatcherFixedDelay,
         int dispatcherBatchSize,
         int deliveryMaxAttempts,
         Duration deliveryRetryDelay,
         Duration queueTimeout,
-        Duration queueTimeoutFixedDelay) {
+        Duration queueTimeoutFixedDelay,
+        Duration transferTimeout,
+        Duration transferTimeoutFixedDelay) {
 }

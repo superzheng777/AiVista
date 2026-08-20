@@ -21,7 +21,7 @@ public class GenerationTask {
     private Long sourceMessageId;
     private String model;
     /**
-     * QUEUED、RUNNING、SUCCEEDED、PARTIALLY_SUCCEEDED、FAILED 或 CANCELLED。
+     * QUEUED、RUNNING、TRANSFERRING、SUCCEEDED、PARTIALLY_SUCCEEDED、FAILED 或 CANCELLED。
      * 仅允许由任务状态机按既定方向迁移。
      */
     private String status;
@@ -44,6 +44,8 @@ public class GenerationTask {
     private String providerRequestId;
     /** 仅供崩溃后恢复 OSS 转存的临时服务商结果快照，转存结束后清除。 */
     private String providerResultSnapshot;
+    /** 非空表示转存消费者已经领取当前任务；用于区分两分钟排队超时与正常转存耗时。 */
+    private Instant transferStartedAt;
     /** 同一用户的一次主动提交及其网络重试使用同一个 UUID v4。 */
     /** 规范化创建参数的 SHA-256 摘要，用于识别相同幂等键的冲突请求。 */
     /** 仅在 FAILED 或 PARTIALLY_SUCCEEDED 时保存稳定失败分类。 */

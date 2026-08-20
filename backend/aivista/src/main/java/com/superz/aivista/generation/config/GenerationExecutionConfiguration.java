@@ -27,8 +27,8 @@ public class GenerationExecutionConfiguration {
     @Bean(destroyMethod = "shutdown")
     OSS generationOssClient(GenerationOssProperties properties) {
         ClientBuilderConfiguration configuration = new ClientBuilderConfiguration();
-        configuration.setConnectionTimeout(toMilliseconds(properties.connectTimeout()));
-        configuration.setSocketTimeout(toMilliseconds(properties.readTimeout()));
+        configuration.setConnectionTimeout(toMilliseconds(properties.uploadConnectTimeout()));
+        configuration.setSocketTimeout(toMilliseconds(properties.uploadReadTimeout()));
         return new OSSClientBuilder().build(
                 properties.endpoint(),
                 properties.accessKeyId(),

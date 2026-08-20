@@ -1,0 +1,128 @@
+package com.superz.aivista.generation.service;
+
+import com.superz.aivista.generation.entity.GenerationImage;
+import com.superz.aivista.generation.entity.GenerationTask;
+import com.superz.aivista.generation.mapper.GenerationImageMapper;
+import com.superz.aivista.generation.mapper.GenerationTaskMapper;
+import com.superz.aivista.generation.mapper.OutboxEventMapper;
+import com.superz.aivista.generation.message.ImageTransferMessage;
+import com.superz.aivista.generation.model.GenerationFailureCode;
+import com.superz.aivista.generation.model.GenerationTaskStatus;
+import java.time.Clock;
+import java.time.Instant;
+import java.util.List;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
+
+/** 执行独立转存消息；网络传输前后均使用短事务，数据库快照是临时 URL 的唯一来源。 */
+@Service
+public class GenerationImageTransferExecutionService {
+    private final GenerationTaskMapper taskMapper;
+    private final GenerationImageMapper imageMapper;
+    private final OutboxEventMapper outboxEventMapper;
+    private final GenerationBailianClient bailianClient;
+    private final GenerationImageTransferService transferService;
+    private final TransactionTemplate transactions;
+    private final Clock clock;
+
+    public GenerationImageTransferExecutionService(GenerationTaskMapper taskMapper,
+            GenerationImageMapper imageMapper, OutboxEventMapper outboxEventMapper,
+            GenerationBailianClient bailianClient, GenerationImageTransferService transferService,
+            PlatformTransactionManager transactionManager, Clock clock) {
+        this.taskMapper = taskMapper;
+        this.imageMapper = imageMapper;
+        this.outboxEventMapper = outboxEventMapper;
+        this.bailianClient = bailianClient;
+        this.transferService = transferService;
+        this.transactions = new TransactionTemplate(transactionManager);
+        this.clock = clock;
+    }
+
+    /** 返回 true 表示消息已安全收敛或已经过期，可以 ACK。 */
+    public boolean execute(ImageTransferMessage message) {
+        GenerationTask task = transactions.execute(status -> prepare(message, clock.instant()));
+        if (task == null) {
+            return true;
+        }
+        GenerationBailianClient.ProviderResult result = bailianClient.restore(task.getProviderResultSnapshot());
+        List<GenerationImageTransferService.TransferredImage> images =
+                transferService.transfer(task, result.imageUrls());
+        boolean completed = Boolean.TRUE.equals(transactions.execute(status ->
+                complete(task, message.taskVersion(), images, result, clock.instant())));
+        if (!completed) {
+            transferService.deleteTransferred(images);
+        }
+        return true;
+    }
+
+    /** 条件领取对应版本的转存任务；已领取后的重投仍允许按同一版本恢复。 */
+    private GenerationTask prepare(ImageTransferMessage message, Instant now) {
+        GenerationTask task = taskMapper.selectByIdForUpdate(message.taskId());
+        if (task == null || isTerminal(task.getStatus())
+                || !GenerationTaskStatus.TRANSFERRING.name().equals(task.getStatus())
+                || task.getTaskVersion() != message.taskVersion()) {
+            return null;
+        }
+        if (task.getProviderResultSnapshot() == null || task.getProviderResultSnapshot().isBlank()) {
+            throw new IllegalStateException("Transfer snapshot is missing for task " + task.getId());
+        }
+        if (task.getTransferStartedAt() == null
+                && taskMapper.markTransferStarted(task.getId(), task.getTaskVersion(), now) != 1) {
+            return null;
+        }
+        task.setTransferStartedAt(now);
+        return task;
+    }
+
+    /** 保存成功图片并将对应版本的 TRANSFERRING 任务收敛为唯一终态。 */
+    private boolean complete(GenerationTask task, int taskVersion,
+            List<GenerationImageTransferService.TransferredImage> images,
+            GenerationBailianClient.ProviderResult result, Instant now) {
+        GenerationTask current = taskMapper.selectByIdForUpdate(task.getId());
+        if (current == null || !GenerationTaskStatus.TRANSFERRING.name().equals(current.getStatus())
+                || current.getTaskVersion() != taskVersion) {
+            return false;
+        }
+        for (GenerationImageTransferService.TransferredImage image : images) {
+            if ((result.declaredWidth() != null && image.width() != result.declaredWidth())
+                    || (result.declaredHeight() != null && image.height() != result.declaredHeight())
+                    || image.width() != current.getWidth() || image.height() != current.getHeight()) {
+                throw new IllegalStateException("Transferred image dimensions do not match the generation response");
+            }
+            GenerationImage entity = new GenerationImage();
+            entity.setTaskId(current.getId());
+            entity.setUserId(current.getUserId());
+            entity.setObjectKey(image.objectKey());
+            entity.setContentType("image/png");
+            entity.setFileSize(image.fileSize());
+            entity.setWidth(image.width());
+            entity.setHeight(image.height());
+            entity.setSourceIndex(image.sourceIndex());
+            entity.setCreatedAt(now);
+            imageMapper.insertSelective(entity);
+        }
+        String finalStatus = images.size() == result.imageUrls().size()
+                ? GenerationTaskStatus.SUCCEEDED.name()
+                : images.isEmpty() ? GenerationTaskStatus.FAILED.name()
+                : GenerationTaskStatus.PARTIALLY_SUCCEEDED.name();
+        String failureCode = GenerationTaskStatus.SUCCEEDED.name().equals(finalStatus) ? null
+                : images.isEmpty() ? GenerationFailureCode.IMAGE_TRANSFER_FAILED.name()
+                : GenerationFailureCode.IMAGE_TRANSFER_PARTIAL_FAILURE.name();
+        if (taskMapper.completeTransferring(current.getId(), taskVersion, finalStatus,
+                images.size(), failureCode, now) != 1) {
+            throw new IllegalStateException("Cannot complete generation transfer task " + current.getId());
+        }
+        outboxEventMapper.insertSelective(GenerationStatusOutboxEvent.create(
+                current.getId(), taskVersion + 1, finalStatus,
+                current.getAttemptCount() == null ? 0 : current.getAttemptCount(), now));
+        return true;
+    }
+
+    private static boolean isTerminal(String status) {
+        return GenerationTaskStatus.SUCCEEDED.name().equals(status)
+                || GenerationTaskStatus.PARTIALLY_SUCCEEDED.name().equals(status)
+                || GenerationTaskStatus.FAILED.name().equals(status)
+                || GenerationTaskStatus.CANCELLED.name().equals(status);
+    }
+}

@@ -1,4 +1,8 @@
-export type GenerationTaskStatus = "QUEUED" | "RUNNING" | "SUCCEEDED" | "PARTIALLY_SUCCEEDED" | "FAILED" | "CANCELLED";
+export type GenerationTaskStatus = "QUEUED" | "RUNNING" | "TRANSFERRING" | "SUCCEEDED" | "PARTIALLY_SUCCEEDED" | "FAILED" | "CANCELLED";
+
+export function isActiveGenerationStatus(status: GenerationTaskStatus): boolean {
+  return status === "QUEUED" || status === "RUNNING" || status === "TRANSFERRING";
+}
 
 /** 发布流程状态。`NONE` 表示从未提交或撤销发布后的初始状态。 */
 export type PublicationReviewStatus = "NONE" | "PENDING" | "APPROVED" | "REJECTED" | "FAILED";

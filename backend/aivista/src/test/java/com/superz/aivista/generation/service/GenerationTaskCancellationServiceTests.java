@@ -64,6 +64,21 @@ class GenerationTaskCancellationServiceTests {
     }
 
     @Test
+    void cancelsTransferringTaskWithoutRefund() {
+        GenerationTaskMapper taskMapper = mock(GenerationTaskMapper.class);
+        UserGenerationDailyUsageMapper usageMapper = mock(UserGenerationDailyUsageMapper.class);
+        OutboxEventMapper outboxMapper = mock(OutboxEventMapper.class);
+        GenerationTask task = task("TRANSFERRING", NOW.minusSeconds(10));
+        when(taskMapper.selectOwnedByIdForUpdate(7L, 301L)).thenReturn(task);
+        when(taskMapper.cancelActive(301L, "TRANSFERRING", 3, null, NOW)).thenReturn(1);
+
+        service(taskMapper, usageMapper, outboxMapper).cancel(7L, 301L);
+
+        verify(usageMapper, never()).refund(anyLong(), any(), anyInt(), any());
+        verify(taskMapper).cancelActive(301L, "TRANSFERRING", 3, null, NOW);
+    }
+
+    @Test
     void repeatsCancelledTaskWithoutChangingItAndRejectsOtherTerminals() {
         GenerationTaskMapper taskMapper = mock(GenerationTaskMapper.class);
         UserGenerationDailyUsageMapper usageMapper = mock(UserGenerationDailyUsageMapper.class);
