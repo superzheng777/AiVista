@@ -36,12 +36,14 @@ public interface GenerationTaskMapper extends BaseMapper<GenerationTask> {
     GenerationTask selectOwnedByIdForUpdate(@Param("userId") long userId, @Param("taskId") long taskId);
 
     @Select("""
+            <script>
             SELECT id, user_id, session_id, status, task_version
             FROM generation_tasks
-            WHERE id = #{taskId}
-            LIMIT 1
+            WHERE id IN
+            <foreach collection="taskIds" item="taskId" open="(" separator="," close=")">#{taskId}</foreach>
+            </script>
             """)
-    GenerationTask selectStatusEventTaskById(@Param("taskId") long taskId);
+    List<GenerationTask> selectStatusEventTasksByIds(@Param("taskIds") List<Long> taskIds);
 
     @Select("""
             <script>

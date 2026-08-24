@@ -12,7 +12,11 @@ import com.superz.aivista.generation.mapper.OutboxEventMapper;
 import com.superz.aivista.generation.model.OutboxEventType;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -46,16 +50,24 @@ public class GenerationStatusEventDispatcher {
         recoverExpiredProcessingEvents(now);
         List<OutboxEvent> events = outboxEventMapper.selectAvailableByEventType(
                 OutboxEventType.GENERATION_TASK_STATUS_CHANGED.name(), now, properties.dispatcherBatchSize());
-        for (OutboxEvent event : events) {
-            if (outboxEventMapper.claimPending(event.getId(), now, now) != 1) {
-                continue;
-            }
-            GenerationTask task = taskMapper.selectStatusEventTaskById(event.getAggregateId());
+        List<OutboxEvent> claimed = events.stream()
+                .filter(event -> outboxEventMapper.claimPending(event.getId(), now, now) == 1)
+                .toList();
+        if (claimed.isEmpty()) {
+            return;
+        }
+        Map<Long, GenerationTask> tasksById = taskMapper.selectStatusEventTasksByIds(
+                claimed.stream().map(OutboxEvent::getAggregateId).distinct().toList()).stream()
+                .collect(Collectors.toMap(GenerationTask::getId, Function.identity()));
+        List<Long> publishedIds = new ArrayList<>();
+        List<Long> failedIds = new ArrayList<>();
+        for (OutboxEvent event : claimed) {
+            GenerationTask task = tasksById.get(event.getAggregateId());
             JsonNode payload;
             try {
                 payload = objectMapper.readTree(event.getPayloadJson());
             } catch (Exception exception) {
-                outboxEventMapper.markFailed(event.getId(), "Invalid status event payload");
+                failedIds.add(event.getId());
                 continue;
             }
             if (task != null && payload.hasNonNull("status") && payload.hasNonNull("modelRetryCount")) {
@@ -65,7 +77,13 @@ public class GenerationStatusEventDispatcher {
                         payload.get("modelRetryCount").asInt(),
                         bailianProperties.maxRetries()));
             }
-            outboxEventMapper.markPublished(event.getId(), clock.instant());
+            publishedIds.add(event.getId());
+        }
+        if (!failedIds.isEmpty()) {
+            outboxEventMapper.markFailedBatch(failedIds, "Invalid status event payload");
+        }
+        if (!publishedIds.isEmpty()) {
+            outboxEventMapper.markPublishedBatch(publishedIds, clock.instant());
         }
     }
 
@@ -74,9 +92,12 @@ public class GenerationStatusEventDispatcher {
         List<OutboxEvent> events = outboxEventMapper.selectProcessingLockedBefore(
                 OutboxEventType.GENERATION_TASK_STATUS_CHANGED.name(), now.minus(properties.processingLease()),
                 properties.dispatcherBatchSize());
-        for (OutboxEvent event : events) {
-            outboxEventMapper.reschedule(event.getId(), event.getRetryCount() + 1, now,
-                    "SSE status event processing lease expired");
+        if (!events.isEmpty()) {
+            events.forEach(event -> {
+                event.setRetryCount(event.getRetryCount() + 1);
+                event.setAvailableAt(now);
+            });
+            outboxEventMapper.rescheduleBatch(events, "SSE status event processing lease expired");
         }
     }
 }

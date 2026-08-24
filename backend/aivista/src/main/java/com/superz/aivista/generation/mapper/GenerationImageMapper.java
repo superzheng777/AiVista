@@ -18,6 +18,15 @@ public interface GenerationImageMapper extends BaseMapper<GenerationImage> {
     @Select("SELECT * FROM generation_images WHERE id = #{imageId}")
     GenerationImage selectByImageId(@Param("imageId") long imageId);
 
+    @Select("""
+            <script>
+            SELECT * FROM generation_images
+            WHERE id IN
+            <foreach collection="imageIds" item="imageId" open="(" separator="," close=")">#{imageId}</foreach>
+            </script>
+            """)
+    List<GenerationImage> selectByImageIds(@Param("imageIds") List<Long> imageIds);
+
     @Select("SELECT * FROM generation_images WHERE id = #{imageId} FOR UPDATE")
     GenerationImage selectByImageIdForUpdate(@Param("imageId") long imageId);
 

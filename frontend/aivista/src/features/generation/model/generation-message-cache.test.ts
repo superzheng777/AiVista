@@ -41,4 +41,12 @@ describe("generation message cache", () => {
     expect(merged.pages[0].items[0].generation).toMatchObject({ completedImageCount: 1 });
     expect(merged.pages[0].items[0].generation.images).toHaveLength(1);
   });
+
+  it("ignores a replayed SSE event with the same task version", () => {
+    const current = applyGenerationTaskUpdateToMessages(page(message(1, "RUNNING")), {
+      sessionId: "session-1", taskId: "task-1", taskVersion: 1, status: "SUCCEEDED", retryCount: 0, maxRetryCount: 3,
+    });
+
+    expect(current?.pages[0].items[0].generation).toMatchObject({ version: 1, status: "RUNNING" });
+  });
 });

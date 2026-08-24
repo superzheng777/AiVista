@@ -4,12 +4,21 @@ import com.mybatisflex.core.BaseMapper;
 import com.superz.aivista.generation.entity.OutboxEvent;
 import java.time.Instant;
 import java.util.List;
+import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
 /** Project-wide reliable event data access. */
 public interface OutboxEventMapper extends BaseMapper<OutboxEvent> {
+    @Delete("""
+            DELETE FROM outbox_events
+            WHERE status = 'PUBLISHED' AND published_at < #{publishedBefore}
+            ORDER BY published_at, id
+            LIMIT #{batchSize}
+            """)
+    int deletePublishedBefore(@Param("publishedBefore") Instant publishedBefore, @Param("batchSize") int batchSize);
+
     @Select("""
             SELECT id, event_type, aggregate_type, aggregate_id, aggregate_version, payload_json,
                    status, retry_count, available_at, locked_at, published_at, last_error, created_at, updated_at

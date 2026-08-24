@@ -55,7 +55,7 @@ export function applyGenerationTaskUpdateToMessages(
     pages: current.pages.map((page) => ({
       ...page,
       items: page.items.map((message) => {
-        if (message.generation.id !== event.taskId || event.taskVersion < message.generation.version) {
+        if (message.generation.id !== event.taskId || event.taskVersion <= message.generation.version) {
           return message;
         }
         return {

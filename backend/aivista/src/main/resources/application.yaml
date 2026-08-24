@@ -79,6 +79,13 @@ app:
       batch-size: 1000
       max-batches: 10
       fixed-delay: 10m
+  outbox:
+    cleanup:
+      enabled: true
+      retention: 7d
+      batch-size: 1000
+      max-batches: 10
+      fixed-delay: 1h
   generation:
     sse:
       max-connections-per-user: 3

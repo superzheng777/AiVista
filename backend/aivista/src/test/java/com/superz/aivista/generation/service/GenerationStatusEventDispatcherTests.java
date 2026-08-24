@@ -34,13 +34,13 @@ class GenerationStatusEventDispatcherTests {
         GenerationTask task = task(301L, 7L, 201L, 4, "CANCELLED");
         when(outboxMapper.selectAvailableByEventType("GENERATION_TASK_STATUS_CHANGED", NOW, 100)).thenReturn(List.of(event));
         when(outboxMapper.claimPending(99L, NOW, NOW)).thenReturn(1);
-        when(taskMapper.selectStatusEventTaskById(301L)).thenReturn(task);
+        when(taskMapper.selectStatusEventTasksByIds(List.of(301L))).thenReturn(List.of(task));
 
         dispatcher(outboxMapper, taskMapper, connections).dispatchAvailableEvents();
 
         verify(connections).publish(7L, 99L,
                 new GenerationTaskStatusEvent("201", "301", 4, "CANCELLED", 1, 3));
-        verify(outboxMapper).markPublished(99L, NOW);
+        verify(outboxMapper).markPublishedBatch(List.of(99L), NOW);
     }
 
     @Test
@@ -51,13 +51,14 @@ class GenerationStatusEventDispatcherTests {
         OutboxEvent event = event(99L, 301L, 3);
         when(outboxMapper.selectAvailableByEventType("GENERATION_TASK_STATUS_CHANGED", NOW, 100)).thenReturn(List.of(event));
         when(outboxMapper.claimPending(99L, NOW, NOW)).thenReturn(1);
-        when(taskMapper.selectStatusEventTaskById(301L)).thenReturn(task(301L, 7L, 201L, 4, "CANCELLED"));
+        when(taskMapper.selectStatusEventTasksByIds(List.of(301L)))
+                .thenReturn(List.of(task(301L, 7L, 201L, 4, "CANCELLED")));
 
         dispatcher(outboxMapper, taskMapper, connections).dispatchAvailableEvents();
 
         verify(connections).publish(7L, 99L,
                 new GenerationTaskStatusEvent("201", "301", 3, "RUNNING", 1, 3));
-        verify(outboxMapper).markPublished(99L, NOW);
+        verify(outboxMapper).markPublishedBatch(List.of(99L), NOW);
     }
 
     private static GenerationStatusEventDispatcher dispatcher(OutboxEventMapper outboxMapper,
@@ -81,7 +82,9 @@ class GenerationStatusEventDispatcherTests {
         dispatcher(outboxMapper, mock(GenerationTaskMapper.class), mock(GenerationSseConnectionService.class))
                 .dispatchAvailableEvents();
 
-        verify(outboxMapper).reschedule(98L, 3, NOW, "SSE status event processing lease expired");
+        verify(outboxMapper).rescheduleBatch(List.of(staleEvent), "SSE status event processing lease expired");
+        org.assertj.core.api.Assertions.assertThat(staleEvent.getRetryCount()).isEqualTo(3);
+        org.assertj.core.api.Assertions.assertThat(staleEvent.getAvailableAt()).isEqualTo(NOW);
     }
 
     private static OutboxEvent event(long id, long taskId, int taskVersion) {
