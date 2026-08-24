@@ -37,7 +37,7 @@ class GenerationTaskQueryServiceTests {
         GenerationImage image = image();
         when(taskMapper.selectOwnedById(7L, 301L)).thenReturn(task);
         when(imageMapper.selectByTaskId(301L)).thenReturn(List.of(image));
-        when(ossClient.generatePresignedUrl("private-bucket", "users/7/tasks/301/0.png", java.util.Date.from(NOW.plusSeconds(600))))
+        when(ossClient.generatePresignedUrl("private-bucket", "users/7/tasks/301/0/original.png", java.util.Date.from(NOW.plusSeconds(600))))
                 .thenReturn(new URL("https://oss.example/signed-image"));
 
         GenerationTaskSnapshotResponse response = service(taskMapper, imageMapper, ossClient).get(7L, 301L);
@@ -130,7 +130,7 @@ class GenerationTaskQueryServiceTests {
     private static GenerationImage image() {
         GenerationImage image = new GenerationImage();
         image.setId(901L);
-        image.setObjectKey("users/7/tasks/301/0.png");
+        image.setObjectKey("users/7/tasks/301/0");
         image.setWidth(2048);
         image.setHeight(2048);
         image.setSourceIndex(0);

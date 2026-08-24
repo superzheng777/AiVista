@@ -52,8 +52,7 @@ export type GenerationMessage = {
 
 export type GenerationAsset = {
   id: string;
-  url: string;
-  urlExpiresAt: string;
+  imageUrls: ImageUrls;
   width: number;
   height: number;
   createdAt: string;
@@ -72,17 +71,20 @@ export type GenerationAsset = {
   likedByCurrentUser: boolean;
 };
 
+export type ImageUrl = { url: string; expiresAt: string | null };
+export type ImageUrls = { thumbnail: ImageUrl | null; display: ImageUrl | null; original: ImageUrl | null };
+
 /** A signed URL only needs renewal once it has actually expired. */
-export function needsImageUrlRefresh(urlExpiresAt: string, now = Date.now()): boolean {
-  const expiresAt = Date.parse(urlExpiresAt);
+export function needsImageUrlRefresh(imageUrl: ImageUrl | null, now = Date.now()): boolean {
+  if (!imageUrl?.expiresAt) return imageUrl === null;
+  const expiresAt = Date.parse(imageUrl.expiresAt);
   return Number.isNaN(expiresAt) || expiresAt <= now;
 }
 
 /** 资产、个人发布和发现列表共用的后端完整图片 DTO，字段与 `GenerationAssetImageResponse` 对齐。 */
 export type GenerationAssetImageDto = {
   imageId: string;
-  url: string;
-  urlExpiresAt: string;
+  imageUrls: ImageUrls;
   createdAt: string;
   favorited: boolean;
   finalPrompt: string;
@@ -101,8 +103,7 @@ export type GenerationAssetImageDto = {
 export function mapGenerationAssetImage(dto: GenerationAssetImageDto): GenerationAsset {
   return {
     id: dto.imageId,
-    url: dto.url,
-    urlExpiresAt: dto.urlExpiresAt,
+    imageUrls: dto.imageUrls,
     width: dto.generationConfig.width,
     height: dto.generationConfig.height,
     createdAt: dto.createdAt,

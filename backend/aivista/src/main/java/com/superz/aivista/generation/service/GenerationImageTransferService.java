@@ -2,15 +2,19 @@ package com.superz.aivista.generation.service;
 
 import com.aliyun.oss.OSS;
 import com.aliyun.oss.model.ObjectMetadata;
+import com.aliyun.oss.model.ProcessObjectRequest;
 import com.superz.aivista.generation.config.GenerationImageTransferProperties;
 import com.superz.aivista.generation.config.GenerationOssProperties;
 import com.superz.aivista.generation.entity.GenerationTask;
+import com.superz.aivista.generation.model.GenerationImageObjectKeys;
 import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
 import java.net.URLConnection;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -51,13 +55,7 @@ public class GenerationImageTransferService {
     /** 尽力删除因取消或终态竞争而未写入数据库的对象；删除失败时记录安全日志。 */
     public void deleteTransferred(List<TransferredImage> images) {
         for (TransferredImage image : images) {
-            try {
-                ossClient.deleteObject(ossProperties.bucket(), image.objectKey());
-            } catch (Exception exception) {
-                log.warn("Generation image cleanup failed for object {}: {}",
-                        image.objectKey(), exception.getClass().getSimpleName());
-                // 外部删除失败不改变任务终态；当前没有无数据库记录对象的自动对账清理。
-            }
+            deleteObjectGroup(image.objectKey());
         }
     }
 
@@ -70,15 +68,45 @@ public class GenerationImageTransferService {
         URLConnection connection = openConnection(uri);
         connection.setConnectTimeout(Math.toIntExact(transferProperties.sourceConnectTimeout().toMillis()));
         connection.setReadTimeout(Math.toIntExact(transferProperties.sourceReadTimeout().toMillis()));
-        String objectKey = ossProperties.objectPrefix() + "/" + task.getUserId()
-                + "/tasks/" + task.getId() + "/" + sourceIndex + ".png";
+        String objectPrefix = ossProperties.objectPrefix() + "/" + task.getUserId()
+                + "/tasks/" + task.getId() + "/" + sourceIndex;
+        String originalObjectKey = objectPrefix + "/original.png";
         ObjectMetadata metadata = new ObjectMetadata();
         metadata.setContentType("image/png");
         metadata.setCacheControl("private, max-age=" + ossProperties.signedUrlTtl().toSeconds());
         try (InputStream source = connection.getInputStream(); CountingInputStream input = new CountingInputStream(source)) {
-            ossClient.putObject(ossProperties.bucket(), objectKey, input, metadata);
-            return new TransferredImage(sourceIndex, objectKey, input.count(), task.getWidth(), task.getHeight());
+            ossClient.putObject(ossProperties.bucket(), originalObjectKey, input, metadata);
+            persistVariant(originalObjectKey, objectPrefix + "/card.webp",
+                    "image/resize,l_640/format,webp/quality,Q_80");
+            persistVariant(originalObjectKey, objectPrefix + "/display.webp",
+                    "image/resize,l_1600/format,webp/quality,Q_85");
+            return new TransferredImage(sourceIndex, objectPrefix, input.count(), task.getWidth(), task.getHeight());
+        } catch (Exception exception) {
+            deleteObjectGroup(objectPrefix);
+            throw exception;
         }
+    }
+
+    /** 调用 OSS 服务端处理并另存为，不在应用进程中解码或缓存图像像素。 */
+    private void persistVariant(String sourceObjectKey, String targetObjectKey, String process) {
+        ossClient.processObject(new ProcessObjectRequest(ossProperties.bucket(), sourceObjectKey,
+                process + "|sys/saveas,o_" + base64(targetObjectKey) + ",b_" + base64(ossProperties.bucket())));
+    }
+
+    private void deleteObjectGroup(String storedKey) {
+        GenerationImageObjectKeys keys = GenerationImageObjectKeys.fromStoredValue(storedKey);
+        for (String objectKey : List.of(keys.original(), keys.thumbnail(), keys.display()).stream().distinct().toList()) {
+            try {
+                ossClient.deleteObject(ossProperties.bucket(), objectKey);
+            } catch (Exception exception) {
+                log.warn("Generation image cleanup failed for object {}: {}", objectKey,
+                        exception.getClass().getSimpleName());
+            }
+        }
+    }
+
+    private static String base64(String value) {
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(value.getBytes(StandardCharsets.UTF_8));
     }
 
     public record TransferredImage(int sourceIndex, String objectKey, long fileSize, int width, int height) {

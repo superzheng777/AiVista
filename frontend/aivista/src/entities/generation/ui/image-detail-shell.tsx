@@ -33,12 +33,14 @@ export function ImageDetailShell({ image, onClose, actions, author, allowCopy = 
   }
 
   async function imageForAccess(): Promise<{ image: GenerationAsset; refreshed: boolean }> {
-    if (!needsImageUrlRefresh(image.urlExpiresAt)) return { image, refreshed: false };
+    if (!needsImageUrlRefresh(image.imageUrls.original)) return { image, refreshed: false };
     return { image: await refreshedImage(), refreshed: true };
   }
 
   async function fetchImage(imageToFetch: GenerationAsset): Promise<Blob> {
-    const response = await fetch(imageToFetch.url, { mode: "cors", referrerPolicy: "no-referrer" });
+    const url = imageToFetch.imageUrls.original?.url;
+    if (!url) throw new Error("Original image URL is unavailable");
+    const response = await fetch(url, { mode: "cors", referrerPolicy: "no-referrer" });
     if (!response.ok) throw new Error("Image request failed");
     return response.blob();
   }
@@ -102,7 +104,7 @@ export function ImageDetailShell({ image, onClose, actions, author, allowCopy = 
   return <section className="grid min-h-screen grid-cols-[minmax(0,1fr)_380px] bg-muted/35">
     <div onClick={(event) => { if (event.target === event.currentTarget) onClose(); }} className="flex min-w-0 items-center justify-center p-10">
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      {imageUnavailable ? <p className="rounded-xl bg-muted px-5 py-4 text-sm text-muted-foreground">作品图片已不可用。</p> : <img src={image.url} alt={image.title ?? "作品详情"} referrerPolicy="no-referrer" onError={() => void retryImageAfterError()} className="max-h-[calc(100vh-5rem)] max-w-full rounded-2xl bg-muted object-contain shadow-xl" />}
+      {imageUnavailable || !image.imageUrls.display ? <p className="rounded-xl bg-muted px-5 py-4 text-sm text-muted-foreground">作品图片已不可用。</p> : <img src={image.imageUrls.display.url} alt={image.title ?? "作品详情"} referrerPolicy="no-referrer" onError={() => void retryImageAfterError()} className="max-h-[calc(100vh-5rem)] max-w-full rounded-2xl bg-muted object-contain shadow-xl" />}
     </div>
     <aside className="min-h-0 overflow-y-auto border-l border-border bg-card">
       <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card/95 px-5 py-4 backdrop-blur"><button type="button" onClick={onClose} className="grid size-9 place-items-center rounded-lg text-muted-foreground hover:bg-muted" aria-label="关闭详情"><X className="size-5" /></button><div className="flex gap-1"><button type="button" onClick={() => void download()} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border px-3 text-sm font-medium hover:bg-muted"><Download className="size-4" />下载</button>{allowCopy ? <button type="button" onClick={() => void copy()} className="grid size-9 place-items-center rounded-lg text-muted-foreground hover:bg-muted" aria-label="复制图片"><Clipboard className="size-4" /></button> : null}</div></div>

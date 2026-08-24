@@ -33,30 +33,30 @@ function useVisibleImageSource(image: GenerationAsset, priority: boolean) {
     if (!nearViewport) return;
     let cancelled = false;
     async function setCurrentSource() {
-      if (!needsImageUrlRefresh(image.urlExpiresAt)) {
-        if (!cancelled) setSource(image.url);
+      if (!needsImageUrlRefresh(image.imageUrls.thumbnail)) {
+        if (!cancelled) setSource(image.imageUrls.thumbnail?.url ?? null);
         return;
       }
       try {
         const refreshed = await getInspiration(image.id);
         if (!cancelled) {
-          setSource(refreshed.url);
+          setSource(refreshed.imageUrls.thumbnail?.url ?? null);
           updateInspirationInFeeds(queryClient, refreshed);
         }
       } catch {
-        if (!cancelled) setSource(image.url);
+        if (!cancelled) setSource(image.imageUrls.thumbnail?.url ?? null);
       }
     }
     void setCurrentSource();
     return () => { cancelled = true; };
-  }, [image.id, image.url, image.urlExpiresAt, nearViewport, queryClient]);
+  }, [image.id, image.imageUrls.thumbnail?.expiresAt, image.imageUrls.thumbnail?.url, nearViewport, queryClient]);
 
   async function refreshAfterError() {
     if (retryUsedRef.current) return;
     retryUsedRef.current = true;
     try {
       const refreshed = await getInspiration(image.id);
-      setSource(refreshed.url);
+      setSource(refreshed.imageUrls.thumbnail?.url ?? null);
       updateInspirationInFeeds(queryClient, refreshed);
     } catch {
       // Keep the failed image state instead of retrying indefinitely.

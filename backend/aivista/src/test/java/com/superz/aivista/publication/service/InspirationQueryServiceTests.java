@@ -41,7 +41,7 @@ class InspirationQueryServiceTests {
         assertThat(response).singleElement().satisfies(item -> {
             assertThat(item.imageId()).isEqualTo("11");
             assertThat(item.title()).isEqualTo("Published title");
-            assertThat(item.urlExpiresAt()).isEqualTo(NOW.plusSeconds(600));
+            assertThat(item.imageUrls().thumbnail().expiresAt()).isEqualTo(NOW.plusSeconds(600));
         });
         verify(images).selectPublishedByUserId(7L);
     }
@@ -121,7 +121,7 @@ class InspirationQueryServiceTests {
         var response = service(images, oss).get(11L, null);
 
         assertThat(response.imageId()).isEqualTo("11");
-        assertThat(response.url()).isEqualTo("https://oss.example/refreshed");
+        assertThat(response.imageUrls().display().url()).isEqualTo("https://oss.example/refreshed");
         verify(images).selectPublishedById(11L);
     }
 
@@ -140,7 +140,7 @@ class InspirationQueryServiceTests {
     private static GenerationImage image(long id) {
         GenerationImage image = new GenerationImage();
         image.setId(id);
-        image.setObjectKey("users/7/images/" + id + ".png");
+        image.setObjectKey("users/7/images/" + id);
         image.setWidth(1024);
         image.setHeight(1024);
         image.setPublicAt(NOW.minusSeconds(1));

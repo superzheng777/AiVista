@@ -8,8 +8,7 @@ import { browserApiClient } from "@/shared/api/browser-client";
 const client = vi.mocked(browserApiClient);
 const image = {
   imageId: "11",
-  url: "https://oss.example/signed",
-  urlExpiresAt: "2026-08-15T00:10:00Z",
+  imageUrls: { thumbnail: { url: "https://oss.example/signed", expiresAt: "2026-08-15T00:10:00Z" }, display: null, original: null },
   createdAt: "2026-08-15T00:00:00Z",
   favorited: false,
   finalPrompt: "prompt",

@@ -6,6 +6,7 @@ import com.superz.aivista.generation.config.GenerationAssetCleanupProperties;
 import com.superz.aivista.generation.config.GenerationOssProperties;
 import com.superz.aivista.generation.entity.GenerationImage;
 import com.superz.aivista.generation.mapper.GenerationImageMapper;
+import com.superz.aivista.generation.model.GenerationImageObjectKeys;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
@@ -44,13 +45,12 @@ public class GenerationAssetOssCleanupService {
 
     private void clean(GenerationImage image, Instant now) {
         try {
-            ossClient.deleteObject(ossProperties.bucket(), image.getObjectKey());
+            GenerationImageObjectKeys keys = GenerationImageObjectKeys.fromStoredValue(image.getObjectKey());
+            deleteIfPresent(keys.original());
+            deleteIfPresent(keys.thumbnail());
+            deleteIfPresent(keys.display());
             imageMapper.markOssCleanupSucceeded(image.getId());
         } catch (OSSException exception) {
-            if (isMissingObject(exception)) {
-                imageMapper.markOssCleanupSucceeded(image.getId());
-                return;
-            }
             reschedule(image, now, safeError(exception));
         } catch (Exception exception) {
             reschedule(image, now, safeError(exception));
@@ -59,6 +59,16 @@ public class GenerationAssetOssCleanupService {
 
     private void reschedule(GenerationImage image, Instant now, String error) {
         imageMapper.rescheduleOssCleanup(image.getId(), now.plus(cleanupProperties.retryDelay()), error);
+    }
+
+    private void deleteIfPresent(String objectKey) {
+        try {
+            ossClient.deleteObject(ossProperties.bucket(), objectKey);
+        } catch (OSSException exception) {
+            if (!isMissingObject(exception)) {
+                throw exception;
+            }
+        }
     }
 
     private static boolean isMissingObject(OSSException exception) {

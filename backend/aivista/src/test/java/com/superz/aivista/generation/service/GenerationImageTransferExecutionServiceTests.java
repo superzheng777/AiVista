@@ -42,7 +42,7 @@ class GenerationImageTransferExecutionServiceTests {
         GenerationBailianClient.ProviderResult result = result(1);
         when(client.restore("snapshot")).thenReturn(result);
         var transferred = new GenerationImageTransferService.TransferredImage(
-                0, "users/7/tasks/301/0.png", 1024, 2048, 2048);
+                0, "users/7/tasks/301/0", 1024, 2048, 2048);
         when(transferService.transfer(waiting, result.imageUrls())).thenReturn(List.of(transferred));
         when(taskMapper.completeTransferring(301L, 2, "SUCCEEDED", 1, null, NOW)).thenReturn(1);
 
@@ -54,7 +54,7 @@ class GenerationImageTransferExecutionServiceTests {
         verify(taskMapper).completeTransferring(301L, 2, "SUCCEEDED", 1, null, NOW);
         ArgumentCaptor<GenerationImage> image = ArgumentCaptor.forClass(GenerationImage.class);
         verify(imageMapper).insertSelective(image.capture());
-        assertThat(image.getValue().getObjectKey()).isEqualTo("users/7/tasks/301/0.png");
+        assertThat(image.getValue().getObjectKey()).isEqualTo("users/7/tasks/301/0");
         ArgumentCaptor<OutboxEvent> event = ArgumentCaptor.forClass(OutboxEvent.class);
         verify(outboxMapper).insertSelective(event.capture());
         assertThat(event.getValue().getPayloadJson())
@@ -75,7 +75,7 @@ class GenerationImageTransferExecutionServiceTests {
         when(client.restore("snapshot")).thenReturn(result);
         when(transferService.transfer(waiting, result.imageUrls())).thenReturn(List.of(
                 new GenerationImageTransferService.TransferredImage(
-                        0, "users/7/tasks/301/0.png", 1024, 2048, 2048)));
+                        0, "users/7/tasks/301/0", 1024, 2048, 2048)));
         when(taskMapper.completeTransferring(301L, 2, "PARTIALLY_SUCCEEDED", 1,
                 "IMAGE_TRANSFER_PARTIAL_FAILURE", NOW)).thenReturn(1);
 
@@ -98,7 +98,7 @@ class GenerationImageTransferExecutionServiceTests {
         when(client.restore("snapshot")).thenReturn(result);
         List<GenerationImageTransferService.TransferredImage> images = List.of(
                 new GenerationImageTransferService.TransferredImage(
-                        0, "users/7/tasks/301/0.png", 1024, 2048, 2048));
+                        0, "users/7/tasks/301/0", 1024, 2048, 2048));
         when(transferService.transfer(waiting, result.imageUrls())).thenReturn(images);
 
         assertThat(service(taskMapper, mock(GenerationImageMapper.class), mock(OutboxEventMapper.class),

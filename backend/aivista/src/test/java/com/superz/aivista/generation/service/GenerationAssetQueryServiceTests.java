@@ -44,8 +44,8 @@ class GenerationAssetQueryServiceTests {
         assertThat(response).hasSize(2);
         assertThat(response.getFirst()).satisfies(item -> {
             assertThat(item.imageId()).isEqualTo("100");
-            assertThat(item.url()).isEqualTo("https://oss.example/signed");
-            assertThat(item.urlExpiresAt()).isEqualTo(NOW.plusSeconds(600));
+            assertThat(item.imageUrls().thumbnail().url()).isEqualTo("https://oss.example/signed");
+            assertThat(item.imageUrls().thumbnail().expiresAt()).isEqualTo(NOW.plusSeconds(600));
             assertThat(item.favorited()).isFalse();
             assertThat(item.finalPrompt()).isEqualTo("prompt-100");
             assertThat(item.finalNegativePrompt()).isEqualTo("negative-100");
@@ -71,7 +71,8 @@ class GenerationAssetQueryServiceTests {
         var response = service(imageMapper, ossClient).get(7L, 41L);
 
         assertThat(response.imageId()).isEqualTo("41");
-        assertThat(response.url()).isEqualTo("https://oss.example/signed-detail");
+        assertThat(response.imageUrls().display().url()).isEqualTo("https://oss.example/signed-detail");
+        assertThat(response.imageUrls().original().url()).isEqualTo("https://oss.example/signed-detail");
         assertThat(response.publicationReviewStatus()).isEqualTo("NONE");
         assertThat(response.publicationVersion()).isZero();
     }
@@ -92,7 +93,7 @@ class GenerationAssetQueryServiceTests {
         assertThat(response.publicationReviewStatus()).isEqualTo("APPROVED");
         assertThat(response.publicationVersion()).isEqualTo(5L);
         assertThat(response.publicAt()).isEqualTo(NOW);
-        assertThat(response.url()).isEqualTo("https://oss.example/signed-published");
+        assertThat(response.imageUrls().display().url()).isEqualTo("https://oss.example/signed-published");
     }
 
     @Test
@@ -112,7 +113,7 @@ class GenerationAssetQueryServiceTests {
     private static GenerationAssetImageRow row(long imageId, Instant createdAt, String status, Long version) {
         GenerationAssetImageRow row = new GenerationAssetImageRow();
         row.setImageId(imageId);
-        row.setObjectKey("users/7/images/" + imageId + ".png");
+        row.setObjectKey("users/7/images/" + imageId);
         row.setWidth(1024);
         row.setHeight(768);
         row.setCreatedAt(createdAt);

@@ -27,12 +27,14 @@ class GenerationAssetOssCleanupServiceTests {
     void removesAvailableObjectsAndMarksThemSucceeded() {
         GenerationImageMapper imageMapper = mock(GenerationImageMapper.class);
         OSS ossClient = mock(OSS.class);
-        GenerationImage image = image(101L, "users/7/tasks/9/0.png");
+        GenerationImage image = image(101L, "users/7/tasks/9/0");
         when(imageMapper.selectPendingOssCleanup(NOW, 100)).thenReturn(List.of(image));
 
         service(imageMapper, ossClient).cleanAvailableObjects();
 
-        verify(ossClient).deleteObject("private-bucket", image.getObjectKey());
+        verify(ossClient).deleteObject("private-bucket", image.getObjectKey() + "/original.png");
+        verify(ossClient).deleteObject("private-bucket", image.getObjectKey() + "/card.webp");
+        verify(ossClient).deleteObject("private-bucket", image.getObjectKey() + "/display.webp");
         verify(imageMapper).markOssCleanupSucceeded(101L);
         verify(imageMapper, never()).rescheduleOssCleanup(eq(101L), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString());
     }
@@ -41,11 +43,11 @@ class GenerationAssetOssCleanupServiceTests {
     void reschedulesOnlyTheFailedObjectAndContinuesTheBatch() {
         GenerationImageMapper imageMapper = mock(GenerationImageMapper.class);
         OSS ossClient = mock(OSS.class);
-        GenerationImage failed = image(101L, "users/7/tasks/9/0.png");
-        GenerationImage succeeded = image(102L, "users/7/tasks/9/1.png");
+        GenerationImage failed = image(101L, "users/7/tasks/9/0");
+        GenerationImage succeeded = image(102L, "users/7/tasks/9/1");
         when(imageMapper.selectPendingOssCleanup(NOW, 100)).thenReturn(List.of(failed, succeeded));
         doThrow(new IllegalStateException("OSS unavailable"))
-                .when(ossClient).deleteObject("private-bucket", failed.getObjectKey());
+                .when(ossClient).deleteObject("private-bucket", failed.getObjectKey() + "/original.png");
 
         service(imageMapper, ossClient).cleanAvailableObjects();
 

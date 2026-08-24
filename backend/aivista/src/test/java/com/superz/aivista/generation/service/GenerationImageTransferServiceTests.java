@@ -5,8 +5,11 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 import com.aliyun.oss.OSS;
+import com.aliyun.oss.model.ProcessObjectRequest;
 import com.superz.aivista.generation.config.GenerationImageTransferProperties;
 import com.superz.aivista.generation.config.GenerationOssProperties;
 import com.superz.aivista.generation.entity.GenerationTask;
@@ -21,6 +24,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 class GenerationImageTransferServiceTests {
 
@@ -83,9 +87,14 @@ class GenerationImageTransferServiceTests {
                 task, List.of("https://provider.example/image.png"));
 
         assertThat(result).singleElement().satisfies(image -> {
-            assertThat(image.objectKey()).isEqualTo("users/7/tasks/301/0.png");
+            assertThat(image.objectKey()).isEqualTo("users/7/tasks/301/0");
             assertThat(image.fileSize()).isEqualTo(payload.length);
         });
         assertThat(sourceBytesRead).hasValue(payload.length);
+        ArgumentCaptor<ProcessObjectRequest> requests = ArgumentCaptor.forClass(ProcessObjectRequest.class);
+        verify(oss, times(2)).processObject(requests.capture());
+        assertThat(requests.getAllValues()).extracting(ProcessObjectRequest::getProcess).containsExactly(
+                "image/resize,l_640/format,webp/quality,Q_80|sys/saveas,o_dXNlcnMvNy90YXNrcy8zMDEvMC9jYXJkLndlYnA,b_YnVja2V0",
+                "image/resize,l_1600/format,webp/quality,Q_85|sys/saveas,o_dXNlcnMvNy90YXNrcy8zMDEvMC9kaXNwbGF5LndlYnA,b_YnVja2V0");
     }
 }

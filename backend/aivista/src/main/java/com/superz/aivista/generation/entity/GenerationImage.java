@@ -18,7 +18,7 @@ public class GenerationImage {
     private Long id;
     private Long taskId;
     private Long userId;
-    /** 私有 OSS 对象键，不保存或返回短期签名 URL。 */
+    /** 图片对象组公共前缀；实际对象为 original.png、card.webp 和 display.webp。 */
     private String objectKey;
     private String contentType;
     private Long fileSize;

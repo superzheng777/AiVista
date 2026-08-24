@@ -5,8 +5,7 @@ import java.time.Instant;
 /** 个人资产列表中的单张可展示图片及详情视图所需字段。 */
 public record GenerationAssetImageResponse(
         String imageId,
-        String url,
-        Instant urlExpiresAt,
+        ImageUrls imageUrls,
         Instant createdAt,
         boolean favorited,
         String finalPrompt,
@@ -20,6 +19,12 @@ public record GenerationAssetImageResponse(
         String authorId,
         long likeCount,
         boolean likedByCurrentUser) {
+
+    public record ImageUrls(ImageUrl thumbnail, ImageUrl display, ImageUrl original) {
+    }
+
+    public record ImageUrl(String url, Instant expiresAt) {
+    }
 
     public record GenerationConfig(int width, int height, int requestedImageCount, boolean promptExtend) {
     }

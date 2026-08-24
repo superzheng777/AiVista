@@ -6,7 +6,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 import { Bell, CheckCheck, Eye, FolderOpen, Trash2, X } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 
-import { needsImageUrlRefresh, type GenerationAsset } from "@/entities/generation/model/generation";
+import { type GenerationAsset } from "@/entities/generation/model/generation";
 import type { InteractionNotification, OfficialNotification } from "@/entities/notification/model/notification";
 import { AssetDetail } from "@/features/assets/ui/assets-workspace";
 import { deleteGenerationAssets, getGenerationAsset, setGenerationImageFavorites } from "@/features/assets/api/asset-api";
@@ -46,10 +46,6 @@ export function OfficialNotificationsBell() {
       await publicDetail.open(item);
       return;
     }
-    if (!needsImageUrlRefresh(item.urlExpiresAt)) {
-      setImage(item);
-      return;
-    }
     setOpeningImageId(item.id);
     try {
       setOpenImageError(null);
@@ -66,7 +62,7 @@ export function OfficialNotificationsBell() {
 function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: string }) { return <button type="button" onClick={onClick} className={`rounded-md px-3 py-1.5 text-xs font-medium ${active ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}>{children}</button>; }
 
 function InteractionList({ open, openingImageId, onOpenImage }: { open: boolean; openingImageId: string | null; onOpenImage: (image: GenerationAsset) => Promise<void> }) {
-  return <NotificationList<InteractionNotification> open={open} queryKey={interactionNotificationQueryKeys.list} fetchPage={listInteractionNotifications} markRead={markInteractionNotificationRead} markAllRead={markAllInteractionNotificationsRead} remove={deleteInteractionNotification} removeMany={deleteInteractionNotifications} renderItem={(item, read, deleting, managing, selected, toggle) => <li key={item.id} className={item.readAt ? "rounded-xl border p-3" : "rounded-xl border border-sky-200 bg-sky-50/70 p-3"}><div className="flex gap-3">{managing ? <input aria-label={`选择消息 ${item.id}`} type="checkbox" checked={selected} onChange={toggle} className="mt-1" /> : null}<button type="button" onClick={read} className="min-w-0 flex-1 text-left"><p className="text-sm"><b>{item.actor.nickname}</b> {item.eventType === "USER_FOLLOWED" ? "关注了你" : "赞了你的作品"}</p><p className="mt-1 text-xs text-muted-foreground">{formatTime(item.createdAt)}</p></button>{item.image ? <button type="button" disabled={openingImageId === item.image.id} onClick={() => { read(); void onOpenImage(item.image!); }} className="shrink-0 disabled:opacity-60"><img src={item.image.url} alt="关联作品" loading="lazy" decoding="async" className="size-12 rounded-lg object-cover" /></button> : null}{!managing ? <DeleteButton onDelete={deleting} /> : null}</div></li>} />;
+  return <NotificationList<InteractionNotification> open={open} queryKey={interactionNotificationQueryKeys.list} fetchPage={listInteractionNotifications} markRead={markInteractionNotificationRead} markAllRead={markAllInteractionNotificationsRead} remove={deleteInteractionNotification} removeMany={deleteInteractionNotifications} renderItem={(item, read, deleting, managing, selected, toggle) => <li key={item.id} className={item.readAt ? "rounded-xl border p-3" : "rounded-xl border border-sky-200 bg-sky-50/70 p-3"}><div className="flex gap-3">{managing ? <input aria-label={`选择消息 ${item.id}`} type="checkbox" checked={selected} onChange={toggle} className="mt-1" /> : null}<button type="button" onClick={read} className="min-w-0 flex-1 text-left"><p className="text-sm"><b>{item.actor.nickname}</b> {item.eventType === "USER_FOLLOWED" ? "关注了你" : "赞了你的作品"}</p><p className="mt-1 text-xs text-muted-foreground">{formatTime(item.createdAt)}</p></button>{item.image?.imageUrls.thumbnail ? <button type="button" disabled={openingImageId === item.image.id} onClick={() => { read(); void onOpenImage(item.image!); }} className="shrink-0 disabled:opacity-60"><img src={item.image.imageUrls.thumbnail.url} alt="关联作品" loading="lazy" decoding="async" className="size-12 rounded-lg object-cover" /></button> : null}{!managing ? <DeleteButton onDelete={deleting} /> : null}</div></li>} />;
 }
 
 function OfficialList({ open, openingImageId, onOpenImage }: { open: boolean; openingImageId: string | null; onOpenImage: (image: GenerationAsset) => Promise<void> }) {

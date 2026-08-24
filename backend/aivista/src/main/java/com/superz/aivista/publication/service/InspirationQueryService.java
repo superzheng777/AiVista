@@ -7,6 +7,7 @@ import com.superz.aivista.common.exception.ErrorCode;
 import com.superz.aivista.generation.dto.GenerationAssetImageResponse;
 import com.superz.aivista.generation.entity.GenerationImage;
 import com.superz.aivista.generation.mapper.GenerationImageMapper;
+import com.superz.aivista.generation.model.GenerationImageObjectKeys;
 import com.superz.aivista.publication.dto.InspirationPageResponse;
 import com.superz.aivista.publication.dto.LikedPublicationResponse;
 import com.superz.aivista.publication.entity.GenerationImageLike;
@@ -65,14 +66,14 @@ public class InspirationQueryService {
             Long viewerUserId) {
         boolean hasMore = page.size() > pageSize;
         List<GenerationImage> rows = hasMore ? page.subList(0, pageSize) : page;
-        List<GenerationAssetImageResponse> items = toImages(rows, false, likedImageIds(viewerUserId, rows));
+        List<GenerationAssetImageResponse> items = toImages(rows, false, likedImageIds(viewerUserId, rows), ImageView.LIST);
         String nextCursor = hasMore ? encodeCursor(scope, rows.getLast()) : null;
         return new InspirationPageResponse(items, nextCursor);
     }
 
     public List<GenerationAssetImageResponse> listByUserId(long userId) {
         List<GenerationImage> rows = images.selectPublishedByUserId(userId);
-        return toImages(rows, true, likedImageIds(userId, rows));
+        return toImages(rows, true, likedImageIds(userId, rows), ImageView.LIST);
     }
 
     public GenerationAssetImageResponse get(long imageId, Long viewerUserId) {
@@ -80,12 +81,12 @@ public class InspirationQueryService {
         if (image == null) {
             throw new BusinessException(ErrorCode.GENERATION_RESOURCE_NOT_FOUND);
         }
-        return toImages(List.of(image), false, likedImageIds(viewerUserId, List.of(image))).get(0);
+        return toImages(List.of(image), false, likedImageIds(viewerUserId, List.of(image)), ImageView.DETAIL).get(0);
     }
 
     public List<GenerationAssetImageResponse> listPublicationsByUserId(long userId, Long viewerUserId) {
         List<GenerationImage> rows = images.selectPublicationsByUserId(userId);
-        return toImages(rows, false, likedImageIds(viewerUserId, rows));
+        return toImages(rows, false, likedImageIds(viewerUserId, rows), ImageView.LIST);
     }
 
     public List<LikedPublicationResponse> listLiked(long ownerUserId, Long viewerUserId) {
@@ -96,7 +97,7 @@ public class InspirationQueryService {
         List<Long> imageIds = relations.stream().map(GenerationImageLike::getImageId).toList();
         List<GenerationImage> imageRows = images.selectPublishedByIds(imageIds);
         Map<Long, GenerationAssetImageResponse> imageById = toImages(imageRows, false,
-                likedImageIds(viewerUserId, imageRows)).stream().collect(Collectors.toMap(
+                likedImageIds(viewerUserId, imageRows), ImageView.LIST).stream().collect(Collectors.toMap(
                         image -> Long.valueOf(image.imageId()), Function.identity()));
         return relations.stream()
                 .map(relation -> new LikedPublicationResponse(imageById.get(relation.getImageId()), relation.getLikedAt()))
@@ -105,7 +106,7 @@ public class InspirationQueryService {
     }
 
     public List<GenerationAssetImageResponse> toPublicImages(List<GenerationImage> rows, Long viewerUserId) {
-        return toImages(rows, false, likedImageIds(viewerUserId, rows));
+        return toImages(rows, false, likedImageIds(viewerUserId, rows), ImageView.LIST);
     }
 
     private Set<Long> likedImageIds(Long viewerUserId, List<GenerationImage> rows) {
@@ -115,12 +116,11 @@ public class InspirationQueryService {
     }
 
     private List<GenerationAssetImageResponse> toImages(List<GenerationImage> rows, boolean includeFavorite,
-            Set<Long> likedImageIds) {
+            Set<Long> likedImageIds, ImageView view) {
         Instant expiresAt = clock.instant().plus(properties.signedUrlTtl());
         return rows.stream().map(image -> new GenerationAssetImageResponse(
                 String.valueOf(image.getId()),
-                oss.generatePresignedUrl(properties.bucket(), image.getObjectKey(), Date.from(expiresAt)).toString(),
-                expiresAt, image.getCreatedAt(), includeFavorite && Boolean.TRUE.equals(image.getFavorited()),
+                urls(image.getObjectKey(), expiresAt, view), image.getCreatedAt(), includeFavorite && Boolean.TRUE.equals(image.getFavorited()),
                 image.getPublicationPrompt(), image.getPublicationNegativePrompt(),
                 new GenerationAssetImageResponse.GenerationConfig(image.getWidth(), image.getHeight(),
                         image.getPublicationRequestedImageCount(), Boolean.TRUE.equals(image.getPublicationPromptExtend())),
@@ -129,6 +129,19 @@ public class InspirationQueryService {
                 image.getPublicationTitle(), image.getPublicationDescription(), String.valueOf(image.getUserId()),
                 image.getLikeCount() == null ? 0L : image.getLikeCount(), likedImageIds.contains(image.getId())))
                 .toList();
+    }
+
+    private GenerationAssetImageResponse.ImageUrls urls(String storedKey, Instant expiresAt, ImageView view) {
+        GenerationImageObjectKeys keys = GenerationImageObjectKeys.fromStoredValue(storedKey);
+        return view == ImageView.LIST
+                ? new GenerationAssetImageResponse.ImageUrls(signed(keys.thumbnail(), expiresAt), null, null)
+                : new GenerationAssetImageResponse.ImageUrls(signed(keys.thumbnail(), expiresAt),
+                        signed(keys.display(), expiresAt), signed(keys.original(), expiresAt));
+    }
+
+    private GenerationAssetImageResponse.ImageUrl signed(String objectKey, Instant expiresAt) {
+        return new GenerationAssetImageResponse.ImageUrl(
+                oss.generatePresignedUrl(properties.bucket(), objectKey, Date.from(expiresAt)).toString(), expiresAt);
     }
 
     private static String encodeCursor(CursorScope scope, GenerationImage image) {
@@ -162,6 +175,8 @@ public class InspirationQueryService {
             this.code = code;
         }
     }
+
+    private enum ImageView { LIST, DETAIL }
 
     private record Cursor(Instant publicAt, long imageId) {
     }

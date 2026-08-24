@@ -10,6 +10,7 @@ import com.superz.aivista.generation.dto.GenerationTaskSnapshotResponse;
 import com.superz.aivista.generation.entity.GenerationImage;
 import com.superz.aivista.generation.entity.GenerationTask;
 import com.superz.aivista.generation.mapper.GenerationImageMapper;
+import com.superz.aivista.generation.model.GenerationImageObjectKeys;
 import com.superz.aivista.generation.mapper.GenerationTaskMapper;
 import java.net.URL;
 import java.time.Clock;
@@ -83,7 +84,8 @@ public class GenerationTaskQueryService {
             return new GenerationImageResponse(String.valueOf(image.getId()), image.getSourceIndex(), null, null,
                     image.getWidth(), image.getHeight());
         }
-        URL url = ossClient.generatePresignedUrl(ossProperties.bucket(), image.getObjectKey(), Date.from(expiresAt));
+        URL url = ossClient.generatePresignedUrl(ossProperties.bucket(),
+                GenerationImageObjectKeys.fromStoredValue(image.getObjectKey()).original(), Date.from(expiresAt));
         return new GenerationImageResponse(String.valueOf(image.getId()), image.getSourceIndex(), url.toString(), expiresAt,
                 image.getWidth(), image.getHeight());
     }

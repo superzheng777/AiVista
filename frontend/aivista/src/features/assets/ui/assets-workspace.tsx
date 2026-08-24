@@ -6,7 +6,7 @@ import { Check, Download, FolderOpen, Heart, LoaderCircle, Send, Trash2, X } fro
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { needsImageUrlRefresh, type GenerationAsset } from "@/entities/generation/model/generation";
+import { type GenerationAsset } from "@/entities/generation/model/generation";
 import { ImageDetailShell } from "@/entities/generation/ui/image-detail-shell";
 import { assetQueryKeys, deleteGenerationAssets, getGenerationAsset, listGenerationAssets, setGenerationImageFavorites } from "@/features/assets/api/asset-api";
 import { useGenerationEventStream } from "@/features/generation/model/generation-event-stream-provider";
@@ -83,12 +83,15 @@ export function AssetsWorkspace() {
     return refreshed;
   }
   async function downloadAsset(asset: GenerationAsset): Promise<void> {
-    let image = needsImageUrlRefresh(asset.urlExpiresAt) ? await refreshAsset(asset.id) : asset;
-    const refreshed = image !== asset;
-    let response = await fetch(image.url, { mode: "cors", referrerPolicy: "no-referrer" });
-    if (!response.ok && !refreshed) {
+    let image = await refreshAsset(asset.id);
+    let originalUrl = image.imageUrls.original?.url;
+    if (!originalUrl) throw new Error("Original image URL is unavailable");
+    let response = await fetch(originalUrl, { mode: "cors", referrerPolicy: "no-referrer" });
+    if (!response.ok) {
       image = await refreshAsset(asset.id);
-      response = await fetch(image.url, { mode: "cors", referrerPolicy: "no-referrer" });
+      originalUrl = image.imageUrls.original?.url;
+      if (!originalUrl) throw new Error("Original image URL is unavailable");
+      response = await fetch(originalUrl, { mode: "cors", referrerPolicy: "no-referrer" });
     }
     if (!response.ok) throw new Error("Image download failed");
     const objectUrl = URL.createObjectURL(await response.blob());
@@ -101,10 +104,6 @@ export function AssetsWorkspace() {
     URL.revokeObjectURL(objectUrl);
   }
   async function openAsset(asset: GenerationAsset): Promise<void> {
-    if (!needsImageUrlRefresh(asset.urlExpiresAt)) {
-      setDetailAsset(asset);
-      return;
-    }
     setOpeningAssetId(asset.id);
     try {
       const refreshed = await refreshAsset(asset.id);
@@ -127,7 +126,7 @@ export function AssetsWorkspace() {
 }
 
 function AssetCard({ asset, isManaging, isSelected, isOpening, onSelect, onOpen }: { asset: GenerationAsset; isManaging: boolean; isSelected: boolean; isOpening: boolean; onSelect: () => void; onOpen: () => void }) {
-  return <article className={cn("group relative overflow-hidden rounded-2xl border bg-card shadow-sm transition", isSelected ? "border-sky-500 ring-2 ring-sky-500/25" : "border-border hover:-translate-y-0.5 hover:shadow-md")}><button type="button" disabled={isOpening} onClick={isManaging ? onSelect : onOpen} className="block w-full text-left disabled:opacity-60"><img src={asset.url} alt="已生成的图片" loading="lazy" decoding="async" referrerPolicy="no-referrer" className="aspect-square w-full bg-muted object-cover" /></button>{isManaging ? <button type="button" onClick={onSelect} aria-label={isSelected ? "取消选择图片" : "选择图片"} className={cn("absolute right-3 top-3 grid size-7 place-items-center rounded-full border shadow-sm", isSelected ? "border-sky-500 bg-sky-500 text-white" : "border-white/80 bg-white/90 text-transparent")}><Check className="size-4" /></button> : null}</article>;
+  return <article className={cn("group relative overflow-hidden rounded-2xl border bg-card shadow-sm transition", isSelected ? "border-sky-500 ring-2 ring-sky-500/25" : "border-border hover:-translate-y-0.5 hover:shadow-md")}><button type="button" disabled={isOpening} onClick={isManaging ? onSelect : onOpen} className="block w-full text-left disabled:opacity-60">{asset.imageUrls.thumbnail ? <img src={asset.imageUrls.thumbnail.url} alt="已生成的图片" loading="lazy" decoding="async" referrerPolicy="no-referrer" className="aspect-square w-full bg-muted object-cover" /> : <div className="aspect-square bg-muted" />}</button>{isManaging ? <button type="button" onClick={onSelect} aria-label={isSelected ? "取消选择图片" : "选择图片"} className={cn("absolute right-3 top-3 grid size-7 place-items-center rounded-full border shadow-sm", isSelected ? "border-sky-500 bg-sky-500 text-white" : "border-white/80 bg-white/90 text-transparent")}><Check className="size-4" /></button> : null}</article>;
 }
 
 export function AssetDetail({ asset, refreshImage, onPublish, onClose, onDelete, isDeleting, isFavorite, isFavoriteUpdating, onFavorite, deleteDialog, publishDialog }: { asset: GenerationAsset; refreshImage?: (imageId: string) => Promise<GenerationAsset>; onPublish: () => void; onClose: () => void; onDelete: () => void; isDeleting: boolean; isFavorite: boolean; isFavoriteUpdating: boolean; onFavorite: () => void; deleteDialog: React.ReactNode; publishDialog: React.ReactNode }) {

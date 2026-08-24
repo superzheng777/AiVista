@@ -70,7 +70,7 @@ CREATE TABLE `generation_images` (
     `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '生成结果图片ID',
     `task_id` BIGINT UNSIGNED NOT NULL COMMENT '所属生成任务ID',
     `user_id` BIGINT UNSIGNED NOT NULL COMMENT '所属用户ID',
-    `object_key` VARCHAR(512) NOT NULL COMMENT '私有OSS对象键',
+    `object_key` VARCHAR(512) NOT NULL COMMENT '私有OSS图片对象组公共前缀',
     `content_type` VARCHAR(64) NOT NULL COMMENT '文件类型，首版固定image/png',
     `file_size` BIGINT UNSIGNED NOT NULL COMMENT '文件字节数',
     `width` INT UNSIGNED NOT NULL COMMENT '实际图片宽度',
