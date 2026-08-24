@@ -61,8 +61,23 @@ public class GenerationOutboxDispatcher {
     @Scheduled(fixedDelayString = "${app.generation.queue.dispatcher-fixed-delay}")
     public void dispatchAvailableEvents() {
         Instant now = clock.instant();
+        recoverExpiredProcessingEvents(now);
         dispatchAvailableEvents(OutboxEventType.GENERATION_TASK_EXECUTE, properties.generationRoutingKey(), now);
         dispatchAvailableEvents(OutboxEventType.GENERATION_IMAGE_TRANSFER, properties.transferRoutingKey(), now);
+    }
+
+    /** Reclaims commands left in PROCESSING by an interrupted dispatcher instance. */
+    private void recoverExpiredProcessingEvents(Instant now) {
+        recoverExpiredProcessingEvents(OutboxEventType.GENERATION_TASK_EXECUTE, now);
+        recoverExpiredProcessingEvents(OutboxEventType.GENERATION_IMAGE_TRANSFER, now);
+    }
+
+    private void recoverExpiredProcessingEvents(OutboxEventType eventType, Instant now) {
+        List<OutboxEvent> events = outboxEventMapper.selectProcessingLockedBefore(
+                eventType.name(), now.minus(properties.processingLease()), properties.dispatcherBatchSize());
+        for (OutboxEvent event : events) {
+            handleDeliveryFailure(event, now, "Outbox processing lease expired");
+        }
     }
 
     private void dispatchAvailableEvents(OutboxEventType eventType, String routingKey, Instant now) {

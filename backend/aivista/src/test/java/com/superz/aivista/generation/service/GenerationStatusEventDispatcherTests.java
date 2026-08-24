@@ -63,10 +63,25 @@ class GenerationStatusEventDispatcherTests {
     private static GenerationStatusEventDispatcher dispatcher(OutboxEventMapper outboxMapper,
             GenerationTaskMapper taskMapper, GenerationSseConnectionService connections) {
         return new GenerationStatusEventDispatcher(outboxMapper, taskMapper, connections,
-                new GenerationSseProperties(3, 1000, Duration.ofSeconds(15), Duration.ofSeconds(1), 100),
+                new GenerationSseProperties(3, 1000, Duration.ofSeconds(15), Duration.ofSeconds(1), 100,
+                        Duration.ofSeconds(30)),
                 new GenerationBailianProperties("https://example.com", "key", Duration.ofSeconds(5),
                         Duration.ofSeconds(330), 25, 2, 3),
                 Clock.fixed(NOW, ZoneOffset.UTC), new ObjectMapper());
+    }
+
+    @Test
+    void requeuesExpiredProcessingEventBeforeDispatchingAvailableEvents() {
+        OutboxEventMapper outboxMapper = mock(OutboxEventMapper.class);
+        OutboxEvent staleEvent = event(98L, 301L, 3);
+        staleEvent.setRetryCount(2);
+        when(outboxMapper.selectProcessingLockedBefore("GENERATION_TASK_STATUS_CHANGED", NOW.minusSeconds(30), 100))
+                .thenReturn(List.of(staleEvent));
+
+        dispatcher(outboxMapper, mock(GenerationTaskMapper.class), mock(GenerationSseConnectionService.class))
+                .dispatchAvailableEvents();
+
+        verify(outboxMapper).reschedule(98L, 3, NOW, "SSE status event processing lease expired");
     }
 
     private static OutboxEvent event(long id, long taskId, int taskVersion) {

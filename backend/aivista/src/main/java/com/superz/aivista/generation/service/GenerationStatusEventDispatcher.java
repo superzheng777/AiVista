@@ -43,6 +43,7 @@ public class GenerationStatusEventDispatcher {
     @Scheduled(fixedDelayString = "${app.generation.sse.dispatcher-fixed-delay}")
     public void dispatchAvailableEvents() {
         Instant now = clock.instant();
+        recoverExpiredProcessingEvents(now);
         List<OutboxEvent> events = outboxEventMapper.selectAvailableByEventType(
                 OutboxEventType.GENERATION_TASK_STATUS_CHANGED.name(), now, properties.dispatcherBatchSize());
         for (OutboxEvent event : events) {
@@ -65,6 +66,17 @@ public class GenerationStatusEventDispatcher {
                         bailianProperties.maxRetries()));
             }
             outboxEventMapper.markPublished(event.getId(), clock.instant());
+        }
+    }
+
+    /** Requeues notifications claimed by a dispatcher instance that stopped before completion. */
+    private void recoverExpiredProcessingEvents(Instant now) {
+        List<OutboxEvent> events = outboxEventMapper.selectProcessingLockedBefore(
+                OutboxEventType.GENERATION_TASK_STATUS_CHANGED.name(), now.minus(properties.processingLease()),
+                properties.dispatcherBatchSize());
+        for (OutboxEvent event : events) {
+            outboxEventMapper.reschedule(event.getId(), event.getRetryCount() + 1, now,
+                    "SSE status event processing lease expired");
         }
     }
 }

@@ -34,6 +34,7 @@ class GenerationSseConnectionServiceTests {
 
     private static GenerationSseConnectionService service(int perUser, int total) {
         return new GenerationSseConnectionService(new GenerationSseProperties(perUser, total,
-                Duration.ofSeconds(15), Duration.ofSeconds(1), 100), Clock.fixed(NOW, ZoneOffset.UTC));
+                Duration.ofSeconds(15), Duration.ofSeconds(1), 100, Duration.ofSeconds(30)),
+                Clock.fixed(NOW, ZoneOffset.UTC));
     }
 }

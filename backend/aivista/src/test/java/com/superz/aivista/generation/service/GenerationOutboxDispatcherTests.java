@@ -4,6 +4,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -54,6 +55,44 @@ class GenerationOutboxDispatcherTests {
         verify(mapper).markPublished(12L, NOW);
     }
 
+    @Test
+    void reschedulesExpiredProcessingCommandsBeforeDispatchingNewCommands() {
+        OutboxEventMapper mapper = mock(OutboxEventMapper.class);
+        OutboxEvent stale = event(11L, "GENERATION_TASK_EXECUTE", 1L);
+        stale.setRetryCount(1);
+        when(mapper.selectProcessingLockedBefore("GENERATION_TASK_EXECUTE", NOW.minusSeconds(30), 20))
+                .thenReturn(List.of(stale));
+        when(mapper.selectProcessingLockedBefore("GENERATION_IMAGE_TRANSFER", NOW.minusSeconds(30), 20))
+                .thenReturn(List.of());
+        when(mapper.selectAvailableByEventType(any(String.class), eq(NOW), eq(20))).thenReturn(List.of());
+
+        new GenerationOutboxDispatcher(mapper, mock(GenerationQueuedTaskFailureService.class),
+                mock(GenerationImageTransferFailureService.class), mock(RabbitTemplate.class), new ObjectMapper(),
+                properties(), Clock.fixed(NOW, ZoneOffset.UTC)).dispatchAvailableEvents();
+
+        verify(mapper).reschedule(11L, 2, NOW.plusSeconds(10), "Outbox processing lease expired");
+    }
+
+    @Test
+    void failsExpiredProcessingCommandAfterDeliveryRetriesAreExhausted() {
+        OutboxEventMapper mapper = mock(OutboxEventMapper.class);
+        GenerationQueuedTaskFailureService failures = mock(GenerationQueuedTaskFailureService.class);
+        OutboxEvent stale = event(11L, "GENERATION_TASK_EXECUTE", 1L);
+        stale.setRetryCount(5);
+        when(mapper.selectProcessingLockedBefore("GENERATION_TASK_EXECUTE", NOW.minusSeconds(30), 20))
+                .thenReturn(List.of(stale));
+        when(mapper.selectProcessingLockedBefore("GENERATION_IMAGE_TRANSFER", NOW.minusSeconds(30), 20))
+                .thenReturn(List.of());
+        when(mapper.selectAvailableByEventType(any(String.class), eq(NOW), eq(20))).thenReturn(List.of());
+
+        new GenerationOutboxDispatcher(mapper, failures, mock(GenerationImageTransferFailureService.class),
+                mock(RabbitTemplate.class), new ObjectMapper(), properties(), Clock.fixed(NOW, ZoneOffset.UTC))
+                .dispatchAvailableEvents();
+
+        verify(failures).failDelivery(11L, 301L, 1, NOW, "Outbox processing lease expired");
+        verify(mapper, never()).reschedule(eq(11L), any(Integer.class), any(), any(String.class));
+    }
+
     private static OutboxEvent event(long id, String type, long version) {
         OutboxEvent event = new OutboxEvent();
         event.setId(id);
@@ -68,7 +107,7 @@ class GenerationOutboxDispatcherTests {
         return new GenerationQueueProperties(true, "aivista.generation.commands",
                 "generation.task.execute", "generation.task.execute", 25,
                 "generation.image.transfer", "generation.image.transfer", 15,
-                Duration.ofSeconds(1), 20, 5, Duration.ofSeconds(5),
+                Duration.ofSeconds(1), 20, Duration.ofSeconds(30), 5, Duration.ofSeconds(5),
                 Duration.ofMinutes(3), Duration.ofSeconds(30),
                 Duration.ofMinutes(2), Duration.ofSeconds(30));
     }

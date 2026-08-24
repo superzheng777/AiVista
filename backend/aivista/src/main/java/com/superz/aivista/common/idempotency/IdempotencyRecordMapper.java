@@ -1,6 +1,8 @@
 package com.superz.aivista.common.idempotency;
 
 import com.mybatisflex.core.BaseMapper;
+import java.time.Instant;
+import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
@@ -15,4 +17,12 @@ public interface IdempotencyRecordMapper extends BaseMapper<IdempotencyRecord> {
             """)
     IdempotencyRecord selectByOwnerScopeAndKeyForUpdate(@Param("ownerId") long ownerId,
             @Param("scope") String scope, @Param("idempotencyKey") String idempotencyKey);
+
+    @Delete("""
+            DELETE FROM idempotency_records
+            WHERE expires_at < #{expiredBefore}
+            ORDER BY id
+            LIMIT #{batchSize}
+            """)
+    int deleteExpiredBatch(@Param("expiredBefore") Instant expiredBefore, @Param("batchSize") int batchSize);
 }

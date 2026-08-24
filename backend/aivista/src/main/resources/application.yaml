@@ -73,6 +73,12 @@ app:
       batch-size: 500
       max-batches: 10
       fixed-delay-ms: 3600000
+  idempotency:
+    cleanup:
+      enabled: true
+      batch-size: 1000
+      max-batches: 10
+      fixed-delay: 10m
   generation:
     sse:
       max-connections-per-user: 3
@@ -80,6 +86,7 @@ app:
       heartbeat-interval: 15s
       dispatcher-fixed-delay: 1s
       dispatcher-batch-size: 100
+      processing-lease: 30s
     queue:
       # 当前所有开发配置统一维护在本文件；未配置 RabbitMQ 时保持 false，避免启动分发器。
       enabled: true
@@ -92,6 +99,7 @@ app:
       transfer-consumer-concurrency: 15
       dispatcher-fixed-delay: 1s
       dispatcher-batch-size: 20
+      processing-lease: 30s
       delivery-max-attempts: 5
       delivery-retry-delay: 5s
       queue-timeout: 3m

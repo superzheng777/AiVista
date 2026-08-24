@@ -84,13 +84,16 @@ public class GenerationTaskCreationService {
             throw new BusinessException(ErrorCode.UNAUTHORIZED);
         }
 
+        Instant now = clock.instant();
         IdempotencyRecord existing = idempotencyRecordMapper.selectByOwnerScopeAndKeyForUpdate(
                 userId, IDEMPOTENCY_SCOPE, command.idempotencyKey());
-        if (existing != null) {
+        if (existing != null && existing.getExpiresAt().isAfter(now)) {
             return idempotentResponse(existing, command.requestFingerprint());
         }
+        if (existing != null) {
+            idempotencyRecordMapper.deleteById(existing.getId());
+        }
 
-        Instant now = clock.instant();
         // 已有会话会在 loadOrCreateSession 中继续加锁，锁顺序始终是“用户 → 会话”。
         GenerationSession session = loadOrCreateSession(userId, command, now);
         if (command.sessionId() != null && taskMapper.countActiveBySessionId(session.getId()) > 0) {

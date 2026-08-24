@@ -150,9 +150,25 @@ class GenerationTaskCreationServiceTests {
                                 .isEqualTo(ErrorCode.IDEMPOTENCY_KEY_CONFLICT));
     }
 
+    @Test
+    void replacesAnExpiredIdempotencyRecordBeforeCreatingANewTask() {
+        IdempotencyRecord expired = idempotencyRecord("different");
+        expired.setId(401L);
+        expired.setExpiresAt(NOW.minusSeconds(1));
+        when(idempotencyRecordMapper.selectByOwnerScopeAndKeyForUpdate(USER_ID, "GENERATION_TASK_CREATE", IDEMPOTENCY_KEY))
+                .thenReturn(expired);
+
+        service.create(USER_ID, IDEMPOTENCY_KEY,
+                new CreateGenerationTaskRequest(null, "future city", null, "1:1", null, 2));
+
+        verify(idempotencyRecordMapper).deleteById(401L);
+        verify(taskMapper).insertSelective(any());
+    }
+
     private static IdempotencyRecord idempotencyRecord(String fingerprint) {
         IdempotencyRecord record = new IdempotencyRecord();
         record.setRequestFingerprint(fingerprint);
+        record.setExpiresAt(NOW.plusSeconds(1));
         record.setResponseBody("{\"taskId\":\"301\",\"sessionId\":\"101\",\"status\":\"QUEUED\",\"taskVersion\":0,\"requestedImageCount\":2,\"createdAt\":\"2026-07-28T01:02:03Z\"}");
         return record;
     }

@@ -109,6 +109,27 @@ class GenerationImageTransferExecutionServiceTests {
                 any(), anyInt(), any(), any());
     }
 
+    @Test
+    void doesNotDeleteSharedObjectsWhenAnotherWorkerAlreadyCompletedTransfer() {
+        GenerationTaskMapper taskMapper = mock(GenerationTaskMapper.class);
+        GenerationBailianClient client = mock(GenerationBailianClient.class);
+        GenerationImageTransferService transferService = mock(GenerationImageTransferService.class);
+        GenerationTask waiting = task("TRANSFERRING", 2);
+        when(taskMapper.selectByIdForUpdate(301L)).thenReturn(waiting, task("SUCCEEDED", 3));
+        when(taskMapper.markTransferStarted(301L, 2, NOW)).thenReturn(1);
+        GenerationBailianClient.ProviderResult result = result(1);
+        when(client.restore("snapshot")).thenReturn(result);
+        List<GenerationImageTransferService.TransferredImage> images = List.of(
+                new GenerationImageTransferService.TransferredImage(
+                        0, "users/7/tasks/301/0", 1024, 2048, 2048));
+        when(transferService.transfer(waiting, result.imageUrls())).thenReturn(images);
+
+        assertThat(service(taskMapper, mock(GenerationImageMapper.class), mock(OutboxEventMapper.class),
+                client, transferService).execute(new ImageTransferMessage(12L, 301L, 2))).isTrue();
+
+        verify(transferService, never()).deleteTransferred(images);
+    }
+
     private static GenerationImageTransferExecutionService service(GenerationTaskMapper taskMapper,
             GenerationImageMapper imageMapper, OutboxEventMapper outboxMapper,
             GenerationBailianClient client, GenerationImageTransferService transferService) {

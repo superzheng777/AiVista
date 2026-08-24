@@ -48,9 +48,9 @@ public class GenerationImageTransferExecutionService {
         GenerationBailianClient.ProviderResult result = bailianClient.restore(task.getProviderResultSnapshot());
         List<GenerationImageTransferService.TransferredImage> images =
                 transferService.transfer(task, result.imageUrls());
-        boolean completed = Boolean.TRUE.equals(transactions.execute(status ->
-                complete(task, message.taskVersion(), images, result, clock.instant())));
-        if (!completed) {
+        CompletionResult completion = transactions.execute(status ->
+                complete(task, message.taskVersion(), images, result, clock.instant()));
+        if (completion == CompletionResult.CANCELLED) {
             transferService.deleteTransferred(images);
         }
         return true;
@@ -76,13 +76,14 @@ public class GenerationImageTransferExecutionService {
     }
 
     /** 保存成功图片并将对应版本的 TRANSFERRING 任务收敛为唯一终态。 */
-    private boolean complete(GenerationTask task, int taskVersion,
+    private CompletionResult complete(GenerationTask task, int taskVersion,
             List<GenerationImageTransferService.TransferredImage> images,
             GenerationBailianClient.ProviderResult result, Instant now) {
         GenerationTask current = taskMapper.selectByIdForUpdate(task.getId());
         if (current == null || !GenerationTaskStatus.TRANSFERRING.name().equals(current.getStatus())
                 || current.getTaskVersion() != taskVersion) {
-            return false;
+            return current != null && GenerationTaskStatus.CANCELLED.name().equals(current.getStatus())
+                    ? CompletionResult.CANCELLED : CompletionResult.NO_LONGER_OWNER;
         }
         for (GenerationImageTransferService.TransferredImage image : images) {
             if ((result.declaredWidth() != null && image.width() != result.declaredWidth())
@@ -116,7 +117,7 @@ public class GenerationImageTransferExecutionService {
         outboxEventMapper.insertSelective(GenerationStatusOutboxEvent.create(
                 current.getId(), taskVersion + 1, finalStatus,
                 current.getAttemptCount() == null ? 0 : current.getAttemptCount(), now));
-        return true;
+        return CompletionResult.COMPLETED;
     }
 
     private static boolean isTerminal(String status) {
@@ -125,4 +126,7 @@ public class GenerationImageTransferExecutionService {
                 || GenerationTaskStatus.FAILED.name().equals(status)
                 || GenerationTaskStatus.CANCELLED.name().equals(status);
     }
+
+    /** A non-owner never deletes deterministic keys that a winning worker may now own. */
+    private enum CompletionResult { COMPLETED, CANCELLED, NO_LONGER_OWNER }
 }

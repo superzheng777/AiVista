@@ -16,6 +16,7 @@ public record GenerationQueueProperties(
         int transferConsumerConcurrency,
         Duration dispatcherFixedDelay,
         int dispatcherBatchSize,
+        Duration processingLease,
         int deliveryMaxAttempts,
         Duration deliveryRetryDelay,
         Duration queueTimeout,

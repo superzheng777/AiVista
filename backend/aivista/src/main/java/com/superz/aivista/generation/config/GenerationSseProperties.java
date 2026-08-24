@@ -10,5 +10,6 @@ public record GenerationSseProperties(
         int maxConnections,
         Duration heartbeatInterval,
         Duration dispatcherFixedDelay,
-        int dispatcherBatchSize) {
+        int dispatcherBatchSize,
+        Duration processingLease) {
 }
