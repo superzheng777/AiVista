@@ -10,6 +10,9 @@ import { searchQueryKey, validateSearchInput } from "@/features/inspiration/mode
 import { InspirationSearchForm } from "@/features/inspiration/ui/inspiration-search-form";
 import { MasonryFeed } from "@/features/inspiration/ui/masonry-feed";
 import { PublicInspirationCard } from "@/features/inspiration/ui/public-inspiration-card";
+import { PublicImageDetailOverlay } from "@/features/inspiration/ui/public-image-detail-overlay";
+import { PublicImageOpenError } from "@/features/inspiration/ui/public-image-open-error";
+import { usePublicImageDetail } from "@/features/inspiration/model/use-public-image-detail";
 import { getApiErrorCode, getRetryAfterSeconds } from "@/shared/api/api-response";
 
 const scrollPositions = new Map<string, number>();
@@ -18,6 +21,7 @@ export function InspirationSearchResults({ keyword }: { keyword: string }) {
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const queryKey = searchQueryKey(keyword);
   const validation = validateSearchInput(keyword);
+  const detail = usePublicImageDetail();
   const search = useInfiniteQuery({
     queryKey: inspirationQueryKeys.search(queryKey),
     queryFn: ({ pageParam }) => searchInspirations(keyword, pageParam),
@@ -62,12 +66,14 @@ export function InspirationSearchResults({ keyword }: { keyword: string }) {
       {search.isLoading ? <Skeleton /> : null}
       {search.isError && images.length === 0 ? <ErrorState key={search.errorUpdatedAt} error={search.error} onRetry={() => void search.refetch()} /> : null}
       {search.isSuccess && images.length === 0 ? <State message={`没有找到与“${keyword}”相关的公开作品。`} /> : null}
-      {images.length ? <MasonryFeed images={images} renderCard={(image, priority) => <PublicInspirationCard image={image} priority={priority} />} /> : null}
+      {images.length ? <MasonryFeed images={images} renderCard={(image, priority) => <PublicInspirationCard image={image} priority={priority} onOpen={detail.open} />} /> : null}
       <div ref={loadMoreRef} className="min-h-12" aria-live="polite">
         {isFetchingNextPage ? <p className="pt-4 text-center text-sm text-muted-foreground">加载中…</p> : null}
         {isFetchNextPageError && images.length > 0 ? <LoadMoreError key={search.errorUpdatedAt} error={search.error} onRetry={() => void fetchNextPage()} /> : null}
         {search.isSuccess && images.length > 0 && !hasNextPage ? <p className="pt-5 text-center text-xs text-muted-foreground">已展示当前关键词可查看的全部结果</p> : null}
       </div>
+    {detail.image ? <PublicImageDetailOverlay image={detail.image} onClose={detail.close} onImageChange={detail.updateImage} /> : null}
+    {detail.openError ? <PublicImageOpenError message={detail.openError} onDismiss={detail.dismissOpenError} /> : null}
     </main>
   );
 }

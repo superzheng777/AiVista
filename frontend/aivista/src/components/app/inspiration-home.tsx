@@ -14,6 +14,9 @@ import {
 import { MasonryFeed } from "@/features/inspiration/ui/masonry-feed";
 import { InspirationSearchForm } from "@/features/inspiration/ui/inspiration-search-form";
 import { PublicInspirationCard } from "@/features/inspiration/ui/public-inspiration-card";
+import { PublicImageDetailOverlay } from "@/features/inspiration/ui/public-image-detail-overlay";
+import { PublicImageOpenError } from "@/features/inspiration/ui/public-image-open-error";
+import { usePublicImageDetail } from "@/features/inspiration/model/use-public-image-detail";
 import { getPublicAuthor } from "@/features/public-user/api/public-user-api";
 import { cn } from "@/lib/utils";
 
@@ -25,6 +28,7 @@ export function InspirationHome({ view = "discovery" }: { view?: InspirationFeed
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const { status, user, restoreSession } = useSession();
   const { open: openAuthDialog } = useAuthDialog();
+  const detail = usePublicImageDetail();
   const following = view === "following";
   const enabled = !following || status === "authenticated";
   const inspirations = useInfiniteQuery({
@@ -100,7 +104,7 @@ export function InspirationHome({ view = "discovery" }: { view?: InspirationFeed
           href={following && selfProfile.data?.followingCount === 0 ? "/inspirations" : undefined} />
       ) : null}
       {images.length ? (
-        <MasonryFeed images={images} renderCard={(image, priority) => <PublicInspirationCard image={image} priority={priority} />} />
+        <MasonryFeed images={images} renderCard={(image, priority) => <PublicInspirationCard image={image} priority={priority} onOpen={detail.open} />} />
       ) : null}
       {enabled ? (
         <div ref={loadMoreRef} className="min-h-12" aria-live="polite">
@@ -108,6 +112,8 @@ export function InspirationHome({ view = "discovery" }: { view?: InspirationFeed
           {isFetchNextPageError ? <button type="button" onClick={() => void fetchNextPage()} className="mx-auto mt-4 block text-sm font-medium underline">继续加载失败，点击重试</button> : null}
         </div>
       ) : null}
+    {detail.image ? <PublicImageDetailOverlay image={detail.image} onClose={detail.close} onImageChange={detail.updateImage} /> : null}
+    {detail.openError ? <PublicImageOpenError message={detail.openError} onDismiss={detail.dismissOpenError} /> : null}
     </main>
   );
 }

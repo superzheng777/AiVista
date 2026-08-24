@@ -5,13 +5,13 @@ import { useEffect } from "react";
 
 import { useSession } from "@/features/auth/model/session-provider";
 
-/** Legacy entry point. The profile itself always lives at /users/[userId]. */
+/** Legacy entry point. The profile itself always lives at /users?userId={userId}. */
 export default function ProfilePage() {
   const router = useRouter();
   const { status, user } = useSession();
 
   useEffect(() => {
-    if (status === "authenticated" && user) router.replace(`/users/${user.id}`);
+    if (status === "authenticated" && user) router.replace(`/users?userId=${encodeURIComponent(user.id)}`);
     if (status === "anonymous") router.replace("/");
   }, [router, status, user]);
 

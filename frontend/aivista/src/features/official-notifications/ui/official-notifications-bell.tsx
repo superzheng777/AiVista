@@ -2,7 +2,6 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { Dialog } from "@base-ui/react/dialog";
-import { useRouter } from "next/navigation";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell, CheckCheck, Eye, FolderOpen, Trash2, X } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
@@ -16,6 +15,9 @@ import { deleteInteractionNotification, deleteInteractionNotifications, interact
 import { deleteOfficialNotification, deleteOfficialNotifications, fetchOfficialNotificationUnreadCount, listOfficialNotifications, markAllOfficialNotificationsRead, markOfficialNotificationRead, officialNotificationQueryKeys } from "@/features/official-notifications/api/official-notifications-api";
 import { isPublicationFailed, isPublicationRejected, notificationEventLabel, violationText } from "@/features/official-notifications/model/notification-display";
 import { PublicationFormDialog } from "@/features/publication/ui/publication-form-dialog";
+import { PublicImageDetailOverlay } from "@/features/inspiration/ui/public-image-detail-overlay";
+import { PublicImageOpenError } from "@/features/inspiration/ui/public-image-open-error";
+import { usePublicImageDetail } from "@/features/inspiration/model/use-public-image-detail";
 
 type Tab = "interaction" | "official";
 type Message = InteractionNotification | OfficialNotification;
@@ -28,8 +30,8 @@ export function retainFirstNotificationPage(client: ReturnType<typeof useQueryCl
 }
 
 export function OfficialNotificationsBell() {
-  const router = useRouter();
   const client = useQueryClient();
+  const publicDetail = usePublicImageDetail();
   const { notificationRefreshVersion, publicationRefreshVersion } = useGenerationEventStream();
   const [open, setOpen] = useState(false); const [tab, setTab] = useState<Tab>("interaction"); const [image, setImage] = useState<GenerationAsset | null>(null); const [openingImageId, setOpeningImageId] = useState<string | null>(null); const [openImageError, setOpenImageError] = useState<string | null>(null);
   const unread = useQuery({ queryKey: officialNotificationQueryKeys.unreadCount, queryFn: fetchOfficialNotificationUnreadCount });
@@ -41,7 +43,7 @@ export function OfficialNotificationsBell() {
   async function openImage(item: GenerationAsset): Promise<void> {
     if (item.publicationReviewStatus === "APPROVED") {
       setOpen(false);
-      router.push(`/inspirations/${item.id}`);
+      await publicDetail.open(item);
       return;
     }
     if (!needsImageUrlRefresh(item.urlExpiresAt)) {
@@ -58,7 +60,7 @@ export function OfficialNotificationsBell() {
       setOpeningImageId(null);
     }
   }
-  return <><button type="button" onClick={() => setOpen(true)} aria-label="消息中心" className="relative grid size-10 place-items-center rounded-xl text-muted-foreground hover:bg-muted"><Bell className="size-5" />{unread.data ? <span className="absolute -right-0.5 -top-0.5 grid min-w-4 place-items-center rounded-full bg-destructive px-1 text-[10px] leading-4 text-white">{unread.data > 99 ? "99+" : unread.data}</span> : null}</button><Dialog.Root open={open} modal onOpenChange={setOpen}><Dialog.Portal><Dialog.Backdrop className="fixed inset-0 z-50 bg-slate-950/20" /><Dialog.Viewport className="fixed inset-0 z-50"><Dialog.Popup className="absolute inset-y-0 left-0 flex w-full max-w-md flex-col border-r border-border bg-card shadow-2xl md:left-24">{image ? <MessageImage image={image} onClose={() => setImage(null)} /> : <><header className="flex items-center justify-between border-b border-border px-5 py-4"><div><h2 className="text-lg font-semibold">消息中心</h2><div className="mt-3 flex gap-1 rounded-lg bg-muted p-1"><TabButton active={tab === "interaction"} onClick={() => setTab("interaction")}>互动</TabButton><TabButton active={tab === "official"} onClick={() => setTab("official")}>官方</TabButton></div></div><button type="button" onClick={() => setOpen(false)} className="grid size-9 place-items-center rounded-lg text-muted-foreground hover:bg-muted"><X className="size-5" /></button></header>{openImageError ? <p role="status" className="px-5 py-3 text-sm text-destructive">{openImageError}</p> : null}{tab === "interaction" ? <InteractionList open={open} openingImageId={openingImageId} onOpenImage={openImage} /> : <OfficialList open={open} openingImageId={openingImageId} onOpenImage={openImage} />}</>}</Dialog.Popup></Dialog.Viewport></Dialog.Portal></Dialog.Root></>;
+  return <><button type="button" onClick={() => setOpen(true)} aria-label="消息中心" className="relative grid size-10 place-items-center rounded-xl text-muted-foreground hover:bg-muted"><Bell className="size-5" />{unread.data ? <span className="absolute -right-0.5 -top-0.5 grid min-w-4 place-items-center rounded-full bg-destructive px-1 text-[10px] leading-4 text-white">{unread.data > 99 ? "99+" : unread.data}</span> : null}</button><Dialog.Root open={open} modal onOpenChange={setOpen}><Dialog.Portal><Dialog.Backdrop className="fixed inset-0 z-50 bg-slate-950/20" /><Dialog.Viewport className="fixed inset-0 z-50"><Dialog.Popup className="absolute inset-y-0 left-0 flex w-full max-w-md flex-col border-r border-border bg-card shadow-2xl md:left-24">{image ? <MessageImage image={image} onClose={() => setImage(null)} /> : <><header className="flex items-center justify-between border-b border-border px-5 py-4"><div><h2 className="text-lg font-semibold">消息中心</h2><div className="mt-3 flex gap-1 rounded-lg bg-muted p-1"><TabButton active={tab === "interaction"} onClick={() => setTab("interaction")}>互动</TabButton><TabButton active={tab === "official"} onClick={() => setTab("official")}>官方</TabButton></div></div><button type="button" onClick={() => setOpen(false)} className="grid size-9 place-items-center rounded-lg text-muted-foreground hover:bg-muted"><X className="size-5" /></button></header>{openImageError ? <p role="status" className="px-5 py-3 text-sm text-destructive">{openImageError}</p> : null}{tab === "interaction" ? <InteractionList open={open} openingImageId={openingImageId} onOpenImage={openImage} /> : <OfficialList open={open} openingImageId={openingImageId} onOpenImage={openImage} />}</>}</Dialog.Popup></Dialog.Viewport></Dialog.Portal></Dialog.Root>{publicDetail.image ? <PublicImageDetailOverlay image={publicDetail.image} onClose={publicDetail.close} onImageChange={publicDetail.updateImage} /> : null}{publicDetail.openError ? <PublicImageOpenError message={publicDetail.openError} onDismiss={publicDetail.dismissOpenError} /> : null}</>;
 }
 
 function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: string }) { return <button type="button" onClick={onClick} className={`rounded-md px-3 py-1.5 text-xs font-medium ${active ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}>{children}</button>; }

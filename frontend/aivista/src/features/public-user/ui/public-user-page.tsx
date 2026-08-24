@@ -12,6 +12,9 @@ import { useAuthDialog } from "@/features/auth/model/auth-dialog-provider";
 import { useSession } from "@/features/auth/model/session-provider";
 import { LogoutConfirmDialog } from "@/features/auth/ui/logout-confirm-dialog";
 import { PublicationsWorkspace } from "@/features/publication/ui/publications-workspace";
+import { PublicImageDetailOverlay } from "@/features/inspiration/ui/public-image-detail-overlay";
+import { PublicImageOpenError } from "@/features/inspiration/ui/public-image-open-error";
+import { usePublicImageDetail } from "@/features/inspiration/model/use-public-image-detail";
 import {
   getPublicAuthor,
   listPublications,
@@ -30,6 +33,7 @@ export function PublicUserPage({ userId }: { userId: string }) {
   const [bio, setBio] = useState("");
   const [saveError, setSaveError] = useState("");
   const [logoutOpen, setLogoutOpen] = useState(false);
+  const detail = usePublicImageDetail();
   const profile = useQuery({ queryKey: ["public-author", userId], queryFn: () => getPublicAuthor(userId) });
   const works = useQuery({ queryKey: ["publications", userId], queryFn: () => listPublications(userId) });
   const likes = useQuery({
@@ -75,13 +79,15 @@ export function PublicUserPage({ userId }: { userId: string }) {
       </div> : null}
       {isSelf && editing ? <form className="mt-5 space-y-3 border-t pt-5" onSubmit={submit}><input aria-label="昵称" value={nickname} onChange={(event) => setNickname(event.target.value)} required minLength={1} maxLength={32} className="h-10 w-full rounded-lg border bg-background px-3 text-sm" /><textarea aria-label="个人简介" value={bio} onChange={(event) => setBio(event.target.value)} maxLength={500} rows={4} className="w-full rounded-lg border bg-background px-3 py-2 text-sm" />{saveError ? <p className="text-sm text-destructive">{saveError}</p> : null}<div className="flex justify-end gap-2"><button type="button" onClick={cancelEditing} disabled={save.isPending} className="inline-flex h-9 items-center gap-1 rounded-lg border px-3 text-sm"><X className="size-3.5" />取消</button><button type="submit" disabled={save.isPending} className="inline-flex h-9 items-center gap-1 rounded-lg bg-primary px-3 text-sm text-primary-foreground disabled:opacity-50"><Check className="size-3.5" />保存</button></div></form> : null}
     </section>
-    <Section title="作品" loading={works.isLoading} images={works.data ?? []} />
-    {(isSelf || author.likesPublic) ? <Section title="点赞" loading={likes.isLoading} images={likes.data ?? []} /> : null}
+    <Section title="作品" loading={works.isLoading} images={works.data ?? []} onOpen={detail.open} />
+    {(isSelf || author.likesPublic) ? <Section title="点赞" loading={likes.isLoading} images={likes.data ?? []} onOpen={detail.open} /> : null}
     {isSelf ? <section className="mt-8 overflow-hidden rounded-3xl border bg-card"><PublicationsWorkspace /></section> : null}
     <LogoutConfirmDialog isOpen={logoutOpen} onClose={() => setLogoutOpen(false)} onConfirm={confirmLogout} />
+    {detail.image ? <PublicImageDetailOverlay image={detail.image} onClose={detail.close} onImageChange={detail.updateImage} /> : null}
+    {detail.openError ? <PublicImageOpenError message={detail.openError} onDismiss={detail.dismissOpenError} /> : null}
   </main>;
 }
 
-function Section({ title, images, loading }: { title: string; images: GenerationAsset[]; loading: boolean }) {
-  return <section className="mt-8"><h2 className="text-lg font-semibold">{title}</h2>{loading ? <p className="mt-3 text-sm text-muted-foreground">加载中…</p> : !images.length ? <p className="mt-3 text-sm text-muted-foreground">暂无{title}。</p> : <div className="mt-4 grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-4">{images.map((image) => <Link key={image.id} href={`/inspirations/${image.id}`} className="overflow-hidden rounded-2xl border bg-card text-left hover:shadow-md"><img src={image.url} alt={image.title ?? title} loading="lazy" decoding="async" className="aspect-square w-full object-cover" /><div className="flex justify-between gap-2 p-3 text-sm"><span className="truncate">{image.title ?? "未命名作品"}</span><span className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground"><Heart className="size-3" />{image.likeCount}</span></div></Link>)}</div>}</section>;
+function Section({ title, images, loading, onOpen }: { title: string; images: GenerationAsset[]; loading: boolean; onOpen: (image: GenerationAsset) => void | Promise<void> }) {
+  return <section className="mt-8"><h2 className="text-lg font-semibold">{title}</h2>{loading ? <p className="mt-3 text-sm text-muted-foreground">加载中…</p> : !images.length ? <p className="mt-3 text-sm text-muted-foreground">暂无{title}。</p> : <div className="mt-4 grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-4">{images.map((image) => <Link key={image.id} href={`/inspirations?imageId=${encodeURIComponent(image.id)}`} prefetch={false} onClick={(event) => { if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); void onOpen(image); }} className="overflow-hidden rounded-2xl border bg-card text-left hover:shadow-md"><img src={image.url} alt={image.title ?? title} loading="lazy" decoding="async" className="aspect-square w-full object-cover" /><div className="flex justify-between gap-2 p-3 text-sm"><span className="truncate">{image.title ?? "未命名作品"}</span><span className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground"><Heart className="size-3" />{image.likeCount}</span></div></Link>)}</div>}</section>;
 }

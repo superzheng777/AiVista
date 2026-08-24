@@ -5,13 +5,15 @@ import { Dialog } from "@base-ui/react/dialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FolderOpen, LoaderCircle, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 
 import { needsImageUrlRefresh, type GenerationAsset } from "@/entities/generation/model/generation";
 import { ImageDetailShell } from "@/entities/generation/ui/image-detail-shell";
 import { useGenerationEventStream } from "@/features/generation/model/generation-event-stream-provider";
 import { listMyPublications, publicationQueryKeys, removePublication } from "@/features/publication/api/publication-api";
 import { getGenerationAsset } from "@/features/assets/api/asset-api";
+import { PublicImageDetailOverlay } from "@/features/inspiration/ui/public-image-detail-overlay";
+import { PublicImageOpenError } from "@/features/inspiration/ui/public-image-open-error";
+import { usePublicImageDetail } from "@/features/inspiration/model/use-public-image-detail";
 import { cn } from "@/lib/utils";
 
 function createdAtText(value: string): string {
@@ -19,8 +21,8 @@ function createdAtText(value: string): string {
 }
 
 export function PublicationsWorkspace() {
-  const router = useRouter();
   const queryClient = useQueryClient();
+  const publicDetail = usePublicImageDetail();
   const { publicationRefreshVersion } = useGenerationEventStream();
   const [detailId, setDetailId] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -38,7 +40,7 @@ export function PublicationsWorkspace() {
 
   async function openDetail(asset: GenerationAsset): Promise<void> {
     if (asset.publicationReviewStatus === "APPROVED") {
-      router.push(`/inspirations/${asset.id}`);
+      await publicDetail.open(asset);
       return;
     }
     if (!needsImageUrlRefresh(asset.urlExpiresAt)) {
@@ -75,13 +77,13 @@ export function PublicationsWorkspace() {
 
   if (detailAsset) return <PublicationDetail asset={detailAsset} refreshImage={refreshPublicationImage} isDeleting={deleteMutation.isPending} onClose={() => setDetailId(null)} onDelete={() => setDeleteId(detailAsset.id)} deleteDialog={deleteId ? <DeletePublicationDialog isApproved={false} isDeleting={deleteMutation.isPending} onCancel={() => setDeleteId(null)} onConfirm={() => deleteMutation.mutate(deleteId)} /> : null} />;
 
-  return <div className="flex min-h-0 min-w-0 flex-col"><header className="flex min-h-12 items-center justify-between gap-4 border-b border-border px-6 py-3"><div><h2 className="text-base font-semibold text-card-foreground">发布区</h2><p className="mt-0.5 text-xs text-muted-foreground">{publications.length ? `共 ${publications.length} 项` : "审核中的作品会显示在这里"}</p></div></header>
+  return <><div className="flex min-h-0 min-w-0 flex-col"><header className="flex min-h-12 items-center justify-between gap-4 border-b border-border px-6 py-3"><div><h2 className="text-base font-semibold text-card-foreground">发布区</h2><p className="mt-0.5 text-xs text-muted-foreground">{publications.length ? `共 ${publications.length} 项` : "审核中的作品会显示在这里"}</p></div></header>
     {notice ? <div role="status" className="flex items-center justify-between border-b border-border px-6 py-2.5 text-xs text-muted-foreground"><span>{notice}</span><button type="button" onClick={() => setNotice(null)} className="rounded p-0.5 hover:bg-muted" aria-label="关闭提示"><X className="size-3.5" /></button></div> : null}
     {publicationsQuery.isLoading ? <div className="grid flex-1 grid-cols-[repeat(auto-fill,minmax(200px,1fr))] content-start gap-4 overflow-y-auto p-6">{Array.from({ length: 6 }, (_, index) => <div key={index} className="aspect-square animate-pulse rounded-2xl bg-muted" />)}</div> : null}
     {publicationsQuery.isError ? <div role="alert" className="m-6 rounded-2xl border border-destructive/20 bg-card p-8 text-center"><p className="text-sm text-destructive">发布区加载失败，请重试。</p><button type="button" onClick={() => void publicationsQuery.refetch()} className="mt-3 text-sm font-medium underline">重新加载</button></div> : null}
     {!publicationsQuery.isLoading && !publicationsQuery.isError && !publications.length ? <div className="flex flex-1 items-center justify-center p-10"><div className="text-center"><FolderOpen className="mx-auto size-7 text-muted-foreground" /><p className="mt-3 text-sm text-muted-foreground">还没有发布记录。请在资产详情中提交作品审核。</p></div></div> : null}
     {publications.length ? <div className="min-w-0 flex-1 overflow-y-auto p-6"><div className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-4">{publications.map((asset) => <button key={asset.id} type="button" disabled={openingId === asset.id} onClick={() => void openDetail(asset)} className="group relative overflow-hidden rounded-2xl border bg-card text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md disabled:opacity-60"><img src={asset.url} alt="已发布的图片" loading="lazy" decoding="async" referrerPolicy="no-referrer" className="aspect-square w-full bg-muted object-cover" /><span className={cn("absolute left-3 top-3 rounded-full px-2 py-0.5 text-xs font-medium", asset.publicationReviewStatus === "APPROVED" ? "bg-emerald-500/90 text-white" : "bg-sky-500/90 text-white")}>{asset.publicationReviewStatus === "APPROVED" ? "已发布" : "审核中"}</span></button>)}</div></div> : null}
-  </div>;
+  </div>{publicDetail.image ? <PublicImageDetailOverlay image={publicDetail.image} onClose={publicDetail.close} onImageChange={publicDetail.updateImage} /> : null}{publicDetail.openError ? <PublicImageOpenError message={publicDetail.openError} onDismiss={publicDetail.dismissOpenError} /> : null}</>;
 }
 
 function PublicationDetail({ asset, refreshImage, onClose, onDelete, isDeleting, deleteDialog }: { asset: GenerationAsset; refreshImage: (imageId: string) => Promise<GenerationAsset>; onClose: () => void; onDelete: () => void; isDeleting: boolean; deleteDialog: React.ReactNode }) {
