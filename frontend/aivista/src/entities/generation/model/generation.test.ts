@@ -4,6 +4,7 @@ import { mapGenerationAssetImage, needsImageUrlRefresh, type GenerationAssetImag
 
 const dto: GenerationAssetImageDto = {
   imageId: "img-1",
+  sourceIndex: 0,
   imageUrls: { thumbnail: { url: "https://signed.example/img-1", expiresAt: "2026-08-10T00:10:00Z" }, display: null, original: null },
   createdAt: "2026-08-09T00:00:00Z",
   favorited: true,
@@ -24,6 +25,7 @@ describe("mapGenerationAssetImage", () => {
   it("把完整图片 DTO 展开到资产领域模型", () => {
     expect(mapGenerationAssetImage(dto)).toEqual({
       id: "img-1",
+      sourceIndex: 0,
       imageUrls: { thumbnail: { url: "https://signed.example/img-1", expiresAt: "2026-08-10T00:10:00Z" }, display: null, original: null },
       createdAt: "2026-08-09T00:00:00Z",
       favorited: true,

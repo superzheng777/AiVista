@@ -110,8 +110,8 @@ class InteractionNotificationServiceTests {
     }
 
     private static GenerationAssetImageResponse imageResponse(long imageId, long publicationVersion) {
-        return new GenerationAssetImageResponse(String.valueOf(imageId), new GenerationAssetImageResponse.ImageUrls(
-                new GenerationAssetImageResponse.ImageUrl("https://example.com/image", NOW), null, null), NOW,
+        return new GenerationAssetImageResponse(String.valueOf(imageId), 0, new GenerationAssetImageResponse.ImageUrls(
+                new GenerationAssetImageResponse.ImageUrl("https://example.com/image", NOW), null), NOW,
                 false, "prompt", "negative", new GenerationAssetImageResponse.GenerationConfig(1, 1, 1, false),
                 "APPROVED", publicationVersion, NOW, "title", "description", "2", 0, false);
     }

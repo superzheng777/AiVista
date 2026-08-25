@@ -60,6 +60,15 @@ public class GenerationAssetController {
                 .body(ResponseUtils.success(queryService.get(currentUserId(authentication), imageId)));
     }
 
+    @Operation(summary = "获取原图下载 URL", description = "仅当前图片作者可获取 original.png 的 3 分钟临时下载地址。")
+    @GetMapping("/{imageId}/original-download")
+    public ResponseEntity<ApiResponse<GenerationAssetImageResponse.ImageUrl>> originalDownload(
+            Authentication authentication, @PathVariable long imageId) {
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore().cachePrivate())
+                .body(ResponseUtils.success(queryService.originalDownload(currentUserId(authentication), imageId)));
+    }
+
     @Operation(summary = "删除个人生成资产", description = "批量标记当前用户选中的图片为已删除；已删除、他人或不存在的图片按幂等成功处理。")
     @PostMapping("/delete")
     public ApiResponse<Void> delete(Authentication authentication,

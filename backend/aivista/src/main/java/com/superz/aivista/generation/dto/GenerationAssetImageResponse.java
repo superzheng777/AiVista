@@ -5,6 +5,7 @@ import java.time.Instant;
 /** 个人资产列表中的单张可展示图片及详情视图所需字段。 */
 public record GenerationAssetImageResponse(
         String imageId,
+        int sourceIndex,
         ImageUrls imageUrls,
         Instant createdAt,
         boolean favorited,
@@ -20,7 +21,8 @@ public record GenerationAssetImageResponse(
         long likeCount,
         boolean likedByCurrentUser) {
 
-    public record ImageUrls(ImageUrl thumbnail, ImageUrl display, ImageUrl original) {
+    /** Normal image payloads never expose the original object. Obtain it only through the owner-only download endpoint. */
+    public record ImageUrls(ImageUrl thumbnail, ImageUrl display) {
     }
 
     public record ImageUrl(String url, Instant expiresAt) {

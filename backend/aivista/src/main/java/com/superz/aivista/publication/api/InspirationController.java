@@ -25,7 +25,7 @@ public class InspirationController {
         this.service = service;
     }
 
-    @Operation(summary = "获取灵感列表", description = "按公开时间倒序；首次最多返回 20 张，后续每次最多返回 40 张。")
+    @Operation(summary = "获取灵感列表", description = "按公开时间倒序，每次最多返回 30 张。")
     @GetMapping
     public ApiResponse<InspirationPageResponse> list(
             Authentication authentication,
@@ -34,7 +34,7 @@ public class InspirationController {
         return ResponseUtils.success(service.list(viewerUserId, cursor));
     }
 
-    @Operation(summary = "获取关注列表", description = "按公开时间倒序返回当前用户所关注作者的公开作品；首次最多 20 张，后续每次最多 40 张。")
+    @Operation(summary = "获取关注列表", description = "按公开时间倒序返回当前用户所关注作者的公开作品；每次最多返回 30 张。")
     @GetMapping("/following")
     public ApiResponse<InspirationPageResponse> listFollowing(
             Authentication authentication,

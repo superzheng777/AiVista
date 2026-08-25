@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import type { GenerationAsset } from "@/entities/generation/model/generation";
+import { needsImageUrlRefresh, type GenerationAsset } from "@/entities/generation/model/generation";
 
 import { getInspiration } from "../api/inspiration-api";
 
@@ -59,6 +59,12 @@ export function usePublicImageDetail() {
 
   const open = useCallback(async (listImage: GenerationAsset) => {
     setOpenError(null);
+    if (!needsImageUrlRefresh(listImage.imageUrls.display)) {
+      window.history.pushState({ aivistaPublicImageDetail: true, imageId: listImage.id }, "", buildPublicImagePath(listImage.id));
+      pushedHistoryEntryRef.current = true;
+      setImage(listImage);
+      return;
+    }
     setOpeningImageId(listImage.id);
     try {
       const detail = await getInspiration(listImage.id);

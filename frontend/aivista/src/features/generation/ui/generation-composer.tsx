@@ -31,6 +31,8 @@ import { useUserAgreementConsent } from "@/shared/api/use-user-agreement-consent
 type GenerationComposerProps = {
   sessionId?: string;
   hasActiveTask?: boolean;
+  compact?: boolean;
+  onExpand?: () => void;
 };
 
 type PendingSubmission = {
@@ -101,7 +103,7 @@ function feedbackFromCreateError(error: unknown): SubmissionFeedback {
   return { message: "创建任务时发生网络或服务异常，请重试。", retryable: true };
 }
 
-export function GenerationComposer({ sessionId, hasActiveTask = false }: GenerationComposerProps) {
+export function GenerationComposer({ sessionId, hasActiveTask = false, compact = false, onExpand }: GenerationComposerProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { status, user } = useSession();
@@ -239,58 +241,67 @@ export function GenerationComposer({ sessionId, hasActiveTask = false }: Generat
 
   return (
     <>
-      <form onSubmit={(event) => { event.preventDefault(); void submitTask(); }} className="rounded-[1.25rem] border border-border bg-card p-3 shadow-[0_18px_50px_-32px_rgba(15,23,42,0.4)] sm:p-4">
+      <form onSubmit={(event) => { event.preventDefault(); void submitTask(); }} className={compact ? "relative overflow-hidden rounded-full border border-[#d9cfbf] bg-[#fffdf7] shadow-[0_2px_4px_rgb(43_35_25_/_3%),0_16px_36px_rgb(43_35_25_/_6%)]" : "relative overflow-hidden rounded-[30px] border border-[#d9cfbf] bg-[#fffdf7] shadow-[0_2px_4px_rgb(43_35_25_/_3%),0_16px_36px_rgb(43_35_25_/_6%)] before:absolute before:left-9 before:top-0 before:z-10 before:h-[3px] before:w-[130px] before:bg-[#c95f3f]"}>
         <label htmlFor="generation-prompt" className="sr-only">创作提示</label>
         <textarea
           id="generation-prompt"
-          rows={4}
+          rows={1}
           disabled={isSubmitDisabled}
           placeholder="描述你想生成的图片，例如：云海上的未来城市，日落，电影感"
-          className="min-h-28 w-full resize-none bg-transparent px-2 py-2 text-base leading-7 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60"
+          onFocus={onExpand}
+          onInput={(event) => {
+            event.currentTarget.style.height = "auto";
+            event.currentTarget.style.height = `${Math.min(event.currentTarget.scrollHeight, 240)}px`;
+          }}
+          className={compact ? "h-[58px] w-full resize-none overflow-hidden bg-transparent px-6 py-0 pr-16 text-base leading-[58px] text-[#171612] outline-none placeholder:text-[#8c8377] disabled:cursor-not-allowed disabled:opacity-60" : "min-h-24 max-h-[240px] w-full resize-none overflow-y-auto bg-transparent px-6 pb-[18px] pt-6 text-base leading-7 text-[#171612] outline-none placeholder:text-[#8c8377] disabled:cursor-not-allowed disabled:opacity-60 sm:px-[26px] sm:pt-[26px]"}
           {...form.register("prompt")}
         />
-        {form.formState.errors.prompt ? <p role="alert" className="px-2 pb-2 text-sm text-destructive">{form.formState.errors.prompt.message}</p> : null}
+        {compact ? <button type="submit" disabled={isSubmitDisabled} aria-label={hasActiveTask ? "当前会话正在生成" : isPreparingStream ? "正在建立实时连接" : isSubmitting ? "正在创建生成任务" : "开始生成"} className="absolute right-2 top-1/2 z-10 inline-flex size-[42px] -translate-y-1/2 items-center justify-center rounded-full bg-[#171612] text-[#fffdf7] transition hover:bg-[#302e28] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c95f3f] disabled:cursor-not-allowed disabled:opacity-60">{isSubmitting || isCheckingConsent ? <LoaderCircle className="size-4 animate-spin" /> : <Send className="size-4" />}</button> : null}
+        {form.formState.errors.prompt && !compact ? <p role="alert" className="px-6 pb-3 text-sm text-destructive">{form.formState.errors.prompt.message}</p> : null}
 
-        {showOptions ? (
-          <div className="grid gap-3 border-t border-border px-2 py-3 sm:grid-cols-3">
-            <label className="grid gap-1.5 text-sm font-medium text-foreground">
+        {showOptions && !compact ? (
+          <div className="grid gap-3 border-t border-[#d9cfbf] bg-[#faf5eb] px-5 py-4 sm:grid-cols-3">
+            <label className="grid gap-1.5 text-sm font-medium text-[#171612]">
               画幅比例
-              <select {...form.register("aspectRatio")} disabled={isSubmitDisabled} className="h-10 rounded-lg border border-input bg-background px-3 text-sm font-normal outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              <select {...form.register("aspectRatio")} disabled={isSubmitDisabled} className="h-10 rounded-[6px] border border-[#bfb3a2] bg-[#fffdf7] px-3 text-sm font-normal outline-none focus-visible:ring-2 focus-visible:ring-[#c95f3f]">
                 {aspectRatioOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
               </select>
             </label>
-            <label className="grid gap-1.5 text-sm font-medium text-foreground">
+            <label className="grid gap-1.5 text-sm font-medium text-[#171612]">
               生成数量
-              <select {...form.register("imageCount", { valueAsNumber: true })} disabled={isSubmitDisabled} className="h-10 rounded-lg border border-input bg-background px-3 text-sm font-normal outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              <select {...form.register("imageCount", { valueAsNumber: true })} disabled={isSubmitDisabled} className="h-10 rounded-[6px] border border-[#bfb3a2] bg-[#fffdf7] px-3 text-sm font-normal outline-none focus-visible:ring-2 focus-visible:ring-[#c95f3f]">
                 {[1, 2, 3, 4, 5, 6].map((count) => <option key={count} value={count}>{count} 张</option>)}
               </select>
             </label>
-            <label className="flex min-h-10 items-center justify-between gap-3 rounded-lg border border-input bg-background px-3 text-sm font-medium text-foreground">
+            <label className="flex min-h-10 items-center justify-between gap-3 rounded-[6px] border border-[#bfb3a2] bg-[#fffdf7] px-3 text-sm font-medium text-[#171612]">
               <span>提示词优化</span>
-              <input type="checkbox" {...form.register("promptExtend")} disabled={isSubmitDisabled} className="size-4 accent-primary" />
+              <input type="checkbox" {...form.register("promptExtend")} disabled={isSubmitDisabled} className="size-4 accent-[#c95f3f]" />
             </label>
-            <label className="grid gap-1.5 text-sm font-medium text-foreground sm:col-span-3">
-              负面提示词 <span className="font-normal text-muted-foreground">（可选）</span>
-              <input {...form.register("negativePrompt")} disabled={isSubmitDisabled} className="h-10 rounded-lg border border-input bg-background px-3 text-sm font-normal outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring" placeholder="例如：模糊、低清晰度" />
+            <label className="grid gap-1.5 text-sm font-medium text-[#171612] sm:col-span-3">
+              负面提示词 <span className="font-normal text-[#716b61]">（可选）</span>
+              <input {...form.register("negativePrompt")} disabled={isSubmitDisabled} className="h-10 rounded-[6px] border border-[#bfb3a2] bg-[#fffdf7] px-3 text-sm font-normal outline-none placeholder:text-[#8c8377] focus-visible:ring-2 focus-visible:ring-[#c95f3f]" placeholder="例如：模糊、低清晰度" />
             </label>
             {form.formState.errors.negativePrompt ? <p role="alert" className="text-sm text-destructive sm:col-span-3">{form.formState.errors.negativePrompt.message}</p> : null}
           </div>
         ) : null}
 
-        <div className="flex items-center justify-between gap-2 border-t border-border pt-3">
-          <div className="flex min-w-0 items-center gap-1.5">
-            <span className="whitespace-nowrap rounded-lg border border-border px-2 py-1.5 text-xs text-muted-foreground sm:px-2.5">文字生图</span>
-            <span className="whitespace-nowrap rounded-lg border border-border px-2 py-1.5 text-xs text-muted-foreground sm:px-2.5">1–6 张结果</span>
-            <button type="button" onClick={() => setShowOptions((value) => !value)} aria-label="更多生成选项" className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:w-auto sm:gap-1.5 sm:px-2.5">
-              <Settings2 className="size-3.5" />
-              <span className="hidden sm:inline">更多选项</span>
+        {!compact ? <div className="flex min-h-[88px] flex-wrap items-center justify-between gap-3 border-t border-[#d9cfbf] px-4 py-3 sm:flex-nowrap sm:px-4">
+          <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-[14px]">
+            <span className="whitespace-nowrap rounded-[6px] border border-[#bfb3a2] px-3 py-2 text-sm text-[#171612] sm:px-4">文字生图</span>
+            <span className="whitespace-nowrap rounded-[6px] border border-[#bfb3a2] px-3 py-2 text-sm text-[#171612] sm:px-4">1–6 张结果</span>
+            <button type="button" onClick={() => setShowOptions((value) => !value)} aria-label="更多生成选项" className="inline-flex h-[42px] shrink-0 items-center justify-center gap-2 rounded-[6px] px-3 text-sm text-[#171612] transition hover:bg-[#f7e3d4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c95f3f]">
+              <Settings2 className="size-[19px]" />
+              <span>更多选项</span>
             </button>
           </div>
-          <button type="submit" disabled={isSubmitDisabled} aria-label={hasActiveTask ? "当前会话正在生成" : isPreparingStream ? "正在建立实时连接" : isSubmitting ? "正在创建生成任务" : "开始生成"} className="inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-sky-500 to-violet-500 text-white shadow-[0_8px_18px_-8px_rgba(14,165,233,0.85)] transition hover:from-sky-600 hover:to-violet-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60">
-            {isSubmitting || isCheckingConsent ? <LoaderCircle className="size-4 animate-spin" /> : <Send className="size-4" />}
-          </button>
-        </div>
-        {submitFeedback ? <div role="alert" className="flex flex-wrap items-center gap-x-3 gap-y-2 px-2 pt-3 text-sm text-destructive"><span>{submitFeedback.message}</span>{submitFeedback.retryable ? <button type="button" onClick={() => void submitTask()} className="font-medium underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">重试</button> : null}</div> : null}
+          <div className="relative mr-2 shrink-0">
+            <span aria-hidden="true" className="absolute -bottom-2.5 -right-2.5 size-[38px] rounded-[3px] bg-[#c95f3f]" />
+            <button type="submit" disabled={isSubmitDisabled} aria-label={hasActiveTask ? "当前会话正在生成" : isPreparingStream ? "正在建立实时连接" : isSubmitting ? "正在创建生成任务" : "开始生成"} className="relative z-10 inline-flex size-[52px] shrink-0 items-center justify-center rounded-[7px] bg-[#171612] text-[#fffdf7] transition hover:bg-[#302e28] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c95f3f] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60">
+              {isSubmitting || isCheckingConsent ? <LoaderCircle className="size-5 animate-spin" /> : <Send className="size-5" />}
+            </button>
+          </div>
+        </div> : null}
+        {submitFeedback ? <div role="alert" className="flex flex-wrap items-center gap-x-3 gap-y-2 bg-[#fffdf7] px-6 pb-4 text-sm text-destructive"><span>{submitFeedback.message}</span>{submitFeedback.retryable ? <button type="button" onClick={() => void submitTask()} className="font-medium underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c95f3f]">重试</button> : null}</div> : null}
       </form>
 
       {showConsent && consentQuery.data ? (

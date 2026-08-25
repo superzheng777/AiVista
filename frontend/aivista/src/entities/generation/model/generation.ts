@@ -7,15 +7,6 @@ export function isActiveGenerationStatus(status: GenerationTaskStatus): boolean 
 /** 发布流程状态。`NONE` 表示从未提交或撤销发布后的初始状态。 */
 export type PublicationReviewStatus = "NONE" | "PENDING" | "APPROVED" | "REJECTED" | "FAILED";
 
-export type GenerationImage = {
-  id: string;
-  sourceIndex: number;
-  url: string | null;
-  urlExpiresAt: string | null;
-  width: number;
-  height: number;
-};
-
 export type GenerationTask = {
   id: string;
   sessionId: string;
@@ -29,7 +20,7 @@ export type GenerationTask = {
   cancelledImageCount: number;
   failureCode: string | null;
   failureMessage: string | null;
-  images: GenerationImage[];
+  images: GenerationAsset[];
   createdAt: string;
   completedAt: string | null;
 };
@@ -52,6 +43,7 @@ export type GenerationMessage = {
 
 export type GenerationAsset = {
   id: string;
+  sourceIndex: number;
   imageUrls: ImageUrls;
   width: number;
   height: number;
@@ -72,7 +64,8 @@ export type GenerationAsset = {
 };
 
 export type ImageUrl = { url: string; expiresAt: string | null };
-export type ImageUrls = { thumbnail: ImageUrl | null; display: ImageUrl | null; original: ImageUrl | null };
+/** Original URLs are deliberately absent from normal API responses. */
+export type ImageUrls = { thumbnail: ImageUrl | null; display: ImageUrl | null };
 
 /** A signed URL only needs renewal once it has actually expired. */
 export function needsImageUrlRefresh(imageUrl: ImageUrl | null, now = Date.now()): boolean {
@@ -84,6 +77,7 @@ export function needsImageUrlRefresh(imageUrl: ImageUrl | null, now = Date.now()
 /** 资产、个人发布和发现列表共用的后端完整图片 DTO，字段与 `GenerationAssetImageResponse` 对齐。 */
 export type GenerationAssetImageDto = {
   imageId: string;
+  sourceIndex: number;
   imageUrls: ImageUrls;
   createdAt: string;
   favorited: boolean;
@@ -103,6 +97,7 @@ export type GenerationAssetImageDto = {
 export function mapGenerationAssetImage(dto: GenerationAssetImageDto): GenerationAsset {
   return {
     id: dto.imageId,
+    sourceIndex: dto.sourceIndex,
     imageUrls: dto.imageUrls,
     width: dto.generationConfig.width,
     height: dto.generationConfig.height,

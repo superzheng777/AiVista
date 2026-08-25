@@ -26,8 +26,8 @@ import org.springframework.transaction.annotation.Transactional;
 /** 查询当前用户某个生成会话的历史消息。 */
 @Service
 public class GenerationSessionMessageQueryService {
-    private static final int DEFAULT_LIMIT = 30;
-    private static final int MAX_LIMIT = 100;
+    private static final int DEFAULT_LIMIT = 5;
+    private static final int MAX_LIMIT = 5;
 
     private final GenerationSessionMapper sessionMapper;
     private final GenerationMessageMapper messageMapper;

@@ -42,19 +42,19 @@ export function AppShell({ children }: { children: ReactNode }) {
     <div className="min-h-screen bg-background text-foreground">
       <GenerationStreamNotice status={generationStream.status} attempt={generationStream.reconnectAttempt}
         onRetry={() => { void generationStream.retryNow(); }} />
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-24 flex-col items-center border-r border-sidebar-border bg-sidebar py-5 md:flex">
-        <Link href="/inspirations" aria-label="AiVista 首页" className="grid size-11 place-items-center rounded-2xl bg-gradient-to-br from-cyan-300 via-sky-500 to-violet-500 text-white shadow-[0_10px_26px_-12px_rgba(14,165,233,0.9)]"><Palette className="size-5" strokeWidth={2.4} /></Link>
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-[88px] flex-col items-center border-r border-[#ddd3c3] bg-[#fffdf7] py-5 md:flex">
+        <Link href="/inspirations" aria-label="AiVista 首页" className="grid size-11 place-items-center rounded-[10px] bg-[#c95f3f] text-white shadow-[0_10px_26px_-12px_rgb(201_95_63_/_90%)]"><Palette className="size-5" strokeWidth={2.4} /></Link>
         <nav className="mt-24 flex w-full flex-col items-center gap-3">
-          {navigationItems.map((item) => <SidebarLink key={item.href} item={item} active={pathname === item.href || (item.href === "/inspirations" && pathname.startsWith("/inspirations/"))} authStatus={status} onAuthRequired={openAuthDialog}
+          {navigationItems.map((item) => <SidebarLink key={item.href} item={item} active={pathname === item.href || (item.href === "/inspirations" && pathname.startsWith("/inspirations/"))} authStatus={status} onAuthRequired={openAuthDialog} editorial
             generationBadge={item.href === "/generate" && !pathname.startsWith("/generate") ? generationStream : undefined} />)}
         </nav>
         <div className="mt-auto space-y-1">{status === "authenticated" ? <OfficialNotificationsBell /> : null}<AccountControl /></div>
       </aside>
 
-      <main className="min-h-screen pb-20 md:ml-24 md:pb-0">{children}</main>
+      <main className="min-h-screen pb-20 md:ml-[88px] md:pb-0">{children}</main>
       {/*移动端访问web适配*/}
-      <nav className="fixed inset-x-0 bottom-0 z-30 flex h-16 items-center justify-around border-t border-sidebar-border bg-sidebar/95 px-3 backdrop-blur md:hidden">
-        {navigationItems.map((item) => <SidebarLink key={item.href} item={item} active={pathname === item.href || (item.href === "/inspirations" && pathname.startsWith("/inspirations/"))} compact authStatus={status} onAuthRequired={openAuthDialog}
+      <nav className="fixed inset-x-0 bottom-0 z-30 flex h-16 items-center justify-around border-t border-[#ddd3c3] bg-[#fffdf7]/95 px-3 backdrop-blur md:hidden">
+        {navigationItems.map((item) => <SidebarLink key={item.href} item={item} active={pathname === item.href || (item.href === "/inspirations" && pathname.startsWith("/inspirations/"))} compact authStatus={status} onAuthRequired={openAuthDialog} editorial
           generationBadge={item.href === "/generate" && !pathname.startsWith("/generate") ? generationStream : undefined} />)}
         {status === "authenticated" ? <OfficialNotificationsBell /> : null}
         <AccountControl compact />
@@ -77,6 +77,7 @@ function SidebarLink({
   compact = false,
   authStatus,
   onAuthRequired,
+  editorial = false,
   generationBadge,
 }: {
   item: NavigationItem;
@@ -84,6 +85,7 @@ function SidebarLink({
   compact?: boolean;
   authStatus: AuthStatus;
   onAuthRequired: () => void;
+  editorial?: boolean;
   generationBadge?: Pick<ReturnType<typeof useGenerationEventStream>, "hasAttention" | "hasCompletedResults">;
 }) {
   const Icon = item.icon;
@@ -102,5 +104,5 @@ function SidebarLink({
       : hasCompletion
         ? <span aria-label="有新的生成结果" className="absolute -right-0.5 -top-0.5 size-2.5 rounded-full bg-sky-500 ring-2 ring-sidebar" />
         : null;
-  return <Link href={item.href} onClick={handleClick} className={cn("group relative flex items-center justify-center transition-colors", compact ? "size-11 rounded-xl" : "w-16 flex-col gap-1.5 rounded-2xl py-2.5", active ? "bg-sky-50 text-sky-600 dark:bg-sky-950/70 dark:text-sky-300" : "text-muted-foreground hover:bg-muted hover:text-foreground")}><Icon className="size-5" strokeWidth={active ? 2.5 : 2} />{badge}{compact ? null : <span className="text-xs font-medium">{item.label}</span>}</Link>;
+  return <Link href={item.href} onClick={handleClick} className={cn("group relative flex items-center justify-center transition-colors", compact ? "size-11 rounded-xl" : "w-16 flex-col gap-1.5 rounded-2xl py-2.5", editorial ? (active ? "bg-[#f7e3d4] text-[#171612]" : "text-[#716b61] hover:bg-[#f5f0e6] hover:text-[#171612]") : (active ? "bg-sky-50 text-sky-600 dark:bg-sky-950/70 dark:text-sky-300" : "text-muted-foreground hover:bg-muted hover:text-foreground"))}><Icon className="size-5" strokeWidth={active ? 2.5 : 2} />{badge}{compact ? null : <span className="text-xs font-medium">{item.label}</span>}</Link>;
 }

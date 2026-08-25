@@ -19,8 +19,7 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class InspirationSearchService {
-    private static final int FIRST_PAGE_SIZE = 20;
-    private static final int NEXT_PAGE_SIZE = 40;
+    private static final int PAGE_SIZE = 30;
     private static final int MAX_OFFSET = 200;
     private final MeilisearchSearchClient searchClient;
     private final GenerationImageMapper images;
@@ -43,7 +42,7 @@ public class InspirationSearchService {
         if (offset < 0 || offset >= MAX_OFFSET) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "offset 必须在 0 到 199 之间");
         }
-        int pageSize = requestedOffset == null ? FIRST_PAGE_SIZE : NEXT_PAGE_SIZE;
+        int pageSize = PAGE_SIZE;
         String safeQuery = SearchTextNormalizer.toSearchText(normalized);
         try {
             return collect(safeQuery, offset, pageSize, viewerUserId);

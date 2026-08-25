@@ -5,7 +5,7 @@ import com.superz.aivista.common.exception.BusinessException;
 import com.superz.aivista.common.exception.ErrorCode;
 import com.superz.aivista.generation.config.GenerationOssProperties;
 import com.superz.aivista.generation.config.GenerationBailianProperties;
-import com.superz.aivista.generation.dto.GenerationImageResponse;
+import com.superz.aivista.generation.dto.GenerationAssetImageResponse;
 import com.superz.aivista.generation.dto.GenerationTaskSnapshotResponse;
 import com.superz.aivista.generation.entity.GenerationImage;
 import com.superz.aivista.generation.entity.GenerationTask;
@@ -64,9 +64,9 @@ public class GenerationTaskQueryService {
      */
     GenerationTaskSnapshotResponse snapshot(GenerationTask task, List<GenerationImage> taskImages) {
         Instant urlExpiresAt = clock.instant().plus(ossProperties.signedUrlTtl());
-        List<GenerationImageResponse> images = isTerminal(task.getStatus())
+        List<GenerationAssetImageResponse> images = isTerminal(task.getStatus())
                 ? taskImages.stream()
-                        .map(image -> imageResponse(image, urlExpiresAt))
+                        .map(image -> imageResponse(task, image, urlExpiresAt))
                         .toList()
                 : List.of();
         Counts counts = countsOf(task);
@@ -79,15 +79,28 @@ public class GenerationTaskQueryService {
     }
 
     /** 将已转存图片转换为任务快照；已删除资产只保留其原始结果位置。 */
-    private GenerationImageResponse imageResponse(GenerationImage image, Instant expiresAt) {
-        if (image.getDeletedAt() != null) {
-            return new GenerationImageResponse(String.valueOf(image.getId()), image.getSourceIndex(), null, null,
-                    image.getWidth(), image.getHeight());
-        }
-        URL url = ossClient.generatePresignedUrl(ossProperties.bucket(),
-                GenerationImageObjectKeys.fromStoredValue(image.getObjectKey()).original(), Date.from(expiresAt));
-        return new GenerationImageResponse(String.valueOf(image.getId()), image.getSourceIndex(), url.toString(), expiresAt,
-                image.getWidth(), image.getHeight());
+    private GenerationAssetImageResponse imageResponse(GenerationTask task, GenerationImage image, Instant expiresAt) {
+        GenerationAssetImageResponse.ImageUrls urls = image.getDeletedAt() == null
+                ? urls(image.getObjectKey(), expiresAt) : new GenerationAssetImageResponse.ImageUrls(null, null);
+        return new GenerationAssetImageResponse(String.valueOf(image.getId()), image.getSourceIndex(), urls,
+                image.getCreatedAt(), Boolean.TRUE.equals(image.getFavorited()), task.getFinalPrompt(),
+                task.getFinalNegativePrompt(), new GenerationAssetImageResponse.GenerationConfig(task.getWidth(),
+                        task.getHeight(), task.getRequestedImageCount(), Boolean.TRUE.equals(task.getPromptExtend())),
+                image.getPublicationReviewStatus() == null ? "NONE" : image.getPublicationReviewStatus(),
+                image.getPublicationVersion() == null ? 0L : image.getPublicationVersion(), image.getPublicAt(),
+                image.getPublicationTitle(), image.getPublicationDescription(), String.valueOf(image.getUserId()),
+                image.getLikeCount() == null ? 0L : image.getLikeCount(), false);
+    }
+
+    private GenerationAssetImageResponse.ImageUrls urls(String storedKey, Instant expiresAt) {
+        GenerationImageObjectKeys keys = GenerationImageObjectKeys.fromStoredValue(storedKey);
+        return new GenerationAssetImageResponse.ImageUrls(
+                signed(keys.thumbnail(), expiresAt), signed(keys.display(), expiresAt));
+    }
+
+    private GenerationAssetImageResponse.ImageUrl signed(String objectKey, Instant expiresAt) {
+        URL url = ossClient.generatePresignedUrl(ossProperties.bucket(), objectKey, Date.from(expiresAt));
+        return new GenerationAssetImageResponse.ImageUrl(url.toString(), expiresAt);
     }
 
     /** 根据任务终态计算未持久化的失败数和取消数，避免在数据库中重复保存派生字段。 */

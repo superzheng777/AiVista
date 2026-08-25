@@ -11,6 +11,7 @@ import lombok.Setter;
 @NoArgsConstructor
 public class GenerationAssetImageRow {
     private Long imageId;
+    private Integer sourceIndex;
     private String objectKey;
     private Integer width;
     private Integer height;

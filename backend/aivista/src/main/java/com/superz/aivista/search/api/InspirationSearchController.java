@@ -32,7 +32,7 @@ public class InspirationSearchController {
         this.properties = properties;
     }
 
-    @Operation(summary = "搜索公开作品", description = "首次最多 20 张，后续最多 40 张；每个关键词最多检查前 200 个结果。")
+    @Operation(summary = "搜索公开作品", description = "每批最多 30 张；每个关键词最多检查前 200 个结果。")
     @GetMapping
     public ResponseEntity<ApiResponse<InspirationSearchPageResponse>> search(
             @RequestParam String q,

@@ -1,21 +1,23 @@
 "use client";
 /* eslint-disable @next/next/no-img-element */
 
-import { Heart } from "lucide-react";
+import { Heart, MoreHorizontal, Sparkles } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { needsImageUrlRefresh, type GenerationAsset } from "@/entities/generation/model/generation";
 import { getInspiration } from "@/features/inspiration/api/inspiration-api";
 import { updateInspirationInFeeds } from "@/features/inspiration/model/inspiration-cache";
+import { WorkPreviewCardImage, WorkPreviewCardInfoBar, WorkPreviewCardLikes, WorkPreviewCardSurface } from "@/shared/ui/work-preview-card/work-preview-card";
 
 function useVisibleImageSource(image: GenerationAsset, priority: boolean) {
   const queryClient = useQueryClient();
-  const cardRef = useRef<HTMLAnchorElement>(null);
+  const cardRef = useRef<HTMLElement>(null);
   const retryUsedRef = useRef(false);
   const [nearViewport, setNearViewport] = useState(priority);
   const [source, setSource] = useState<string | null>(null);
+  const thumbnail = image.imageUrls.thumbnail;
 
   useEffect(() => {
     const card = cardRef.current;
@@ -33,8 +35,8 @@ function useVisibleImageSource(image: GenerationAsset, priority: boolean) {
     if (!nearViewport) return;
     let cancelled = false;
     async function setCurrentSource() {
-      if (!needsImageUrlRefresh(image.imageUrls.thumbnail)) {
-        if (!cancelled) setSource(image.imageUrls.thumbnail?.url ?? null);
+      if (!needsImageUrlRefresh(thumbnail)) {
+        if (!cancelled) setSource(thumbnail?.url ?? null);
         return;
       }
       try {
@@ -44,12 +46,12 @@ function useVisibleImageSource(image: GenerationAsset, priority: boolean) {
           updateInspirationInFeeds(queryClient, refreshed);
         }
       } catch {
-        if (!cancelled) setSource(image.imageUrls.thumbnail?.url ?? null);
+        if (!cancelled) setSource(thumbnail?.url ?? null);
       }
     }
     void setCurrentSource();
     return () => { cancelled = true; };
-  }, [image.id, image.imageUrls.thumbnail?.expiresAt, image.imageUrls.thumbnail?.url, nearViewport, queryClient]);
+  }, [image.id, nearViewport, queryClient, thumbnail]);
 
   async function refreshAfterError() {
     if (retryUsedRef.current) return;
@@ -67,6 +69,7 @@ function useVisibleImageSource(image: GenerationAsset, priority: boolean) {
 
 export function PublicInspirationCard({ image, priority = false, onOpen }: { image: GenerationAsset; priority?: boolean; onOpen?: (image: GenerationAsset) => void | Promise<void> }) {
   const { cardRef, source, refreshAfterError } = useVisibleImageSource(image, priority);
-  const aspectRatio = image.width > 0 && image.height > 0 ? `${image.width} / ${image.height}` : "1 / 1";
-  return <Link ref={cardRef} href={`/inspirations?imageId=${encodeURIComponent(image.id)}`} prefetch={false} onClick={(event) => { if (!onOpen || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); void onOpen(image); }} className="group block overflow-hidden rounded-2xl bg-card text-left shadow-sm ring-1 ring-border transition hover:-translate-y-0.5 hover:shadow-md"><div className="relative w-full bg-muted" style={{ aspectRatio }}>{source ? <img src={source} alt={image.title ?? "公开作品"} loading={priority ? "eager" : "lazy"} decoding="async" referrerPolicy="no-referrer" onError={() => void refreshAfterError()} className="absolute inset-0 size-full object-cover" /> : <div className="absolute inset-0 animate-pulse bg-muted" aria-hidden />}</div><div className="flex h-[52px] items-center justify-between gap-3 p-3"><p className="min-w-0 truncate text-sm font-medium">{image.title ?? "未命名作品"}</p><span className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground"><Heart className="size-3.5" />{image.likeCount}</span></div></Link>;
+  const detailHref = `/inspirations?imageId=${encodeURIComponent(image.id)}`;
+  const open = (event: MouseEvent<HTMLAnchorElement>) => { if (!onOpen || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); void onOpen(image); };
+  return <article ref={cardRef} className="group w-full"><WorkPreviewCardSurface><WorkPreviewCardImage image={image}><Link href={detailHref} prefetch={false} onClick={open} className="block size-full">{source ? <img src={source} alt={image.title ?? "公开作品"} loading={priority ? "eager" : "lazy"} decoding="async" referrerPolicy="no-referrer" onError={() => void refreshAfterError()} className="block size-full object-cover" /> : <span className="absolute inset-0 animate-pulse bg-[#e7ddce]" aria-hidden />}</Link>{source ? <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-[#171612]/[0.28] opacity-0 transition-opacity group-hover:opacity-100" /> : null}<div aria-hidden="true" className="absolute right-3 top-3 z-10 flex gap-2 opacity-0 transition group-hover:opacity-100"><span className="grid size-9 place-items-center rounded-[6px] bg-[#171612]/90 text-[#fffdf7]"><Heart className="size-4" /></span><span className="grid size-9 place-items-center rounded-[6px] bg-[#171612]/90 text-[#fffdf7]"><MoreHorizontal className="size-5" /></span></div><Link href="/generate" className="absolute bottom-[14px] left-1/2 z-10 inline-flex h-[38px] -translate-x-1/2 items-center gap-2 whitespace-nowrap rounded-[7px] bg-[#171612]/90 px-[18px] text-xs font-medium text-[#fffdf7] opacity-0 transition group-hover:opacity-100"><Sparkles className="size-4" />以此为灵感</Link></WorkPreviewCardImage><WorkPreviewCardInfoBar title={image.title ?? "未命名作品"} trailing={<WorkPreviewCardLikes count={image.likeCount} />} /></WorkPreviewCardSurface></article>;
 }

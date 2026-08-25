@@ -21,7 +21,7 @@ export function InspirationSearchForm({ initialValue = "", compact = false }: { 
   }
 
   return (
-    <form onSubmit={submit} role="search" className={cn("relative", compact ? "ml-auto w-36 sm:w-64" : "w-full max-w-xl")}>
+    <form onSubmit={submit} role="search" className={cn("relative", compact ? "mb-[10px] ml-auto w-44 sm:w-[300px]" : "w-full max-w-xl")}>
       <label className="sr-only" htmlFor={compact ? "inspiration-search-compact" : "inspiration-search"}>搜索公开作品</label>
       <input
         id={compact ? "inspiration-search-compact" : "inspiration-search"}
@@ -30,10 +30,10 @@ export function InspirationSearchForm({ initialValue = "", compact = false }: { 
         aria-invalid={Boolean(error)}
         aria-describedby={error ? `${compact ? "compact-" : ""}search-error` : undefined}
         placeholder="搜索标题或提示词"
-        className="h-10 w-full rounded-xl border border-border bg-background pl-3 pr-10 text-sm outline-none transition focus:border-sky-400 focus:ring-2 focus:ring-sky-200 dark:focus:ring-sky-900"
+        className="h-[42px] w-full rounded-[7px] border border-[#d9cfbf] bg-[#fffdf7] pl-4 pr-[42px] text-sm text-[#171612] outline-none transition placeholder:text-[#9b9387] focus:border-[#c95f3f] focus:ring-2 focus:ring-[#c95f3f]/20"
       />
-      <button type="submit" aria-label="搜索" className="absolute right-1 top-1 grid size-8 place-items-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground">
-        <Search className="size-4" />
+      <button type="submit" aria-label="搜索" className="absolute right-2 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-[6px] text-[#716b61] hover:bg-[#faf5eb] hover:text-[#171612]">
+        <Search className="size-[18px]" />
       </button>
       {error ? <p id={`${compact ? "compact-" : ""}search-error`} role="alert" className="absolute right-0 top-full mt-1 text-xs text-destructive">{error}</p> : null}
     </form>

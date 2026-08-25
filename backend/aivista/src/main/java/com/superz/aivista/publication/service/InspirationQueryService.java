@@ -26,8 +26,7 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class InspirationQueryService {
-    private static final int FIRST_PAGE_SIZE = 20;
-    private static final int NEXT_PAGE_SIZE = 40;
+    private static final int PAGE_SIZE = 30;
     private final GenerationImageMapper images;
     private final GenerationImageLikeMapper likes;
     private final OSS oss;
@@ -45,7 +44,7 @@ public class InspirationQueryService {
 
     public InspirationPageResponse list(Long viewerUserId, String cursor) {
         Cursor position = decodeCursor(cursor, CursorScope.DISCOVERY);
-        int pageSize = cursor == null ? FIRST_PAGE_SIZE : NEXT_PAGE_SIZE;
+        int pageSize = PAGE_SIZE;
         List<GenerationImage> page = images.selectPublishedPage(
                 position == null ? null : position.publicAt(),
                 position == null ? null : position.imageId(), pageSize + 1);
@@ -54,7 +53,7 @@ public class InspirationQueryService {
 
     public InspirationPageResponse listFollowing(long viewerUserId, String cursor) {
         Cursor position = decodeCursor(cursor, CursorScope.FOLLOWING);
-        int pageSize = cursor == null ? FIRST_PAGE_SIZE : NEXT_PAGE_SIZE;
+        int pageSize = PAGE_SIZE;
         List<GenerationImage> page = images.selectFollowingPublishedPage(
                 viewerUserId,
                 position == null ? null : position.publicAt(),
@@ -66,14 +65,14 @@ public class InspirationQueryService {
             Long viewerUserId) {
         boolean hasMore = page.size() > pageSize;
         List<GenerationImage> rows = hasMore ? page.subList(0, pageSize) : page;
-        List<GenerationAssetImageResponse> items = toImages(rows, false, likedImageIds(viewerUserId, rows), ImageView.LIST);
+        List<GenerationAssetImageResponse> items = toImages(rows, false, likedImageIds(viewerUserId, rows));
         String nextCursor = hasMore ? encodeCursor(scope, rows.getLast()) : null;
         return new InspirationPageResponse(items, nextCursor);
     }
 
     public List<GenerationAssetImageResponse> listByUserId(long userId) {
         List<GenerationImage> rows = images.selectPublishedByUserId(userId);
-        return toImages(rows, true, likedImageIds(userId, rows), ImageView.LIST);
+        return toImages(rows, true, likedImageIds(userId, rows));
     }
 
     public GenerationAssetImageResponse get(long imageId, Long viewerUserId) {
@@ -81,12 +80,12 @@ public class InspirationQueryService {
         if (image == null) {
             throw new BusinessException(ErrorCode.GENERATION_RESOURCE_NOT_FOUND);
         }
-        return toImages(List.of(image), false, likedImageIds(viewerUserId, List.of(image)), ImageView.DETAIL).get(0);
+        return toImages(List.of(image), false, likedImageIds(viewerUserId, List.of(image))).get(0);
     }
 
     public List<GenerationAssetImageResponse> listPublicationsByUserId(long userId, Long viewerUserId) {
         List<GenerationImage> rows = images.selectPublicationsByUserId(userId);
-        return toImages(rows, false, likedImageIds(viewerUserId, rows), ImageView.LIST);
+        return toImages(rows, false, likedImageIds(viewerUserId, rows));
     }
 
     public List<LikedPublicationResponse> listLiked(long ownerUserId, Long viewerUserId) {
@@ -97,7 +96,7 @@ public class InspirationQueryService {
         List<Long> imageIds = relations.stream().map(GenerationImageLike::getImageId).toList();
         List<GenerationImage> imageRows = images.selectPublishedByIds(imageIds);
         Map<Long, GenerationAssetImageResponse> imageById = toImages(imageRows, false,
-                likedImageIds(viewerUserId, imageRows), ImageView.LIST).stream().collect(Collectors.toMap(
+                likedImageIds(viewerUserId, imageRows)).stream().collect(Collectors.toMap(
                         image -> Long.valueOf(image.imageId()), Function.identity()));
         return relations.stream()
                 .map(relation -> new LikedPublicationResponse(imageById.get(relation.getImageId()), relation.getLikedAt()))
@@ -106,7 +105,7 @@ public class InspirationQueryService {
     }
 
     public List<GenerationAssetImageResponse> toPublicImages(List<GenerationImage> rows, Long viewerUserId) {
-        return toImages(rows, false, likedImageIds(viewerUserId, rows), ImageView.LIST);
+        return toImages(rows, false, likedImageIds(viewerUserId, rows));
     }
 
     private Set<Long> likedImageIds(Long viewerUserId, List<GenerationImage> rows) {
@@ -116,11 +115,12 @@ public class InspirationQueryService {
     }
 
     private List<GenerationAssetImageResponse> toImages(List<GenerationImage> rows, boolean includeFavorite,
-            Set<Long> likedImageIds, ImageView view) {
+            Set<Long> likedImageIds) {
         Instant expiresAt = clock.instant().plus(properties.signedUrlTtl());
         return rows.stream().map(image -> new GenerationAssetImageResponse(
                 String.valueOf(image.getId()),
-                urls(image.getObjectKey(), expiresAt, view), image.getCreatedAt(), includeFavorite && Boolean.TRUE.equals(image.getFavorited()),
+                image.getSourceIndex(),
+                urls(image.getObjectKey(), expiresAt), image.getCreatedAt(), includeFavorite && Boolean.TRUE.equals(image.getFavorited()),
                 image.getPublicationPrompt(), image.getPublicationNegativePrompt(),
                 new GenerationAssetImageResponse.GenerationConfig(image.getWidth(), image.getHeight(),
                         image.getPublicationRequestedImageCount(), Boolean.TRUE.equals(image.getPublicationPromptExtend())),
@@ -131,12 +131,10 @@ public class InspirationQueryService {
                 .toList();
     }
 
-    private GenerationAssetImageResponse.ImageUrls urls(String storedKey, Instant expiresAt, ImageView view) {
+    private GenerationAssetImageResponse.ImageUrls urls(String storedKey, Instant expiresAt) {
         GenerationImageObjectKeys keys = GenerationImageObjectKeys.fromStoredValue(storedKey);
-        return view == ImageView.LIST
-                ? new GenerationAssetImageResponse.ImageUrls(signed(keys.thumbnail(), expiresAt), null, null)
-                : new GenerationAssetImageResponse.ImageUrls(signed(keys.thumbnail(), expiresAt),
-                        signed(keys.display(), expiresAt), signed(keys.original(), expiresAt));
+        return new GenerationAssetImageResponse.ImageUrls(signed(keys.thumbnail(), expiresAt),
+                signed(keys.display(), expiresAt));
     }
 
     private GenerationAssetImageResponse.ImageUrl signed(String objectKey, Instant expiresAt) {
@@ -175,8 +173,6 @@ public class InspirationQueryService {
             this.code = code;
         }
     }
-
-    private enum ImageView { LIST, DETAIL }
 
     private record Cursor(Instant publicAt, long imageId) {
     }

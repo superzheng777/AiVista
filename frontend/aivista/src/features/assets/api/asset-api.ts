@@ -1,4 +1,4 @@
-import type { GenerationAsset, GenerationAssetImageDto } from "@/entities/generation/model/generation";
+import type { GenerationAsset, GenerationAssetImageDto, ImageUrl } from "@/entities/generation/model/generation";
 import { mapGenerationAssetImage } from "@/entities/generation/model/generation";
 import { browserApiClient } from "@/shared/api/browser-client";
 import { type ApiResponse, unwrapApiResponse } from "@/shared/api/api-response";
@@ -15,6 +15,12 @@ export async function listGenerationAssets(): Promise<GenerationAsset[]> {
 export async function getGenerationAsset(imageId: string): Promise<GenerationAsset> {
   const response = await browserApiClient.get<ApiResponse<GenerationAssetImageDto>>(`/generation-images/${imageId}`);
   return mapGenerationAssetImage(unwrapApiResponse(response.data));
+}
+
+/** Requests a fresh 3-minute original-file URL. The backend verifies image ownership. */
+export async function getOriginalGenerationImageDownloadUrl(imageId: string): Promise<ImageUrl> {
+  const response = await browserApiClient.get<ApiResponse<ImageUrl>>(`/generation-images/${imageId}/original-download`);
+  return unwrapApiResponse(response.data);
 }
 
 export async function deleteGenerationAssets(imageIds: string[]): Promise<void> {

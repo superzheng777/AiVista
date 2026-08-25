@@ -8,8 +8,9 @@ import type { GenerationAsset } from "@/entities/generation/model/generation";
 import { inspirationQueryKeys, searchInspirations } from "@/features/inspiration/api/inspiration-api";
 import { searchQueryKey, validateSearchInput } from "@/features/inspiration/model/search-query";
 import { InspirationSearchForm } from "@/features/inspiration/ui/inspiration-search-form";
-import { MasonryFeed } from "@/features/inspiration/ui/masonry-feed";
 import { PublicInspirationCard } from "@/features/inspiration/ui/public-inspiration-card";
+import { ShortestLaneFeed } from "@/shared/ui/shortest-lane-feed/shortest-lane-feed";
+import { getWorkPreviewCardHeight } from "@/shared/ui/work-preview-card/work-preview-card";
 import { PublicImageDetailOverlay } from "@/features/inspiration/ui/public-image-detail-overlay";
 import { PublicImageOpenError } from "@/features/inspiration/ui/public-image-open-error";
 import { usePublicImageDetail } from "@/features/inspiration/model/use-public-image-detail";
@@ -66,7 +67,7 @@ export function InspirationSearchResults({ keyword }: { keyword: string }) {
       {search.isLoading ? <Skeleton /> : null}
       {search.isError && images.length === 0 ? <ErrorState key={search.errorUpdatedAt} error={search.error} onRetry={() => void search.refetch()} /> : null}
       {search.isSuccess && images.length === 0 ? <State message={`没有找到与“${keyword}”相关的公开作品。`} /> : null}
-      {images.length ? <MasonryFeed images={images} renderCard={(image, priority) => <PublicInspirationCard image={image} priority={priority} onOpen={detail.open} />} /> : null}
+      {images.length ? <ShortestLaneFeed items={images} getItemKey={(image) => image.id} getItemHeight={getWorkPreviewCardHeight} renderItem={(image, priority) => <PublicInspirationCard image={image} priority={priority} onOpen={detail.open} />} /> : null}
       <div ref={loadMoreRef} className="min-h-12" aria-live="polite">
         {isFetchingNextPage ? <p className="pt-4 text-center text-sm text-muted-foreground">加载中…</p> : null}
         {isFetchNextPageError && images.length > 0 ? <LoadMoreError key={search.errorUpdatedAt} error={search.error} onRetry={() => void fetchNextPage()} /> : null}

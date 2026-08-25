@@ -43,6 +43,7 @@ describe("publication-api", () => {
   it("listMyPublications 映射完整图片 DTO 列表", async () => {
     const imageDto = {
       imageId: "img-1",
+      sourceIndex: 0,
       imageUrls: { thumbnail: { url: "https://signed.example/img-1", expiresAt: "2026-08-10T00:10:00Z" }, display: null, original: null },
       createdAt: "2026-08-09T00:00:00Z",
       favorited: false,

@@ -84,12 +84,12 @@ export function AccountControl({ compact = false }: AccountControlProps) {
 
   const initial = user.nickname.trim().slice(0, 1).toUpperCase() || "我";
   if (compact) {
-    return <Link href="/profile" aria-label="进入个人主页" className="grid size-10 overflow-hidden rounded-full bg-sky-100 text-sky-700 ring-2 ring-transparent transition hover:ring-sky-300 dark:bg-sky-950 dark:text-sky-200">{user.avatarUrl ? <AvatarImage avatarUrl={user.avatarUrl} nickname={user.nickname} /> : <span className="grid place-items-center text-sm font-semibold">{initial}</span>}</Link>;
+    return <Link href="/profile" aria-label="进入个人主页" className="grid size-10 overflow-hidden rounded-full border border-[#d9cfbf] bg-[#fffdf7] text-[#c95f3f] ring-2 ring-transparent transition hover:bg-[#f7e3d4] hover:ring-[#c95f3f]/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c95f3f]">{user.avatarUrl ? <AvatarImage avatarUrl={user.avatarUrl} nickname={user.nickname} /> : <span className="grid place-items-center text-sm font-semibold">{initial}</span>}</Link>;
   }
 
   return (
     <div ref={containerRef} className="relative flex w-full justify-center" onMouseEnter={clearCloseTimer} onMouseLeave={scheduleClose} onFocusCapture={() => setIsMenuOpen(true)} onBlurCapture={() => setTimeout(() => { if (!containerRef.current?.contains(document.activeElement)) closeMenu(); }, 0)}>
-      <Link href="/profile" aria-label="进入个人主页" onMouseEnter={() => setIsMenuOpen(true)} className="grid size-10 overflow-hidden rounded-full bg-sky-100 text-sky-700 ring-2 ring-transparent transition hover:ring-sky-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 dark:bg-sky-950 dark:text-sky-200">{user.avatarUrl ? <AvatarImage avatarUrl={user.avatarUrl} nickname={user.nickname} /> : <span className="grid place-items-center text-sm font-semibold">{initial}</span>}</Link>
+      <Link href="/profile" aria-label="进入个人主页" onMouseEnter={() => setIsMenuOpen(true)} className="grid size-10 overflow-hidden rounded-full border border-[#d9cfbf] bg-[#fffdf7] text-[#c95f3f] ring-2 ring-transparent transition hover:bg-[#f7e3d4] hover:ring-[#c95f3f]/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c95f3f]">{user.avatarUrl ? <AvatarImage avatarUrl={user.avatarUrl} nickname={user.nickname} /> : <span className="grid place-items-center text-sm font-semibold">{initial}</span>}</Link>
 
       {isMenuOpen ? (
         <div className="absolute bottom-0 left-[calc(100%+0.75rem)] z-40 w-52 rounded-2xl border border-border bg-popover p-1.5 shadow-[0_18px_45px_-22px_rgba(15,23,42,0.5)]">

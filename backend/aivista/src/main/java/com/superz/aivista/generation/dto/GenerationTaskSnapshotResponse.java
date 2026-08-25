@@ -17,7 +17,7 @@ public record GenerationTaskSnapshotResponse(
         int cancelledImageCount,
         String failureCode,
         String failureMessage,
-        List<GenerationImageResponse> images,
+        List<GenerationAssetImageResponse> images,
         Instant createdAt,
         Instant completedAt) {
 }

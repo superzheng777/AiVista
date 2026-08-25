@@ -126,7 +126,8 @@ public interface GenerationImageMapper extends BaseMapper<GenerationImage> {
     @Select("""
             SELECT id, task_id, user_id, object_key, content_type, file_size, width, height, source_index,
                    deleted_at, oss_cleanup_status, oss_cleanup_attempt_count, oss_cleanup_available_at,
-                   oss_cleanup_last_error, created_at
+                   oss_cleanup_last_error, is_favorited, public_at, publication_review_status, publication_version,
+                   publication_title, publication_description, like_count, created_at
             FROM generation_images
             WHERE task_id = #{taskId}
             ORDER BY source_index ASC
@@ -137,7 +138,8 @@ public interface GenerationImageMapper extends BaseMapper<GenerationImage> {
             <script>
             SELECT id, task_id, user_id, object_key, content_type, file_size, width, height, source_index,
                    deleted_at, oss_cleanup_status, oss_cleanup_attempt_count, oss_cleanup_available_at,
-                   oss_cleanup_last_error, created_at
+                   oss_cleanup_last_error, is_favorited, public_at, publication_review_status, publication_version,
+                   publication_title, publication_description, like_count, created_at
             FROM generation_images
             WHERE task_id IN
             <foreach collection="taskIds" item="taskId" open="(" separator="," close=")">
@@ -149,7 +151,7 @@ public interface GenerationImageMapper extends BaseMapper<GenerationImage> {
     List<GenerationImage> selectByTaskIds(@Param("taskIds") List<Long> taskIds);
 
     @Select("""
-            SELECT i.id AS image_id, i.user_id AS author_id, i.object_key, i.width, i.height, i.created_at, i.is_favorited AS favorited, i.like_count,
+            SELECT i.id AS image_id, i.source_index, i.user_id AS author_id, i.object_key, i.width, i.height, i.created_at, i.is_favorited AS favorited, i.like_count,
                    i.publication_review_status, i.publication_version, i.public_at,
                    i.publication_title, i.publication_description,
                    t.final_prompt, t.final_negative_prompt, t.requested_image_count, t.prompt_extend
@@ -160,7 +162,7 @@ public interface GenerationImageMapper extends BaseMapper<GenerationImage> {
     List<GenerationAssetImageRow> selectVisibleByUserId(@Param("userId") long userId);
 
     @Select("""
-            SELECT i.id AS image_id, i.user_id AS author_id, i.object_key, i.width, i.height, i.created_at, i.is_favorited AS favorited, i.like_count,
+            SELECT i.id AS image_id, i.source_index, i.user_id AS author_id, i.object_key, i.width, i.height, i.created_at, i.is_favorited AS favorited, i.like_count,
                    i.publication_review_status, i.publication_version, i.public_at,
                    i.publication_title, i.publication_description,
                    t.final_prompt, t.final_negative_prompt, t.requested_image_count, t.prompt_extend
@@ -175,7 +177,7 @@ public interface GenerationImageMapper extends BaseMapper<GenerationImage> {
 
     @Select("""
             <script>
-            SELECT i.id AS image_id, i.user_id AS author_id, i.object_key, i.width, i.height, i.created_at, i.is_favorited AS favorited, i.like_count,
+            SELECT i.id AS image_id, i.source_index, i.user_id AS author_id, i.object_key, i.width, i.height, i.created_at, i.is_favorited AS favorited, i.like_count,
                    i.publication_review_status, i.publication_version, i.public_at,
                    i.publication_title, i.publication_description,
                    t.final_prompt, t.final_negative_prompt, t.requested_image_count, t.prompt_extend

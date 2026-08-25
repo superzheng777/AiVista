@@ -37,8 +37,9 @@ class GenerationTaskQueryServiceTests {
         GenerationImage image = image();
         when(taskMapper.selectOwnedById(7L, 301L)).thenReturn(task);
         when(imageMapper.selectByTaskId(301L)).thenReturn(List.of(image));
-        when(ossClient.generatePresignedUrl("private-bucket", "users/7/tasks/301/0/original.png", java.util.Date.from(NOW.plusSeconds(600))))
-                .thenReturn(new URL("https://oss.example/signed-image"));
+        when(ossClient.generatePresignedUrl(org.mockito.ArgumentMatchers.eq("private-bucket"),
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.eq(java.util.Date.from(NOW.plusSeconds(600)))))
+                .thenAnswer(invocation -> new URL("https://oss.example/" + invocation.getArgument(1)));
 
         GenerationTaskSnapshotResponse response = service(taskMapper, imageMapper, ossClient).get(7L, 301L);
 
@@ -48,9 +49,11 @@ class GenerationTaskQueryServiceTests {
         assertThat(response.images()).singleElement().satisfies(result -> {
             assertThat(result.imageId()).isEqualTo("901");
             assertThat(result.sourceIndex()).isZero();
-            assertThat(result.url()).isEqualTo("https://oss.example/signed-image");
-            assertThat(result.urlExpiresAt()).isEqualTo(NOW.plusSeconds(600));
-            assertThat(result.width()).isEqualTo(2048);
+            assertThat(result.imageUrls().thumbnail().url()).endsWith("/card.webp");
+            assertThat(result.imageUrls().display().url()).endsWith("/display.webp");
+            assertThat(result.imageUrls().original().url()).endsWith("/original.png");
+            assertThat(result.imageUrls().display().expiresAt()).isEqualTo(NOW.plusSeconds(600));
+            assertThat(result.generationConfig().width()).isEqualTo(2048);
         });
         verify(imageMapper).selectByTaskId(301L);
     }
@@ -72,8 +75,9 @@ class GenerationTaskQueryServiceTests {
         assertThat(response.images()).singleElement().satisfies(result -> {
             assertThat(result.imageId()).isEqualTo("901");
             assertThat(result.sourceIndex()).isZero();
-            assertThat(result.url()).isNull();
-            assertThat(result.urlExpiresAt()).isNull();
+            assertThat(result.imageUrls().thumbnail()).isNull();
+            assertThat(result.imageUrls().display()).isNull();
+            assertThat(result.imageUrls().original()).isNull();
         });
         verify(ossClient, org.mockito.Mockito.never()).generatePresignedUrl(
                 org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),

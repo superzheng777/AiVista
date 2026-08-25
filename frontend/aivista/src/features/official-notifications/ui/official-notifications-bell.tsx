@@ -6,7 +6,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 import { Bell, CheckCheck, Eye, FolderOpen, Trash2, X } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 
-import { type GenerationAsset } from "@/entities/generation/model/generation";
+import { needsImageUrlRefresh, type GenerationAsset } from "@/entities/generation/model/generation";
 import type { InteractionNotification, OfficialNotification } from "@/entities/notification/model/notification";
 import { AssetDetail } from "@/features/assets/ui/assets-workspace";
 import { deleteGenerationAssets, getGenerationAsset, setGenerationImageFavorites } from "@/features/assets/api/asset-api";
@@ -44,6 +44,10 @@ export function OfficialNotificationsBell() {
     if (item.publicationReviewStatus === "APPROVED") {
       setOpen(false);
       await publicDetail.open(item);
+      return;
+    }
+    if (!needsImageUrlRefresh(item.imageUrls.display)) {
+      setImage(item);
       return;
     }
     setOpeningImageId(item.id);
