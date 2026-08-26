@@ -30,9 +30,9 @@ export function InspirationSearchForm({ initialValue = "", compact = false }: { 
         aria-invalid={Boolean(error)}
         aria-describedby={error ? `${compact ? "compact-" : ""}search-error` : undefined}
         placeholder="搜索标题或提示词"
-        className="h-[42px] w-full rounded-[7px] border border-[#d9cfbf] bg-[#fffdf7] pl-4 pr-[42px] text-sm text-[#171612] outline-none transition placeholder:text-[#9b9387] focus:border-[#c95f3f] focus:ring-2 focus:ring-[#c95f3f]/20"
+        className="h-[42px] w-full rounded-[7px] border border-[var(--border)] bg-[var(--surface-bg)] pl-4 pr-[42px] text-sm text-[var(--primary)] outline-none transition placeholder:text-[var(--text-muted)] focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent)]/20"
       />
-      <button type="submit" aria-label="搜索" className="absolute right-2 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-[6px] text-[#716b61] hover:bg-[#faf5eb] hover:text-[#171612]">
+      <button type="submit" aria-label="搜索" className="absolute right-2 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-[6px] text-[var(--text-secondary)] hover:bg-[var(--surface-soft)] hover:text-[var(--primary)]">
         <Search className="size-[18px]" />
       </button>
       {error ? <p id={`${compact ? "compact-" : ""}search-error`} role="alert" className="absolute right-0 top-full mt-1 text-xs text-destructive">{error}</p> : null}

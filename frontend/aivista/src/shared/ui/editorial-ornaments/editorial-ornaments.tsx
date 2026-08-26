@@ -18,7 +18,7 @@ export function DotMatrix({
   rows,
   dotSize = 3,
   gap = 7,
-  color = "#a99c8d",
+  color = "var(--ornament)",
   opacity = 0.4,
   className,
 }: DotMatrixProps) {
@@ -44,7 +44,7 @@ type AccentSquareProps = {
 };
 
 /** A purely decorative accent block. Position it through the parent layout or `className`. */
-export function AccentSquare({ size, width, height, color = "#c95f3f", className }: AccentSquareProps) {
+export function AccentSquare({ size, width, height, color = "var(--accent)", className }: AccentSquareProps) {
   const normalized = (value: number | string | undefined) => typeof value === "number" ? `${value}px` : value;
   const style = { width: normalized(width ?? size), height: normalized(height ?? size), backgroundColor: color } satisfies CSSProperties;
   return <span aria-hidden="true" className={cn("pointer-events-none block", className)} style={style} />;

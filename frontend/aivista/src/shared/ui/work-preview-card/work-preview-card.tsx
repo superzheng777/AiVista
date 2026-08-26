@@ -18,17 +18,17 @@ export function workPreviewAspectRatio(image: ImageDimensions): CSSProperties["a
 
 /** Shared visual surface only; each feature owns its link/button and business actions. */
 export function WorkPreviewCardSurface({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cn("relative overflow-hidden rounded-[8px] border border-[#d9cfbf] bg-[#fffdf7] text-left shadow-[0_1px_2px_rgb(43_35_25_/_3%),0_6px_16px_rgb(43_35_25_/_3%)] transition duration-150 group-hover:-translate-y-0.5 group-hover:shadow-[0_2px_4px_rgb(43_35_25_/_4%),0_14px_28px_rgb(43_35_25_/_8%)]", className)}>{children}</div>;
+  return <div className={cn("relative overflow-hidden rounded-[8px] border border-[var(--border)] bg-[var(--surface-bg)] text-left shadow-[0_1px_2px_rgb(43_35_25_/_3%),0_6px_16px_rgb(43_35_25_/_3%)] transition duration-150 group-hover:-translate-y-0.5 group-hover:shadow-[0_2px_4px_rgb(43_35_25_/_4%),0_14px_28px_rgb(43_35_25_/_8%)]", className)}>{children}</div>;
 }
 
 export function WorkPreviewCardImage({ image, children, className }: { image: ImageDimensions; children: ReactNode; className?: string }) {
-  return <div className={cn("relative overflow-hidden bg-[#faf5eb]", className)} style={{ aspectRatio: workPreviewAspectRatio(image) }}>{children}</div>;
+  return <div className={cn("relative overflow-hidden bg-[var(--surface-soft)]", className)} style={{ aspectRatio: workPreviewAspectRatio(image) }}>{children}</div>;
 }
 
 export function WorkPreviewCardInfoBar({ title, trailing }: { title: string; trailing?: ReactNode }) {
-  return <div className="flex h-[52px] items-center justify-between gap-3 border-t border-[#d9cfbf] px-[13px]"><p className="min-w-0 truncate text-[15px] font-semibold text-[#171612]">{title}</p>{trailing}</div>;
+  return <div className="flex h-[52px] items-center justify-between gap-3 border-t border-[var(--border)] px-[13px]"><p className="min-w-0 truncate text-[15px] font-semibold text-[var(--primary)]">{title}</p>{trailing}</div>;
 }
 
 export function WorkPreviewCardLikes({ count }: { count: number }) {
-  return <span className="inline-flex shrink-0 items-center gap-[5px] text-[13px] text-[#716b61]"><Heart className="size-4" />{count}</span>;
+  return <span className="inline-flex shrink-0 items-center gap-[5px] text-[13px] text-[var(--text-secondary)]"><Heart className="size-4" />{count}</span>;
 }

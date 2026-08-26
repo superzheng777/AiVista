@@ -2,8 +2,6 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
-@custom-variant dark (&:is(.dark *));
-
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -50,72 +48,68 @@
 
 :root {
   --font-sans: "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+
+  /* Core editorial palette */
+  --page-bg: #f5f0e6;
+  --surface-bg: #fffdf7;
+  --surface-soft: #faf5eb;
+  --surface-hover: #faf0e4;
+  --active-bg: #f7e3d4;
+  --primary: #171612;
+  --text-secondary: #716b61;
+  --text-muted: #9b9387;
+  --accent: #c95f3f;
+  --accent-hover: #ae4d33;
+  --accent-soft: #fff3ea;
+  --peach: #f1d1bd;
+  --border: #d9cfbf;
+  --border-strong: #bfb3a2;
+
+  /* Status and layered surfaces cannot be inferred from the core palette. */
+  --danger: #d92d20;
+  --overlay: rgb(23 22 18 / 28%);
+  --overlay-strong: rgb(23 22 18 / 90%);
+  --shadow: rgb(43 35 25 / 8%);
+  --ornament: #a99c8d;
+  --primary-hover: #302e28;
+  --placeholder: #8c8377;
+  --avatar-border: #92897d;
+  --accent-border: #debda9;
+  --accent-border-strong: #e4a68e;
+  --skeleton: #e7ddce;
+  --skeleton-dark: #e9dfd1;
+  --skeleton-light: #f1e8dc;
+
+  /* Existing shadcn/Tailwind semantic tokens consume the palette above. */
+  --background: var(--page-bg);
+  --foreground: var(--primary);
+  --card: var(--surface-bg);
+  --card-foreground: var(--primary);
+  --popover: var(--surface-bg);
+  --popover-foreground: var(--primary);
+  --primary-foreground: var(--surface-bg);
+  --secondary: var(--surface-soft);
+  --secondary-foreground: var(--primary);
+  --muted: var(--surface-soft);
+  --muted-foreground: var(--text-secondary);
+  --accent-foreground: var(--surface-bg);
+  --destructive: var(--danger);
+  --input: var(--border);
+  --ring: var(--accent);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
   --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
-}
-
-.dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --sidebar: var(--surface-bg);
+  --sidebar-foreground: var(--primary);
+  --sidebar-primary: var(--accent);
+  --sidebar-primary-foreground: var(--surface-bg);
+  --sidebar-accent: var(--active-bg);
+  --sidebar-accent-foreground: var(--primary);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--accent);
 }
 
 @layer base {
@@ -127,13 +121,5 @@
   }
   html {
     @apply font-sans;
-  }
-  html.dark {
-    color-scheme: dark;
-  }
-  html.theme-changing *,
-  html.theme-changing *::before,
-  html.theme-changing *::after {
-    transition: none !important;
   }
 }

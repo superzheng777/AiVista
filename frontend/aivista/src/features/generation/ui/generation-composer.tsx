@@ -2,10 +2,10 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { LoaderCircle, Send, Settings2 } from "lucide-react";
+import { Bot, Check, ChevronDown, CircleHelp, Image, Lightbulb, LoaderCircle, RectangleHorizontal, RectangleVertical, Send, Settings2, Square, type LucideIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
-import { useForm } from "react-hook-form";
+import { type ComponentPropsWithRef, useEffect, useRef, useState } from "react";
+import { useForm, useWatch } from "react-hook-form";
 
 import { UserAgreementConsentDialog } from "@/components/ui/user-agreement-consent-dialog";
 import {
@@ -53,8 +53,100 @@ type SubmissionFeedback = {
   clearPendingSubmission?: boolean;
 };
 
+type GenerationSelectOption = {
+  value: string;
+  label: string;
+  icon: LucideIcon;
+  disabled?: boolean;
+};
+
+type GenerationSelectProps = {
+  ariaLabel: string;
+  value: string;
+  options: readonly GenerationSelectOption[];
+  isOpen: boolean;
+  disabled?: boolean;
+  onToggle: () => void;
+  onSelect: (value: string) => void;
+};
+
+type GenerationChoiceOption = {
+  value: string;
+  label: string;
+  icon?: LucideIcon;
+};
+
+type GenerationChoiceGroupProps = {
+  ariaLabel: string;
+  value: string;
+  options: readonly GenerationChoiceOption[];
+  disabled?: boolean;
+  onSelect: (value: string) => void;
+};
+
+type GenerationToolbarControlProps = ComponentPropsWithRef<"button"> & {
+  isActive?: boolean;
+};
+
 const PENDING_SUBMISSION_STORAGE_KEY = "aivista.pending-generation-submission";
 const PENDING_SUBMISSION_MAX_AGE_MS = 10 * 60 * 1_000;
+const generationModeOptions: readonly GenerationSelectOption[] = [
+  { value: "image", label: "图片生成", icon: Image },
+  { value: "agent", label: "Agent 模式（即将支持）", icon: Bot, disabled: true },
+];
+const aspectRatioIcons: Record<GenerationFormValues["aspectRatio"], LucideIcon> = {
+  "1:1": Square,
+  "4:3": RectangleHorizontal,
+  "3:4": RectangleVertical,
+  "16:9": RectangleHorizontal,
+  "9:16": RectangleVertical,
+};
+const aspectRatioChoiceOptions: readonly GenerationChoiceOption[] = aspectRatioOptions.map((option) => ({ value: option.value, label: option.value, icon: aspectRatioIcons[option.value] }));
+const imageCountOptions: readonly GenerationChoiceOption[] = [1, 2, 3, 4, 5, 6].map((count) => ({ value: String(count), label: String(count) }));
+
+function GenerationToolbarControl({ children, className = "", isActive = false, ...buttonProps }: GenerationToolbarControlProps) {
+  return <button {...buttonProps} className={`inline-flex h-[42px] items-center justify-center gap-2 rounded-[6px] border border-[var(--border-strong)] px-3 text-sm text-[var(--primary)] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-60 ${isActive ? "bg-[var(--active-bg)]" : "bg-[var(--surface-bg)] hover:bg-[var(--active-bg)]"} ${className}`}>{children}</button>;
+}
+
+function GenerationSelect({ ariaLabel, value, options, isOpen, disabled = false, onToggle, onSelect }: GenerationSelectProps) {
+  const selectedOption = options.find((option) => option.value === value) ?? options[0];
+  const SelectedIcon = selectedOption.icon;
+
+  return <span className="relative block">
+    <GenerationToolbarControl type="button" disabled={disabled} isActive={isOpen} onClick={onToggle} aria-label={ariaLabel} aria-expanded={isOpen} aria-haspopup="listbox" className="w-full justify-start text-left font-normal">
+      <SelectedIcon aria-hidden="true" className="size-4 shrink-0 text-[var(--accent-hover)]" />
+      <span className="min-w-0 flex-1 truncate">{selectedOption.label}</span>
+      <ChevronDown aria-hidden="true" className={`size-4 shrink-0 text-[var(--text-secondary)] transition-transform ${isOpen ? "rotate-180" : ""}`} />
+    </GenerationToolbarControl>
+    {isOpen ? <span role="listbox" aria-label={ariaLabel} className="absolute left-0 top-[calc(100%+4px)] z-30 grid w-full min-w-[180px] gap-0.5 rounded-[7px] border border-[var(--border)] bg-[var(--surface-bg)] p-1 shadow-[0_8px_18px_rgb(43_35_25_/_14%)]">
+      {options.map((option) => {
+        const OptionIcon = option.icon;
+        const isSelected = option.value === value;
+        return <button key={option.value} type="button" role="option" aria-selected={isSelected} disabled={option.disabled} onClick={() => onSelect(option.value)} className={`flex min-h-8 items-center gap-2 rounded-[4px] px-2 text-left text-xs transition ${option.disabled ? "cursor-not-allowed text-[var(--text-muted)] opacity-60" : isSelected ? "bg-[var(--active-bg)] text-[var(--primary)]" : "text-[var(--primary)] hover:bg-[var(--surface-hover)]"}`}>
+          <OptionIcon aria-hidden="true" className="size-3.5 shrink-0 text-[var(--accent-hover)]" />
+          <span className="min-w-0 flex-1 truncate">{option.label}</span>
+          {isSelected ? <Check aria-hidden="true" className="size-3.5 shrink-0 text-[var(--accent)]" /> : null}
+        </button>;
+      })}
+    </span> : null}
+  </span>;
+}
+
+function GenerationChoiceGroup({ ariaLabel, value, options, disabled = false, onSelect }: GenerationChoiceGroupProps) {
+  const hasIcons = options.some((option) => option.icon);
+
+  return <div role="radiogroup" aria-label={ariaLabel} className={`grid overflow-hidden rounded-[7px] border border-[var(--border)] bg-[var(--surface-bg)] ${hasIcons ? "grid-cols-5" : "grid-cols-3 sm:grid-cols-6"}`}>
+    {options.map((option) => {
+      const OptionIcon = option.icon;
+      const isSelected = option.value === value;
+
+      return <button key={option.value} type="button" role="radio" aria-checked={isSelected} disabled={disabled} onClick={() => onSelect(option.value)} className={`flex h-9 min-w-0 cursor-pointer appearance-none items-center justify-center border border-transparent text-sm shadow-none outline-none transition focus-visible:ring-2 focus-visible:ring-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-60 ${OptionIcon ? "gap-1.5 px-1" : "px-1"} ${isSelected ? "relative z-10 rounded-[5px] border-[var(--accent-border)] bg-[var(--active-bg)] text-[var(--primary)]" : "bg-transparent text-[var(--text-secondary)] hover:bg-[var(--surface-soft)]"}`}>
+        {OptionIcon ? <OptionIcon aria-hidden="true" className={`size-3.5 shrink-0 ${isSelected ? "text-[var(--accent-hover)]" : "text-[var(--text-secondary)]"}`} /> : null}
+        <span className="truncate">{option.label}</span>
+      </button>;
+    })}
+  </div>;
+}
 
 function createIdempotencyKey(): string {
   return crypto.randomUUID();
@@ -110,15 +202,21 @@ export function GenerationComposer({ sessionId, hasActiveTask = false, compact =
   const { open: openAuthDialog } = useAuthDialog();
   const generationStream = useGenerationEventStream();
   const [showOptions, setShowOptions] = useState(false);
+  const [openSelect, setOpenSelect] = useState<"mode" | null>(null);
   const [showConsent, setShowConsent] = useState(false);
   const [submitFeedback, setSubmitFeedback] = useState<SubmissionFeedback | null>(null);
   const [isPreparingStream, setIsPreparingStream] = useState(false);
+  const controlsRef = useRef<HTMLDivElement>(null);
+  const optionsTriggerRef = useRef<HTMLButtonElement>(null);
   const pendingSubmission = useRef<PendingSubmission | null>(null);
   const recoveryStarted = useRef(false);
   const form = useForm<GenerationFormValues>({
     resolver: zodResolver(generationFormSchema),
     defaultValues: { prompt: "", negativePrompt: "", aspectRatio: "1:1", promptExtend: true, imageCount: 1 },
   });
+  const negativePrompt = useWatch({ control: form.control, name: "negativePrompt" });
+  const aspectRatio = useWatch({ control: form.control, name: "aspectRatio" });
+  const imageCount = useWatch({ control: form.control, name: "imageCount" });
   const { consentQuery, confirmConsent } = useUserAgreementConsent(
     status === "authenticated",
     () => {
@@ -181,6 +279,33 @@ export function GenerationComposer({ sessionId, hasActiveTask = false, compact =
     })();
   }, [createTask, generationStream, status, user]);
 
+  useEffect(() => {
+    if (!showOptions && !openSelect) return;
+
+    const closeWhenClickingAway = (event: PointerEvent) => {
+      if (!controlsRef.current?.contains(event.target as Node)) {
+        setShowOptions(false);
+        setOpenSelect(null);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (openSelect) {
+        setOpenSelect(null);
+        return;
+      }
+      setShowOptions(false);
+      optionsTriggerRef.current?.focus();
+    };
+
+    document.addEventListener("pointerdown", closeWhenClickingAway);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeWhenClickingAway);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [openSelect, showOptions]);
+
   async function submitTask(skipConsent = false): Promise<void> {
     const isValid = await form.trigger();
     if (!isValid) {
@@ -241,7 +366,7 @@ export function GenerationComposer({ sessionId, hasActiveTask = false, compact =
 
   return (
     <>
-      <form onSubmit={(event) => { event.preventDefault(); void submitTask(); }} className={compact ? "relative overflow-hidden rounded-full border border-[#d9cfbf] bg-[#fffdf7] shadow-[0_2px_4px_rgb(43_35_25_/_3%),0_16px_36px_rgb(43_35_25_/_6%)]" : "relative overflow-hidden rounded-[30px] border border-[#d9cfbf] bg-[#fffdf7] shadow-[0_2px_4px_rgb(43_35_25_/_3%),0_16px_36px_rgb(43_35_25_/_6%)] before:absolute before:left-9 before:top-0 before:z-10 before:h-[3px] before:w-[130px] before:bg-[#c95f3f]"}>
+      <form onSubmit={(event) => { event.preventDefault(); void submitTask(); }} className={compact ? "relative overflow-hidden rounded-full border border-[var(--border)] bg-[var(--surface-bg)] shadow-[0_2px_4px_rgb(43_35_25_/_3%),0_16px_36px_rgb(43_35_25_/_6%)]" : "relative overflow-visible rounded-[30px] border border-[var(--border)] bg-[var(--surface-bg)] shadow-[0_2px_4px_rgb(43_35_25_/_3%),0_16px_36px_rgb(43_35_25_/_6%)] before:absolute before:left-9 before:top-0 before:z-10 before:h-[3px] before:w-[130px] before:bg-[var(--accent)]"}>
         <label htmlFor="generation-prompt" className="sr-only">创作提示</label>
         <textarea
           id="generation-prompt"
@@ -253,55 +378,79 @@ export function GenerationComposer({ sessionId, hasActiveTask = false, compact =
             event.currentTarget.style.height = "auto";
             event.currentTarget.style.height = `${Math.min(event.currentTarget.scrollHeight, 240)}px`;
           }}
-          className={compact ? "h-[58px] w-full resize-none overflow-hidden bg-transparent px-6 py-0 pr-16 text-base leading-[58px] text-[#171612] outline-none placeholder:text-[#8c8377] disabled:cursor-not-allowed disabled:opacity-60" : "min-h-24 max-h-[240px] w-full resize-none overflow-y-auto bg-transparent px-6 pb-[18px] pt-6 text-base leading-7 text-[#171612] outline-none placeholder:text-[#8c8377] disabled:cursor-not-allowed disabled:opacity-60 sm:px-[26px] sm:pt-[26px]"}
+          className={compact ? "h-[58px] w-full resize-none overflow-hidden bg-transparent px-6 py-0 pr-16 text-base leading-[58px] text-[var(--primary)] outline-none placeholder:text-[var(--placeholder)] disabled:cursor-not-allowed disabled:opacity-60" : "min-h-24 max-h-[240px] w-full resize-none overflow-y-auto bg-transparent px-6 pb-[18px] pt-6 text-base leading-7 text-[var(--primary)] outline-none placeholder:text-[var(--placeholder)] disabled:cursor-not-allowed disabled:opacity-60 sm:px-[26px] sm:pt-[26px]"}
           {...form.register("prompt")}
         />
-        {compact ? <button type="submit" disabled={isSubmitDisabled} aria-label={hasActiveTask ? "当前会话正在生成" : isPreparingStream ? "正在建立实时连接" : isSubmitting ? "正在创建生成任务" : "开始生成"} className="absolute right-2 top-1/2 z-10 inline-flex size-[42px] -translate-y-1/2 items-center justify-center rounded-full bg-[#171612] text-[#fffdf7] transition hover:bg-[#302e28] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c95f3f] disabled:cursor-not-allowed disabled:opacity-60">{isSubmitting || isCheckingConsent ? <LoaderCircle className="size-4 animate-spin" /> : <Send className="size-4" />}</button> : null}
+        {compact ? <button type="submit" disabled={isSubmitDisabled} aria-label={hasActiveTask ? "当前会话正在生成" : isPreparingStream ? "正在建立实时连接" : isSubmitting ? "正在创建生成任务" : "开始生成"} className="absolute right-2 top-1/2 z-10 inline-flex size-[42px] -translate-y-1/2 items-center justify-center rounded-full bg-[var(--primary)] text-[var(--surface-bg)] transition hover:bg-[var(--primary-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-60">{isSubmitting || isCheckingConsent ? <LoaderCircle className="size-4 animate-spin" /> : <Send className="size-4" />}</button> : null}
         {form.formState.errors.prompt && !compact ? <p role="alert" className="px-6 pb-3 text-sm text-destructive">{form.formState.errors.prompt.message}</p> : null}
 
-        {showOptions && !compact ? (
-          <div className="grid gap-3 border-t border-[#d9cfbf] bg-[#faf5eb] px-5 py-4 sm:grid-cols-3">
-            <label className="grid gap-1.5 text-sm font-medium text-[#171612]">
-              画幅比例
-              <select {...form.register("aspectRatio")} disabled={isSubmitDisabled} className="h-10 rounded-[6px] border border-[#bfb3a2] bg-[#fffdf7] px-3 text-sm font-normal outline-none focus-visible:ring-2 focus-visible:ring-[#c95f3f]">
-                {aspectRatioOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-              </select>
-            </label>
-            <label className="grid gap-1.5 text-sm font-medium text-[#171612]">
-              生成数量
-              <select {...form.register("imageCount", { valueAsNumber: true })} disabled={isSubmitDisabled} className="h-10 rounded-[6px] border border-[#bfb3a2] bg-[#fffdf7] px-3 text-sm font-normal outline-none focus-visible:ring-2 focus-visible:ring-[#c95f3f]">
-                {[1, 2, 3, 4, 5, 6].map((count) => <option key={count} value={count}>{count} 张</option>)}
-              </select>
-            </label>
-            <label className="flex min-h-10 items-center justify-between gap-3 rounded-[6px] border border-[#bfb3a2] bg-[#fffdf7] px-3 text-sm font-medium text-[#171612]">
-              <span>提示词优化</span>
-              <input type="checkbox" {...form.register("promptExtend")} disabled={isSubmitDisabled} className="size-4 accent-[#c95f3f]" />
-            </label>
-            <label className="grid gap-1.5 text-sm font-medium text-[#171612] sm:col-span-3">
-              负面提示词 <span className="font-normal text-[#716b61]">（可选）</span>
-              <input {...form.register("negativePrompt")} disabled={isSubmitDisabled} className="h-10 rounded-[6px] border border-[#bfb3a2] bg-[#fffdf7] px-3 text-sm font-normal outline-none placeholder:text-[#8c8377] focus-visible:ring-2 focus-visible:ring-[#c95f3f]" placeholder="例如：模糊、低清晰度" />
-            </label>
-            {form.formState.errors.negativePrompt ? <p role="alert" className="text-sm text-destructive sm:col-span-3">{form.formState.errors.negativePrompt.message}</p> : null}
-          </div>
-        ) : null}
+        {!compact ? <div className="flex min-h-[88px] flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] px-4 py-3 sm:flex-nowrap sm:px-4">
+          <div ref={controlsRef} className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-[14px]">
+            <div className="w-[132px] shrink-0">
+              <GenerationSelect ariaLabel="生成模式" value="image" options={generationModeOptions} isOpen={openSelect === "mode"} onToggle={() => setOpenSelect((value) => value === "mode" ? null : "mode")} onSelect={() => setOpenSelect(null)} />
+            </div>
+            <div className="relative z-40 shrink-0">
+              <GenerationToolbarControl
+                ref={optionsTriggerRef}
+                type="button"
+                disabled={isSubmitDisabled}
+                onClick={() => { setShowOptions((value) => !value); setOpenSelect(null); }}
+                aria-controls="generation-options"
+                aria-expanded={showOptions}
+                isActive={showOptions}
+              >
+                <Settings2 className="size-[19px] text-[var(--accent-hover)]" />
+                <span>更多设置</span>
+              </GenerationToolbarControl>
+              {showOptions ? (
+                <div id="generation-options" role="dialog" aria-label="生成配置" className="absolute left-[calc(100%+10px)] top-1/2 z-50 w-[min(32rem,calc(100vw-2rem))] -translate-y-1/2 rounded-[10px] border border-[var(--border)] bg-[var(--surface-bg)] p-3 shadow-[0_8px_18px_rgb(43_35_25_/_12%)] sm:p-4">
+                  <div className="grid gap-4">
+                    <section aria-labelledby="aspect-ratio-label" className="grid gap-2">
+                      <div className="inline-flex items-center gap-1.5">
+                        <h3 id="aspect-ratio-label" className="text-sm font-semibold text-[var(--primary)]">画幅比例</h3>
+                        <CircleHelp aria-hidden="true" className="size-3.5 text-[var(--text-muted)]" />
+                      </div>
+                      <GenerationChoiceGroup ariaLabel="画幅比例" value={aspectRatio} options={aspectRatioChoiceOptions} disabled={isSubmitDisabled} onSelect={(value) => form.setValue("aspectRatio", value as GenerationFormValues["aspectRatio"], { shouldDirty: true, shouldValidate: true })} />
+                    </section>
 
-        {!compact ? <div className="flex min-h-[88px] flex-wrap items-center justify-between gap-3 border-t border-[#d9cfbf] px-4 py-3 sm:flex-nowrap sm:px-4">
-          <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-[14px]">
-            <span className="whitespace-nowrap rounded-[6px] border border-[#bfb3a2] px-3 py-2 text-sm text-[#171612] sm:px-4">文字生图</span>
-            <span className="whitespace-nowrap rounded-[6px] border border-[#bfb3a2] px-3 py-2 text-sm text-[#171612] sm:px-4">1–6 张结果</span>
-            <button type="button" onClick={() => setShowOptions((value) => !value)} aria-label="更多生成选项" className="inline-flex h-[42px] shrink-0 items-center justify-center gap-2 rounded-[6px] px-3 text-sm text-[#171612] transition hover:bg-[#f7e3d4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c95f3f]">
-              <Settings2 className="size-[19px]" />
-              <span>更多选项</span>
-            </button>
+                    <section aria-labelledby="image-count-label" className="grid gap-2">
+                      <div className="inline-flex items-center gap-1.5">
+                        <h3 id="image-count-label" className="text-sm font-semibold text-[var(--primary)]">生成数量</h3>
+                        <CircleHelp aria-hidden="true" className="size-3.5 text-[var(--text-muted)]" />
+                      </div>
+                      <GenerationChoiceGroup ariaLabel="生成数量" value={String(imageCount)} options={imageCountOptions} disabled={isSubmitDisabled} onSelect={(value) => form.setValue("imageCount", Number(value), { shouldDirty: true, shouldValidate: true })} />
+                    </section>
+                  </div>
+
+                  <label className="mt-4 flex cursor-pointer items-center justify-between gap-3 border-y border-dashed border-[var(--border)] py-3 text-[var(--primary)]">
+                    <span className="grid gap-1">
+                      <span className="inline-flex items-center gap-1.5 text-sm font-semibold">提示词优化 <CircleHelp aria-hidden="true" className="size-3.5 text-[var(--text-muted)]" /></span>
+                      <span className="text-xs font-normal text-[var(--text-secondary)]">优化提示词表达，提升画面质量</span>
+                    </span>
+                    <input type="checkbox" {...form.register("promptExtend")} disabled={isSubmitDisabled} className="size-4 shrink-0 accent-[var(--accent)] disabled:cursor-not-allowed" />
+                  </label>
+
+                  <label className="mt-3 grid gap-2 text-sm font-semibold text-[var(--primary)]">
+                    <span className="inline-flex items-center gap-1.5">负面提示词 <span className="font-normal text-[var(--text-secondary)]">（可选）</span> <CircleHelp aria-hidden="true" className="size-3.5 text-[var(--text-muted)]" /></span>
+                    <span className="relative">
+                      <textarea {...form.register("negativePrompt")} disabled={isSubmitDisabled} rows={1} maxLength={200} className="min-h-12 w-full resize-y rounded-[6px] border border-[var(--border-strong)] bg-[var(--surface-bg)] px-3 pb-6 pt-2 text-sm font-normal leading-5 outline-none placeholder:text-[var(--placeholder)] focus-visible:ring-2 focus-visible:ring-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-60" placeholder="例如：模糊、低清晰度" />
+                      <span aria-hidden="true" className="pointer-events-none absolute bottom-2 right-3 text-xs font-normal text-[var(--text-secondary)]">{negativePrompt?.length ?? 0} / 200</span>
+                    </span>
+                  </label>
+                  <p className="mt-2 inline-flex items-center gap-1.5 text-xs text-[var(--text-secondary)]"><Lightbulb aria-hidden="true" className="size-3.5 text-[var(--accent-hover)]" />填写负面提示词，有助于减少不想要的内容</p>
+                  {form.formState.errors.negativePrompt ? <p role="alert" className="mt-2 text-xs text-destructive">{form.formState.errors.negativePrompt.message}</p> : null}
+                </div>
+              ) : null}
+            </div>
           </div>
           <div className="relative mr-2 shrink-0">
-            <span aria-hidden="true" className="absolute -bottom-2.5 -right-2.5 size-[38px] rounded-[3px] bg-[#c95f3f]" />
-            <button type="submit" disabled={isSubmitDisabled} aria-label={hasActiveTask ? "当前会话正在生成" : isPreparingStream ? "正在建立实时连接" : isSubmitting ? "正在创建生成任务" : "开始生成"} className="relative z-10 inline-flex size-[52px] shrink-0 items-center justify-center rounded-[7px] bg-[#171612] text-[#fffdf7] transition hover:bg-[#302e28] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c95f3f] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60">
+            <span aria-hidden="true" className="absolute -bottom-2.5 -right-2.5 size-[38px] rounded-[3px] bg-[var(--accent)]" />
+            <button type="submit" disabled={isSubmitDisabled} aria-label={hasActiveTask ? "当前会话正在生成" : isPreparingStream ? "正在建立实时连接" : isSubmitting ? "正在创建生成任务" : "开始生成"} className="relative z-10 inline-flex size-[52px] shrink-0 items-center justify-center rounded-[7px] bg-[var(--primary)] text-[var(--surface-bg)] transition hover:bg-[var(--primary-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60">
               {isSubmitting || isCheckingConsent ? <LoaderCircle className="size-5 animate-spin" /> : <Send className="size-5" />}
             </button>
           </div>
         </div> : null}
-        {submitFeedback ? <div role="alert" className="flex flex-wrap items-center gap-x-3 gap-y-2 bg-[#fffdf7] px-6 pb-4 text-sm text-destructive"><span>{submitFeedback.message}</span>{submitFeedback.retryable ? <button type="button" onClick={() => void submitTask()} className="font-medium underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c95f3f]">重试</button> : null}</div> : null}
+        {submitFeedback ? <div role="alert" className="flex flex-wrap items-center gap-x-3 gap-y-2 bg-[var(--surface-bg)] px-6 pb-4 text-sm text-destructive"><span>{submitFeedback.message}</span>{submitFeedback.retryable ? <button type="button" onClick={() => void submitTask()} className="font-medium underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]">重试</button> : null}</div> : null}
       </form>
 
       {showConsent && consentQuery.data ? (
