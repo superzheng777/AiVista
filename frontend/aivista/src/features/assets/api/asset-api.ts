@@ -17,6 +17,19 @@ export async function getGenerationAsset(imageId: string): Promise<GenerationAss
   return mapGenerationAssetImage(unwrapApiResponse(response.data));
 }
 
+export type UploadedGenerationAsset = {
+  assetId: string;
+  expiresAt: string;
+};
+
+/** Uploads a short-lived private reference image for a single I2I task. */
+export async function uploadGenerationReferenceImage(file: File): Promise<UploadedGenerationAsset> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const response = await browserApiClient.post<ApiResponse<UploadedGenerationAsset>>("/generation-images/uploads", formData);
+  return unwrapApiResponse(response.data);
+}
+
 /** Requests a fresh 3-minute original-file URL. The backend verifies image ownership. */
 export async function getOriginalGenerationImageDownloadUrl(imageId: string): Promise<ImageUrl> {
   const response = await browserApiClient.get<ApiResponse<ImageUrl>>(`/generation-images/${imageId}/original-download`);

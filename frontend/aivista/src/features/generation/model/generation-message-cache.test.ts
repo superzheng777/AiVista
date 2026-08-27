@@ -35,7 +35,7 @@ describe("generation message cache", () => {
     });
     const complete = message(1, "SUCCEEDED");
     complete.generation.completedImageCount = 1;
-    complete.generation.images = [{ id: "image-1", sourceIndex: 0, imageUrls: { thumbnail: { url: "https://example.test/image", expiresAt: "2026-08-12T00:10:00Z" }, display: null, original: null }, width: 2048, height: 2048, createdAt: "2026-08-12T00:00:00Z", favorited: false, finalPrompt: "test", finalNegativePrompt: null, requestedImageCount: 1, promptExtend: false, publicationReviewStatus: "NONE", publicationVersion: 0, publicAt: null, title: null, description: null, authorId: "user-1", likeCount: 0, likedByCurrentUser: false }];
+    complete.generation.images = [{ id: "image-1", sourceIndex: 0, imageUrls: { thumbnail: { url: "https://example.test/image", expiresAt: "2026-08-12T00:10:00Z" }, display: null }, width: 2048, height: 2048, createdAt: "2026-08-12T00:00:00Z", favorited: false, finalPrompt: "test", finalNegativePrompt: null, requestedImageCount: 1, promptExtend: false, publicationReviewStatus: "NONE", publicationVersion: 0, publicAt: null, title: null, description: null, authorId: "user-1", likeCount: 0, likedByCurrentUser: false }];
     const merged = mergeGenerationMessagePages(current, page(complete));
 
     expect(merged.pages[0].items[0].generation).toMatchObject({ completedImageCount: 1 });

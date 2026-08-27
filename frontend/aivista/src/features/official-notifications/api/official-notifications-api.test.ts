@@ -31,7 +31,7 @@ describe("official-notifications-api", () => {
       {
         notificationId: "n1",
         eventType: "PUBLICATION_REJECTED",
-        image: { imageId: "img-1", sourceIndex: 0, imageUrls: { thumbnail: { url: "https://example.com/image", expiresAt: "2026-08-10T01:00:00Z" }, display: null, original: null }, createdAt: "2026-08-10T00:00:00Z", favorited: false, finalPrompt: "prompt", finalNegativePrompt: null, generationConfig: { width: 1, height: 1, requestedImageCount: 1, promptExtend: false }, publicationReviewStatus: "APPROVED", publicationVersion: 1, publicAt: null, title: null, description: null, authorId: "user-1", likeCount: 0, likedByCurrentUser: false },
+        image: { imageId: "img-1", sourceIndex: 0, imageUrls: { thumbnail: { url: "https://example.com/image", expiresAt: "2026-08-10T01:00:00Z" }, display: null }, createdAt: "2026-08-10T00:00:00Z", favorited: false, finalPrompt: "prompt", finalNegativePrompt: null, generationConfig: { width: 1, height: 1, requestedImageCount: 1, promptExtend: false }, publicationReviewStatus: "APPROVED", publicationVersion: 1, publicAt: null, title: null, description: null, authorId: "user-1", likeCount: 0, likedByCurrentUser: false },
         title: "标题",
         content: "正文",
         metadata: { violations: [{ field: "title", reasonCode: "SENSITIVE_INFO" }] },

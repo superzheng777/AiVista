@@ -5,7 +5,7 @@ import { mapGenerationAssetImage, needsImageUrlRefresh, type GenerationAssetImag
 const dto: GenerationAssetImageDto = {
   imageId: "img-1",
   sourceIndex: 0,
-  imageUrls: { thumbnail: { url: "https://signed.example/img-1", expiresAt: "2026-08-10T00:10:00Z" }, display: null, original: null },
+  imageUrls: { thumbnail: { url: "https://signed.example/img-1", expiresAt: "2026-08-10T00:10:00Z" }, display: null },
   createdAt: "2026-08-09T00:00:00Z",
   favorited: true,
   finalPrompt: "一只戴帽子的猫",
@@ -26,7 +26,7 @@ describe("mapGenerationAssetImage", () => {
     expect(mapGenerationAssetImage(dto)).toEqual({
       id: "img-1",
       sourceIndex: 0,
-      imageUrls: { thumbnail: { url: "https://signed.example/img-1", expiresAt: "2026-08-10T00:10:00Z" }, display: null, original: null },
+      imageUrls: { thumbnail: { url: "https://signed.example/img-1", expiresAt: "2026-08-10T00:10:00Z" }, display: null },
       createdAt: "2026-08-09T00:00:00Z",
       favorited: true,
       finalPrompt: "一只戴帽子的猫",

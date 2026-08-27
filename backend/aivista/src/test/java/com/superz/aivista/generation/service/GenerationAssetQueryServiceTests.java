@@ -95,6 +95,25 @@ class GenerationAssetQueryServiceTests {
     }
 
     @Test
+    void returnsTemporaryUploadedAssetForReferencePreview() throws Exception {
+        ImageAssetMapper imageMapper = mock(ImageAssetMapper.class);
+        OSS ossClient = mock(OSS.class);
+        ImageAsset uploaded = row(43L, NOW, null, null);
+        uploaded.setOrigin("UPLOADED");
+        uploaded.setOriginalObjectKey("users/7/uploads/43/original.png");
+        uploaded.setPublicationRequestedImageCount(null);
+        uploaded.setPublicationPromptExtend(null);
+        when(imageMapper.selectVisibleDetailByUserIdAndId(7L, 43L)).thenReturn(uploaded);
+        when(ossClient.generatePresignedUrl(anyString(), anyString(), any())).thenReturn(new URL("https://oss.example/signed-upload"));
+
+        var response = service(imageMapper, ossClient).get(7L, 43L);
+
+        assertThat(response.imageUrls().thumbnail().url()).isEqualTo("https://oss.example/signed-upload");
+        assertThat(response.imageUrls().display().url()).isEqualTo("https://oss.example/signed-upload");
+        assertThat(response.generationConfig().requestedImageCount()).isZero();
+    }
+
+    @Test
     void hidesDeletedOrOtherUsersAssetAsNotFound() {
         assertThatThrownBy(() -> service(mock(ImageAssetMapper.class), mock(OSS.class)).get(7L, 41L))
                 .isInstanceOfSatisfying(BusinessException.class,

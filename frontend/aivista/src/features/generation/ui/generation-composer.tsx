@@ -27,6 +27,8 @@ import {
   userAgreementQueryKeys,
 } from "@/shared/api/user-agreement-consent-api";
 import { useUserAgreementConsent } from "@/shared/api/use-user-agreement-consent";
+import type { GenerationAsset } from "@/entities/generation/model/generation";
+import { GenerationReferenceImagePicker, GenerationReferenceImages } from "@/features/generation/ui/generation-reference-images";
 
 type GenerationComposerProps = {
   sessionId?: string;
@@ -118,7 +120,7 @@ function GenerationSelect({ ariaLabel, value, options, isOpen, disabled = false,
       <span className="min-w-0 flex-1 truncate">{selectedOption.label}</span>
       <ChevronDown aria-hidden="true" className={`size-4 shrink-0 text-[var(--text-secondary)] transition-transform ${isOpen ? "rotate-180" : ""}`} />
     </GenerationToolbarControl>
-    {isOpen ? <span role="listbox" aria-label={ariaLabel} className="absolute left-0 top-[calc(100%+4px)] z-30 grid w-full min-w-[180px] gap-0.5 rounded-[7px] border border-[var(--border)] bg-[var(--surface-bg)] p-1 shadow-[0_8px_18px_rgb(43_35_25_/_14%)]">
+    {isOpen ? <span role="listbox" aria-label={ariaLabel} className="absolute bottom-[calc(100%+4px)] left-0 z-30 grid w-full min-w-[180px] gap-0.5 rounded-[7px] border border-[var(--border)] bg-[var(--surface-bg)] p-1 shadow-[0_8px_18px_rgb(43_35_25_/_14%)]">
       {options.map((option) => {
         const OptionIcon = option.icon;
         const isSelected = option.value === value;
@@ -152,14 +154,15 @@ function createIdempotencyKey(): string {
   return crypto.randomUUID();
 }
 
-function fingerprintOf(values: GenerationFormValues, sessionId?: string): string {
-  return JSON.stringify({ sessionId: sessionId ?? null, ...values });
+function fingerprintOf(values: GenerationFormValues, inputAssetIds: string[], sessionId?: string): string {
+  return JSON.stringify({ sessionId: sessionId ?? null, ...values, inputAssetIds });
 }
 
-function inputOf(values: GenerationFormValues, sessionId?: string): CreateGenerationTaskInput {
+function inputOf(values: GenerationFormValues, inputAssetIds: string[], sessionId?: string): CreateGenerationTaskInput {
   return {
     sessionId,
     prompt: values.prompt,
+    inputAssetIds: inputAssetIds.length ? inputAssetIds : undefined,
     negativePrompt: values.negativePrompt || undefined,
     aspectRatio: values.aspectRatio,
     promptExtend: values.promptExtend,
@@ -203,9 +206,11 @@ export function GenerationComposer({ sessionId, hasActiveTask = false, compact =
   const generationStream = useGenerationEventStream();
   const [showOptions, setShowOptions] = useState(false);
   const [openSelect, setOpenSelect] = useState<"mode" | null>(null);
+  const [referenceMenuOpen, setReferenceMenuOpen] = useState(false);
   const [showConsent, setShowConsent] = useState(false);
   const [submitFeedback, setSubmitFeedback] = useState<SubmissionFeedback | null>(null);
   const [isPreparingStream, setIsPreparingStream] = useState(false);
+  const [referenceImages, setReferenceImages] = useState<GenerationAsset[]>([]);
   const controlsRef = useRef<HTMLDivElement>(null);
   const optionsTriggerRef = useRef<HTMLButtonElement>(null);
   const pendingSubmission = useRef<PendingSubmission | null>(null);
@@ -230,6 +235,7 @@ export function GenerationComposer({ sessionId, hasActiveTask = false, compact =
     onSuccess: (task) => {
       pendingSubmission.current = null;
       window.sessionStorage.removeItem(PENDING_SUBMISSION_STORAGE_KEY);
+      setReferenceImages([]);
       void Promise.all([
         queryClient.invalidateQueries({ queryKey: generationQueryKeys.sessions() }),
         queryClient.invalidateQueries({ queryKey: generationQueryKeys.messages(task.sessionId) }),
@@ -280,18 +286,23 @@ export function GenerationComposer({ sessionId, hasActiveTask = false, compact =
   }, [createTask, generationStream, status, user]);
 
   useEffect(() => {
-    if (!showOptions && !openSelect) return;
+    if (!showOptions && !openSelect && !referenceMenuOpen) return;
 
     const closeWhenClickingAway = (event: PointerEvent) => {
       if (!controlsRef.current?.contains(event.target as Node)) {
         setShowOptions(false);
         setOpenSelect(null);
+        setReferenceMenuOpen(false);
       }
     };
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       if (openSelect) {
         setOpenSelect(null);
+        return;
+      }
+      if (referenceMenuOpen) {
+        setReferenceMenuOpen(false);
         return;
       }
       setShowOptions(false);
@@ -304,7 +315,7 @@ export function GenerationComposer({ sessionId, hasActiveTask = false, compact =
       document.removeEventListener("pointerdown", closeWhenClickingAway);
       document.removeEventListener("keydown", closeOnEscape);
     };
-  }, [openSelect, showOptions]);
+  }, [openSelect, referenceMenuOpen, showOptions]);
 
   async function submitTask(skipConsent = false): Promise<void> {
     const isValid = await form.trigger();
@@ -336,7 +347,8 @@ export function GenerationComposer({ sessionId, hasActiveTask = false, compact =
     }
 
     const values = form.getValues();
-    const fingerprint = fingerprintOf(values, sessionId);
+    const inputAssetIds = referenceImages.map((image) => image.id);
+    const fingerprint = fingerprintOf(values, inputAssetIds, sessionId);
     if (!pendingSubmission.current || pendingSubmission.current.fingerprint !== fingerprint) {
       pendingSubmission.current = { fingerprint, idempotencyKey: createIdempotencyKey() };
     }
@@ -349,7 +361,7 @@ export function GenerationComposer({ sessionId, hasActiveTask = false, compact =
       setSubmitFeedback({ message: "无法建立实时连接，本次生成尚未开始。", retryable: true });
       return;
     }
-    const input = inputOf(values, sessionId);
+    const input = inputOf(values, inputAssetIds, sessionId);
     window.sessionStorage.setItem(PENDING_SUBMISSION_STORAGE_KEY, JSON.stringify({
       userId: user.id,
       fingerprint,
@@ -368,6 +380,7 @@ export function GenerationComposer({ sessionId, hasActiveTask = false, compact =
     <>
       <form onSubmit={(event) => { event.preventDefault(); void submitTask(); }} className={compact ? "relative overflow-hidden rounded-full border border-[var(--border)] bg-[var(--surface-bg)] shadow-[0_2px_4px_rgb(43_35_25_/_3%),0_16px_36px_rgb(43_35_25_/_6%)]" : "relative overflow-visible rounded-[30px] border border-[var(--border)] bg-[var(--surface-bg)] shadow-[0_2px_4px_rgb(43_35_25_/_3%),0_16px_36px_rgb(43_35_25_/_6%)] before:absolute before:left-9 before:top-0 before:z-10 before:h-[3px] before:w-[130px] before:bg-[var(--accent)]"}>
         <label htmlFor="generation-prompt" className="sr-only">创作提示</label>
+        {!compact ? <GenerationReferenceImages value={referenceImages} disabled={isSubmitDisabled} onChange={setReferenceImages} /> : null}
         <textarea
           id="generation-prompt"
           rows={1}
@@ -378,7 +391,7 @@ export function GenerationComposer({ sessionId, hasActiveTask = false, compact =
             event.currentTarget.style.height = "auto";
             event.currentTarget.style.height = `${Math.min(event.currentTarget.scrollHeight, 240)}px`;
           }}
-          className={compact ? "h-[58px] w-full resize-none overflow-hidden bg-transparent px-6 py-0 pr-16 text-base leading-[58px] text-[var(--primary)] outline-none placeholder:text-[var(--placeholder)] disabled:cursor-not-allowed disabled:opacity-60" : "min-h-24 max-h-[240px] w-full resize-none overflow-y-auto bg-transparent px-6 pb-[18px] pt-6 text-base leading-7 text-[var(--primary)] outline-none placeholder:text-[var(--placeholder)] disabled:cursor-not-allowed disabled:opacity-60 sm:px-[26px] sm:pt-[26px]"}
+          className={compact ? "h-[58px] w-full resize-none overflow-hidden bg-transparent px-6 py-0 pr-16 text-base leading-[58px] text-[var(--primary)] outline-none placeholder:text-[var(--placeholder)] disabled:cursor-not-allowed disabled:opacity-60" : "min-h-20 max-h-[240px] w-full resize-none overflow-y-auto bg-transparent px-6 pb-[18px] pt-2 text-base leading-7 text-[var(--primary)] outline-none placeholder:text-[var(--placeholder)] disabled:cursor-not-allowed disabled:opacity-60 sm:px-[26px]"}
           {...form.register("prompt")}
         />
         {compact ? <button type="submit" disabled={isSubmitDisabled} aria-label={hasActiveTask ? "当前会话正在生成" : isPreparingStream ? "正在建立实时连接" : isSubmitting ? "正在创建生成任务" : "开始生成"} className="absolute right-2 top-1/2 z-10 inline-flex size-[42px] -translate-y-1/2 items-center justify-center rounded-full bg-[var(--primary)] text-[var(--surface-bg)] transition hover:bg-[var(--primary-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-60">{isSubmitting || isCheckingConsent ? <LoaderCircle className="size-4 animate-spin" /> : <Send className="size-4" />}</button> : null}
@@ -387,14 +400,14 @@ export function GenerationComposer({ sessionId, hasActiveTask = false, compact =
         {!compact ? <div className="flex min-h-[88px] flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] px-4 py-3 sm:flex-nowrap sm:px-4">
           <div ref={controlsRef} className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-[14px]">
             <div className="w-[132px] shrink-0">
-              <GenerationSelect ariaLabel="生成模式" value="image" options={generationModeOptions} isOpen={openSelect === "mode"} onToggle={() => setOpenSelect((value) => value === "mode" ? null : "mode")} onSelect={() => setOpenSelect(null)} />
+              <GenerationSelect ariaLabel="生成模式" value="image" options={generationModeOptions} isOpen={openSelect === "mode"} onToggle={() => { setOpenSelect((value) => value === "mode" ? null : "mode"); setShowOptions(false); setReferenceMenuOpen(false); }} onSelect={() => setOpenSelect(null)} />
             </div>
             <div className="relative z-40 shrink-0">
               <GenerationToolbarControl
                 ref={optionsTriggerRef}
                 type="button"
                 disabled={isSubmitDisabled}
-                onClick={() => { setShowOptions((value) => !value); setOpenSelect(null); }}
+                onClick={() => { setShowOptions((value) => !value); setOpenSelect(null); setReferenceMenuOpen(false); }}
                 aria-controls="generation-options"
                 aria-expanded={showOptions}
                 isActive={showOptions}
@@ -403,7 +416,7 @@ export function GenerationComposer({ sessionId, hasActiveTask = false, compact =
                 <span>更多设置</span>
               </GenerationToolbarControl>
               {showOptions ? (
-                <div id="generation-options" role="dialog" aria-label="生成配置" className="absolute left-[calc(100%+10px)] top-1/2 z-50 w-[min(32rem,calc(100vw-2rem))] -translate-y-1/2 rounded-[10px] border border-[var(--border)] bg-[var(--surface-bg)] p-3 shadow-[0_8px_18px_rgb(43_35_25_/_12%)] sm:p-4">
+                <div id="generation-options" role="dialog" aria-label="生成配置" className="absolute bottom-[calc(100%+10px)] left-0 z-50 w-[min(32rem,calc(100vw-2rem))] rounded-[10px] border border-[var(--border)] bg-[var(--surface-bg)] p-3 shadow-[0_8px_18px_rgb(43_35_25_/_12%)] sm:p-4">
                   <div className="grid gap-4">
                     <section aria-labelledby="aspect-ratio-label" className="grid gap-2">
                       <div className="inline-flex items-center gap-1.5">
@@ -442,6 +455,7 @@ export function GenerationComposer({ sessionId, hasActiveTask = false, compact =
                 </div>
               ) : null}
             </div>
+            <GenerationReferenceImagePicker value={referenceImages} disabled={isSubmitDisabled} isMenuOpen={referenceMenuOpen} isAuthenticated={status === "authenticated"} onRequireAuth={openAuthDialog} onChange={setReferenceImages} onMenuOpenChange={(open) => { setReferenceMenuOpen(open); if (open) { setOpenSelect(null); setShowOptions(false); } }} renderTrigger={({ disabled, isOpen, onClick }) => <GenerationToolbarControl type="button" disabled={disabled} isActive={isOpen} onClick={onClick} aria-label="添加参考图片" aria-expanded={isOpen} aria-haspopup="menu" className="w-[42px] px-0 text-base font-semibold text-[var(--accent)]">@</GenerationToolbarControl>} />
           </div>
           <div className="relative mr-2 shrink-0">
             <span aria-hidden="true" className="absolute -bottom-2.5 -right-2.5 size-[38px] rounded-[3px] bg-[var(--accent)]" />
