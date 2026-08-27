@@ -51,7 +51,7 @@ class InteractionNotificationServiceTests {
     @Test
     void returnsImageOnlyWhenCurrentPublicationVersionMatchesNotification() {
         UserNotification notification = notification(1L);
-        notification.setImageId(9L);
+        notification.setAssetId(9L);
         notification.setPublicationVersion(2L);
         UserNotificationMapper notifications = mock(UserNotificationMapper.class);
         UserMapper users = mock(UserMapper.class);

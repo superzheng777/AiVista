@@ -68,7 +68,7 @@ public class GenerationAssetQueryService {
 
     private GenerationAssetImageResponse response(ImageAsset row, Instant expiresAt) {
         return new GenerationAssetImageResponse(String.valueOf(row.getId()), row.getSourceIndex(), urls(row, expiresAt),
-                row.getCreatedAt(), Boolean.TRUE.equals(row.getFavorited()), row.getPublicationPrompt(), row.getPublicationNegativePrompt(),
+                row.getCreatedAt(), Boolean.TRUE.equals(row.getIsFavorited()), row.getPublicationPrompt(), row.getPublicationNegativePrompt(),
                 new GenerationAssetImageResponse.GenerationConfig(row.getWidth(), row.getHeight(),
                         row.getPublicationRequestedImageCount(), Boolean.TRUE.equals(row.getPublicationPromptExtend())),
                 row.getPublicationReviewStatus() == null ? "NONE" : row.getPublicationReviewStatus(),

@@ -61,7 +61,7 @@ public class PublicationReviewOutcomeService {
         notification.setRecipientUserId(image.getUserId());
         notification.setCategory("OFFICIAL");
         notification.setEventType("PUBLICATION_" + status);
-        notification.setImageId(image.getId());
+        notification.setAssetId(image.getId());
         notification.setTitle(title);
         notification.setContent(content);
         notification.setMetadataJson(metadataJson);

@@ -116,7 +116,7 @@ class GenerationAssetQueryServiceTests {
         row.setWidth(1024);
         row.setHeight(768);
         row.setCreatedAt(createdAt);
-        row.setFavorited(false);
+        row.setIsFavorited(false);
         row.setPublicationPrompt("prompt-" + imageId);
         row.setPublicationNegativePrompt("negative-" + imageId);
         row.setPublicationRequestedImageCount(4);

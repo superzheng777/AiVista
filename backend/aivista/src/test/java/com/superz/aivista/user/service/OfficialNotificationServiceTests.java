@@ -36,7 +36,7 @@ class OfficialNotificationServiceTests {
         UserNotification notification = new UserNotification();
         notification.setId(11L);
         notification.setEventType("PUBLICATION_REJECTED");
-        notification.setImageId(21L);
+        notification.setAssetId(21L);
         notification.setTitle("发布未通过");
         notification.setContent("请修改后重新发布");
         notification.setMetadataJson("{\"violations\":[{\"field\":\"title\",\"reasonCode\":\"CONTENT_POLICY\"}]}");
@@ -58,7 +58,7 @@ class OfficialNotificationServiceTests {
     void listsOfficialNotificationWhenItsOptionalImagePreviewCannotBeResolved() {
         UserNotification notification = new UserNotification();
         notification.setId(12L);
-        notification.setImageId(22L);
+        notification.setAssetId(22L);
         notification.setEventType("PUBLICATION_APPROVED");
         notification.setTitle("图片发布成功");
         notification.setContent("你的图片已发布到灵感页。");

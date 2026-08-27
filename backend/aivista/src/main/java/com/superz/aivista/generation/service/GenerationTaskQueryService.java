@@ -83,7 +83,7 @@ public class GenerationTaskQueryService {
         GenerationAssetImageResponse.ImageUrls urls = image.getDeletedAt() == null
                 ? urls(image.getObjectKey(), expiresAt) : new GenerationAssetImageResponse.ImageUrls(null, null);
         return new GenerationAssetImageResponse(String.valueOf(image.getId()), image.getSourceIndex(), urls,
-                image.getCreatedAt(), Boolean.TRUE.equals(image.getFavorited()), task.getFinalPrompt(),
+                image.getCreatedAt(), Boolean.TRUE.equals(image.getIsFavorited()), task.getFinalPrompt(),
                 task.getFinalNegativePrompt(), new GenerationAssetImageResponse.GenerationConfig(task.getWidth(),
                         task.getHeight(), task.getRequestedImageCount(), Boolean.TRUE.equals(task.getPromptExtend())),
                 image.getPublicationReviewStatus() == null ? "NONE" : image.getPublicationReviewStatus(),

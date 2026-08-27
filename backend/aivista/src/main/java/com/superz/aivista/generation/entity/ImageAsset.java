@@ -28,10 +28,6 @@ public class ImageAsset {
     private Long fileSize;
     private Integer width;
     private Integer height;
-    @Column("is_favorited")
-    private Boolean favorited;
-    /** MyBatis 下划线映射会把 is_favorited 识别为 isFavorited；不持久化第二个字段。 */
-    @Column(ignore = true)
     private Boolean isFavorited;
     private Instant deletedAt;
     private Instant expiresAt;
@@ -65,13 +61,4 @@ public class ImageAsset {
     private Integer publicationRequestedImageCount;
     @Column(ignore = true)
     private Boolean publicationPromptExtend;
-
-    public Boolean getFavorited() {
-        return favorited != null ? favorited : isFavorited;
-    }
-
-    public void setFavorited(Boolean favorited) {
-        this.favorited = favorited;
-        this.isFavorited = favorited;
-    }
 }

@@ -16,13 +16,16 @@ public interface UserNotificationMapper extends BaseMapper<UserNotification> {
     @Options(useGeneratedKeys = true, keyProperty = "id")
     int insertInteraction(UserNotification notification);
 
-    @Insert("INSERT IGNORE INTO user_notifications (recipient_user_id, category, event_type, actor_user_id, asset_id, publication_version, title, content, metadata_json, created_at) VALUES (#{recipientUserId}, #{category}, #{eventType}, #{actorUserId}, #{imageId}, #{publicationVersion}, #{title}, #{content}, #{metadataJson}, #{createdAt})")
+    @Insert("INSERT IGNORE INTO user_notifications (recipient_user_id, category, event_type, actor_user_id, asset_id, publication_version, title, content, metadata_json, created_at) VALUES (#{recipientUserId}, #{category}, #{eventType}, #{actorUserId}, #{assetId}, #{publicationVersion}, #{title}, #{content}, #{metadataJson}, #{createdAt})")
     @Options(useGeneratedKeys = true, keyProperty = "id")
     int insertImageLikeInteractionIfAbsent(UserNotification notification);
 
     @Select("""
             <script>
-            SELECT * FROM user_notifications
+            SELECT id, recipient_user_id, category, event_type, actor_user_id,
+                   asset_id, publication_version, title, content,
+                   metadata_json, read_at, created_at, deleted_at
+            FROM user_notifications
             WHERE recipient_user_id = #{userId}
               AND category = 'INTERACTION'
               AND deleted_at IS NULL
@@ -69,7 +72,10 @@ public interface UserNotificationMapper extends BaseMapper<UserNotification> {
 
     @Select("""
             <script>
-            SELECT * FROM user_notifications
+            SELECT id, recipient_user_id, category, event_type, actor_user_id,
+                   asset_id, publication_version, title, content,
+                   metadata_json, read_at, created_at, deleted_at
+            FROM user_notifications
             WHERE recipient_user_id = #{userId}
               AND category = 'OFFICIAL'
               AND deleted_at IS NULL

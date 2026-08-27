@@ -51,7 +51,7 @@ public class OfficialNotificationService {
         List<UserNotification> notifications = hasNext ? page.subList(0, PAGE_SIZE) : page;
         Map<Long, GenerationAssetImageResponse> images = associatedImages(userId, notifications);
         List<OfficialNotificationResponse> items = notifications.stream()
-                .map(notification -> toResponse(notification, images.get(notification.getImageId()))).toList();
+                .map(notification -> toResponse(notification, images.get(notification.getAssetId()))).toList();
         return new OfficialNotificationPageResponse(items, hasNext ? encode(notifications.getLast()) : null);
     }
 
@@ -94,7 +94,7 @@ public class OfficialNotificationService {
 
     /** A notification remains readable even when its optional image preview cannot be resolved. */
     private Map<Long, GenerationAssetImageResponse> associatedImages(long userId, List<UserNotification> notifications) {
-        List<Long> imageIds = notifications.stream().map(UserNotification::getImageId)
+        List<Long> imageIds = notifications.stream().map(UserNotification::getAssetId)
                 .filter(Objects::nonNull).distinct().toList();
         try {
             return assets.getByIds(userId, imageIds);

@@ -120,7 +120,7 @@ public class InspirationQueryService {
         return rows.stream().map(image -> new GenerationAssetImageResponse(
                 String.valueOf(image.getId()),
                 image.getSourceIndex(),
-                urls(image.getObjectKey(), expiresAt), image.getCreatedAt(), includeFavorite && Boolean.TRUE.equals(image.getFavorited()),
+                urls(image.getObjectKey(), expiresAt), image.getCreatedAt(), includeFavorite && Boolean.TRUE.equals(image.getIsFavorited()),
                 image.getPublicationPrompt(), image.getPublicationNegativePrompt(),
                 new GenerationAssetImageResponse.GenerationConfig(image.getWidth(), image.getHeight(),
                         image.getPublicationRequestedImageCount(), Boolean.TRUE.equals(image.getPublicationPromptExtend())),

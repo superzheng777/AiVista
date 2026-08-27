@@ -99,20 +99,20 @@ public class InteractionNotificationService {
 
     private Map<Long, GenerationAssetImageResponse> publicationImages(long viewerUserId,
             List<UserNotification> notifications) {
-        List<Long> imageIds = notifications.stream().map(UserNotification::getImageId)
+        List<Long> imageIds = notifications.stream().map(UserNotification::getAssetId)
                 .filter(java.util.Objects::nonNull).distinct().toList();
         if (imageIds.isEmpty()) return Map.of();
         Map<Long, GenerationAssetImageResponse> imagesById = inspirations.toPublicImages(
                 images.selectPublishedByIds(imageIds), viewerUserId).stream().collect(Collectors.toMap(
                         image -> Long.valueOf(image.imageId()), Function.identity()));
-        return notifications.stream().filter(notification -> notification.getImageId() != null
+        return notifications.stream().filter(notification -> notification.getAssetId() != null
                         && notification.getPublicationVersion() != null)
                 .filter(notification -> {
-                    GenerationAssetImageResponse image = imagesById.get(notification.getImageId());
+                    GenerationAssetImageResponse image = imagesById.get(notification.getAssetId());
                     return image != null && image.publicationVersion() == notification.getPublicationVersion();
                 })
                 .collect(Collectors.toMap(UserNotification::getId,
-                        notification -> imagesById.get(notification.getImageId())));
+                        notification -> imagesById.get(notification.getAssetId())));
     }
 
     private static String encode(UserNotification notification) {

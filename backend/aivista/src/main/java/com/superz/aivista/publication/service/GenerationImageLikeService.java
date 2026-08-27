@@ -81,7 +81,7 @@ public class GenerationImageLikeService {
         notification.setCategory("INTERACTION");
         notification.setEventType("IMAGE_LIKED");
         notification.setActorUserId(actorUserId);
-        notification.setImageId(imageId);
+        notification.setAssetId(imageId);
         notification.setPublicationVersion(publicationVersion);
         notification.setTitle("作品获得点赞");
         notification.setContent("有人点赞了你的作品");
