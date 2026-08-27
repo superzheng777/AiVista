@@ -6,9 +6,9 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.superz.aivista.generation.config.GenerationSseProperties;
-import com.superz.aivista.generation.entity.GenerationImage;
+import com.superz.aivista.generation.entity.ImageAsset;
 import com.superz.aivista.generation.entity.OutboxEvent;
-import com.superz.aivista.generation.mapper.GenerationImageMapper;
+import com.superz.aivista.generation.mapper.ImageAssetMapper;
 import com.superz.aivista.generation.mapper.OutboxEventMapper;
 import com.superz.aivista.generation.service.GenerationSseConnectionService;
 import java.time.Clock;
@@ -24,14 +24,14 @@ class PublicationStatusEventDispatcherTests {
     @Test
     void readsImagesAndPublishesEventsInBatches() {
         OutboxEventMapper outbox = mock(OutboxEventMapper.class);
-        GenerationImageMapper images = mock(GenerationImageMapper.class);
+        ImageAssetMapper images = mock(ImageAssetMapper.class);
         OutboxEvent first = event(11L, 301L);
         OutboxEvent second = event(12L, 302L);
         when(outbox.selectAvailableByEventType("PUBLICATION_STATUS_CHANGED", NOW, 100))
                 .thenReturn(List.of(first, second));
         when(outbox.claimPending(11L, NOW, NOW)).thenReturn(1);
         when(outbox.claimPending(12L, NOW, NOW)).thenReturn(1);
-        when(images.selectByImageIds(List.of(301L, 302L))).thenReturn(List.of(image(301L), image(302L)));
+        when(images.selectByAssetIds(List.of(301L, 302L))).thenReturn(List.of(image(301L), image(302L)));
 
         dispatcher(outbox, images).dispatchAvailableEvents();
 
@@ -46,14 +46,14 @@ class PublicationStatusEventDispatcherTests {
         when(outbox.selectProcessingLockedBefore("PUBLICATION_STATUS_CHANGED", NOW.minusSeconds(30), 100))
                 .thenReturn(List.of(stale));
 
-        dispatcher(outbox, mock(GenerationImageMapper.class)).dispatchAvailableEvents();
+        dispatcher(outbox, mock(ImageAssetMapper.class)).dispatchAvailableEvents();
 
         verify(outbox).rescheduleBatch(List.of(stale), "SSE publication event processing lease expired");
         org.assertj.core.api.Assertions.assertThat(stale.getRetryCount()).isEqualTo(3);
         org.assertj.core.api.Assertions.assertThat(stale.getAvailableAt()).isEqualTo(NOW);
     }
 
-    private static PublicationStatusEventDispatcher dispatcher(OutboxEventMapper outbox, GenerationImageMapper images) {
+    private static PublicationStatusEventDispatcher dispatcher(OutboxEventMapper outbox, ImageAssetMapper images) {
         return new PublicationStatusEventDispatcher(outbox, images, mock(GenerationSseConnectionService.class), properties(),
                 new ObjectMapper(), Clock.fixed(NOW, ZoneOffset.UTC));
     }
@@ -72,8 +72,8 @@ class PublicationStatusEventDispatcherTests {
         return event;
     }
 
-    private static GenerationImage image(long id) {
-        GenerationImage image = new GenerationImage();
+    private static ImageAsset image(long id) {
+        ImageAsset image = new ImageAsset();
         image.setId(id);
         image.setUserId(7L);
         return image;

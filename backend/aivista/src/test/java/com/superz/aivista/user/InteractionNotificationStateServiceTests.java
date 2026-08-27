@@ -10,7 +10,7 @@ import static org.mockito.Mockito.when;
 
 import com.superz.aivista.common.exception.BusinessException;
 import com.superz.aivista.common.exception.ErrorCode;
-import com.superz.aivista.generation.mapper.GenerationImageMapper;
+import com.superz.aivista.generation.mapper.ImageAssetMapper;
 import com.superz.aivista.publication.service.InspirationQueryService;
 import com.superz.aivista.user.mapper.UserMapper;
 import com.superz.aivista.user.mapper.UserNotificationMapper;
@@ -59,7 +59,7 @@ class InteractionNotificationStateServiceTests {
     }
 
     private static InteractionNotificationService service(UserNotificationMapper notifications) {
-        return new InteractionNotificationService(notifications, mock(UserMapper.class), mock(GenerationImageMapper.class),
+        return new InteractionNotificationService(notifications, mock(UserMapper.class), mock(ImageAssetMapper.class),
                 mock(InspirationQueryService.class), Clock.fixed(NOW, ZoneOffset.UTC));
     }
 }

@@ -5,9 +5,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.times;
 
-import com.superz.aivista.generation.entity.GenerationImage;
+import com.superz.aivista.generation.entity.ImageAsset;
 import com.superz.aivista.generation.entity.OutboxEvent;
-import com.superz.aivista.generation.mapper.GenerationImageMapper;
+import com.superz.aivista.generation.mapper.ImageAssetMapper;
 import com.superz.aivista.generation.mapper.OutboxEventMapper;
 import com.superz.aivista.publication.model.PublicationViolation;
 import com.superz.aivista.user.entity.UserNotification;
@@ -22,10 +22,10 @@ import org.mockito.ArgumentCaptor;
 class PublicationReviewOutcomeServiceTests {
     @Test
     void approvalCreatesOfficialMessageAndReliableSseEvent() {
-        GenerationImageMapper images = mock(GenerationImageMapper.class);
+        ImageAssetMapper images = mock(ImageAssetMapper.class);
         OutboxEventMapper outbox = mock(OutboxEventMapper.class);
         UserNotificationMapper notifications = mock(UserNotificationMapper.class);
-        GenerationImage image = new GenerationImage();
+        ImageAsset image = new ImageAsset();
         image.setId(42L);
         image.setUserId(5L);
         when(images.approvePublication(42L, 7L, Instant.parse("2026-08-09T12:00:00Z"))).thenReturn(1);
@@ -48,14 +48,14 @@ class PublicationReviewOutcomeServiceTests {
 
     @Test
     void rejectionStoresSafeFieldLevelMetadata() {
-        GenerationImageMapper images = mock(GenerationImageMapper.class);
+        ImageAssetMapper images = mock(ImageAssetMapper.class);
         OutboxEventMapper outbox = mock(OutboxEventMapper.class);
         UserNotificationMapper notifications = mock(UserNotificationMapper.class);
-        GenerationImage image = new GenerationImage();
+        ImageAsset image = new ImageAsset();
         image.setId(42L);
         image.setUserId(5L);
         Instant now = Instant.parse("2026-08-09T12:00:00Z");
-        when(images.rejectPublication(42L, 7L, now)).thenReturn(1);
+        when(images.rejectPublication(42L, 7L)).thenReturn(1);
 
         new PublicationReviewOutcomeService(images, outbox, notifications, Clock.fixed(now, ZoneOffset.UTC),
                 new com.fasterxml.jackson.databind.ObjectMapper()).reject(image, 7L, List.of(

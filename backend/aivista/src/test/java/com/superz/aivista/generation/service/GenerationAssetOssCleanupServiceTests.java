@@ -11,8 +11,8 @@ import static org.mockito.Mockito.when;
 import com.aliyun.oss.OSS;
 import com.superz.aivista.generation.config.GenerationAssetCleanupProperties;
 import com.superz.aivista.generation.config.GenerationOssProperties;
-import com.superz.aivista.generation.entity.GenerationImage;
-import com.superz.aivista.generation.mapper.GenerationImageMapper;
+import com.superz.aivista.generation.entity.ImageAsset;
+import com.superz.aivista.generation.mapper.ImageAssetMapper;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -25,9 +25,9 @@ class GenerationAssetOssCleanupServiceTests {
 
     @Test
     void removesAvailableObjectsAndMarksThemSucceeded() {
-        GenerationImageMapper imageMapper = mock(GenerationImageMapper.class);
+        ImageAssetMapper imageMapper = mock(ImageAssetMapper.class);
         OSS ossClient = mock(OSS.class);
-        GenerationImage image = image(101L, "users/7/tasks/9/0");
+        ImageAsset image = image(101L, "users/7/tasks/9/0");
         when(imageMapper.selectPendingOssCleanup(NOW, 100)).thenReturn(List.of(image));
 
         service(imageMapper, ossClient).cleanAvailableObjects();
@@ -41,10 +41,10 @@ class GenerationAssetOssCleanupServiceTests {
 
     @Test
     void reschedulesOnlyTheFailedObjectAndContinuesTheBatch() {
-        GenerationImageMapper imageMapper = mock(GenerationImageMapper.class);
+        ImageAssetMapper imageMapper = mock(ImageAssetMapper.class);
         OSS ossClient = mock(OSS.class);
-        GenerationImage failed = image(101L, "users/7/tasks/9/0");
-        GenerationImage succeeded = image(102L, "users/7/tasks/9/1");
+        ImageAsset failed = image(101L, "users/7/tasks/9/0");
+        ImageAsset succeeded = image(102L, "users/7/tasks/9/1");
         when(imageMapper.selectPendingOssCleanup(NOW, 100)).thenReturn(List.of(failed, succeeded));
         doThrow(new IllegalStateException("OSS unavailable"))
                 .when(ossClient).deleteObject("private-bucket", failed.getObjectKey() + "/original.png");
@@ -58,7 +58,7 @@ class GenerationAssetOssCleanupServiceTests {
 
     @Test
     void doesNothingWhenNoCleanupIsDue() {
-        GenerationImageMapper imageMapper = mock(GenerationImageMapper.class);
+        ImageAssetMapper imageMapper = mock(ImageAssetMapper.class);
         when(imageMapper.selectPendingOssCleanup(NOW, 100)).thenReturn(List.of());
 
         service(imageMapper, mock(OSS.class)).cleanAvailableObjects();
@@ -67,7 +67,7 @@ class GenerationAssetOssCleanupServiceTests {
         verify(imageMapper, never()).markOssCleanupSucceeded(org.mockito.ArgumentMatchers.anyLong());
     }
 
-    private static GenerationAssetOssCleanupService service(GenerationImageMapper imageMapper, OSS ossClient) {
+    private static GenerationAssetOssCleanupService service(ImageAssetMapper imageMapper, OSS ossClient) {
         return new GenerationAssetOssCleanupService(imageMapper, ossClient,
                 new GenerationOssProperties("oss.example", "private-bucket", "key-id", "key-secret", "users",
                         Duration.ofMinutes(10), Duration.ofSeconds(5), Duration.ofSeconds(60)),
@@ -75,8 +75,8 @@ class GenerationAssetOssCleanupServiceTests {
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
-    private static GenerationImage image(long id, String objectKey) {
-        GenerationImage image = new GenerationImage();
+    private static ImageAsset image(long id, String objectKey) {
+        ImageAsset image = new ImageAsset();
         image.setId(id);
         image.setObjectKey(objectKey);
         return image;

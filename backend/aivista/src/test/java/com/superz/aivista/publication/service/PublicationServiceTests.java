@@ -11,10 +11,10 @@ import static org.mockito.Mockito.when;
 
 import com.superz.aivista.common.exception.BusinessException;
 import com.superz.aivista.common.exception.ErrorCode;
-import com.superz.aivista.generation.entity.GenerationImage;
-import com.superz.aivista.generation.mapper.GenerationImageMapper;
+import com.superz.aivista.generation.entity.ImageAsset;
+import com.superz.aivista.generation.mapper.ImageAssetMapper;
 import com.superz.aivista.generation.mapper.OutboxEventMapper;
-import com.superz.aivista.publication.mapper.GenerationImageLikeMapper;
+import com.superz.aivista.publication.mapper.ImageAssetLikeMapper;
 import com.superz.aivista.user.mapper.UserMapper;
 import java.time.Clock;
 import java.time.Instant;
@@ -27,9 +27,9 @@ class PublicationServiceTests {
     private static final long IMAGE_ID = 42L;
     private static final Instant NOW = Instant.parse("2026-08-09T12:00:00Z");
 
-    private final GenerationImageMapper images = mock(GenerationImageMapper.class);
+    private final ImageAssetMapper images = mock(ImageAssetMapper.class);
     private final UserMapper users = mock(UserMapper.class);
-    private final GenerationImageLikeMapper likes = mock(GenerationImageLikeMapper.class);
+    private final ImageAssetLikeMapper likes = mock(ImageAssetLikeMapper.class);
     private final OutboxEventMapper outbox = mock(OutboxEventMapper.class);
     private PublicationService service;
 
@@ -41,7 +41,8 @@ class PublicationServiceTests {
 
     @Test
     void startsReviewForAPublishableImage() {
-        when(images.selectOwnedByIdForUpdate(IMAGE_ID, USER_ID)).thenReturn(imageWithStatus("NONE"));
+        when(images.selectVisibleOwnedByIdForUpdate(IMAGE_ID, USER_ID)).thenReturn(imageWithStatus(null));
+        when(images.markPublicationPending(IMAGE_ID, "title", "description", NOW)).thenReturn(1);
 
         var response = service.request(USER_ID, IMAGE_ID, " title ", " description ");
 
@@ -52,7 +53,7 @@ class PublicationServiceTests {
 
     @Test
     void returnsPendingWithoutCreatingAnotherReviewWhenAlreadyPending() {
-        when(images.selectOwnedByIdForUpdate(IMAGE_ID, USER_ID)).thenReturn(imageWithStatus("PENDING"));
+        when(images.selectVisibleOwnedByIdForUpdate(IMAGE_ID, USER_ID)).thenReturn(imageWithStatus("PENDING"));
 
         var response = service.request(USER_ID, IMAGE_ID, "another title", "another description");
 
@@ -63,9 +64,9 @@ class PublicationServiceTests {
 
     @Test
     void rejectsAnAlreadyPublishedImage() {
-        GenerationImage image = imageWithStatus("APPROVED");
+        ImageAsset image = imageWithStatus("APPROVED");
         image.setPublicAt(NOW);
-        when(images.selectOwnedByIdForUpdate(IMAGE_ID, USER_ID)).thenReturn(image);
+        when(images.selectVisibleOwnedByIdForUpdate(IMAGE_ID, USER_ID)).thenReturn(image);
 
         assertThatThrownBy(() -> service.request(USER_ID, IMAGE_ID, "title", "description"))
                 .isInstanceOfSatisfying(BusinessException.class,
@@ -75,23 +76,23 @@ class PublicationServiceTests {
 
     @Test
     void withdrawRemovesCurrentPublicationLikesAndReceivedCount() {
-        GenerationImage image = imageWithStatus("APPROVED");
+        ImageAsset image = imageWithStatus("APPROVED");
         image.setPublicAt(NOW);
         image.setLikeCount(2L);
         when(images.selectOwnedByIdForUpdate(IMAGE_ID, USER_ID)).thenReturn(image);
-        when(likes.deleteByImageAndVersion(IMAGE_ID, 0L)).thenReturn(2);
+        when(likes.deleteByAssetAndVersion(IMAGE_ID, 0L)).thenReturn(2);
         when(users.changeReceivedLikeCount(USER_ID, -2)).thenReturn(1);
 
         service.withdraw(USER_ID, IMAGE_ID);
 
-        verify(likes).deleteByImageAndVersion(IMAGE_ID, 0L);
+        verify(likes).deleteByAssetAndVersion(IMAGE_ID, 0L);
         verify(users).changeReceivedLikeCount(USER_ID, -2);
-        verify(images).withdrawPublication(IMAGE_ID, NOW);
+        verify(images).withdrawPublication(IMAGE_ID);
         verify(outbox).insertSelective(any());
     }
 
-    private static GenerationImage imageWithStatus(String status) {
-        GenerationImage image = new GenerationImage();
+    private static ImageAsset imageWithStatus(String status) {
+        ImageAsset image = new ImageAsset();
         image.setId(IMAGE_ID);
         image.setUserId(USER_ID);
         image.setPublicationReviewStatus(status);

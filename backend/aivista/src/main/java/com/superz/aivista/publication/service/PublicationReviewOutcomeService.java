@@ -2,8 +2,8 @@ package com.superz.aivista.publication.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.superz.aivista.generation.entity.GenerationImage;
-import com.superz.aivista.generation.mapper.GenerationImageMapper;
+import com.superz.aivista.generation.entity.ImageAsset;
+import com.superz.aivista.generation.mapper.ImageAssetMapper;
 import com.superz.aivista.generation.mapper.OutboxEventMapper;
 import com.superz.aivista.publication.model.PublicationViolation;
 import com.superz.aivista.user.entity.UserNotification;
@@ -18,13 +18,13 @@ import org.springframework.transaction.annotation.Transactional;
 /** Atomically records a final publication decision, notification, and SSE event. */
 @Service
 public class PublicationReviewOutcomeService {
-    private final GenerationImageMapper images;
+    private final ImageAssetMapper images;
     private final OutboxEventMapper outbox;
     private final UserNotificationMapper notifications;
     private final Clock clock;
     private final ObjectMapper objectMapper;
 
-    public PublicationReviewOutcomeService(GenerationImageMapper images, OutboxEventMapper outbox,
+    public PublicationReviewOutcomeService(ImageAssetMapper images, OutboxEventMapper outbox,
             UserNotificationMapper notifications, Clock clock, ObjectMapper objectMapper) {
         this.images = images;
         this.outbox = outbox;
@@ -34,24 +34,24 @@ public class PublicationReviewOutcomeService {
     }
 
     @Transactional
-    public void approve(GenerationImage image, long version) {
+    public void approve(ImageAsset image, long version) {
         complete(image, version, "APPROVED", "图片发布成功", "你的图片已发布到灵感页。", null,
                 () -> images.approvePublication(image.getId(), version, clock.instant()));
     }
 
     @Transactional
-    public void reject(GenerationImage image, long version, List<PublicationViolation> violations) {
+    public void reject(ImageAsset image, long version, List<PublicationViolation> violations) {
         complete(image, version, "REJECTED", "图片发布未通过", rejectionContent(violations), metadataJson(violations),
-                () -> images.rejectPublication(image.getId(), version, clock.instant()));
+                () -> images.rejectPublication(image.getId(), version));
     }
 
     @Transactional
-    public void fail(GenerationImage image, long version) {
+    public void fail(ImageAsset image, long version) {
         complete(image, version, "FAILED", "图片发布失败", "发布审核服务暂不可用，请稍后重新发布。", null,
-                () -> images.failPublication(image.getId(), version, clock.instant()));
+                () -> images.failPublication(image.getId(), version));
     }
 
-    private void complete(GenerationImage image, long version, String status, String title, String content,
+    private void complete(ImageAsset image, long version, String status, String title, String content,
             String metadataJson, Completion completion) {
         if (completion.apply() != 1) {
             return;

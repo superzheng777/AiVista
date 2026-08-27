@@ -3,9 +3,9 @@ package com.superz.aivista.publication.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.superz.aivista.generation.config.GenerationSseProperties;
-import com.superz.aivista.generation.entity.GenerationImage;
+import com.superz.aivista.generation.entity.ImageAsset;
 import com.superz.aivista.generation.entity.OutboxEvent;
-import com.superz.aivista.generation.mapper.GenerationImageMapper;
+import com.superz.aivista.generation.mapper.ImageAssetMapper;
 import com.superz.aivista.generation.mapper.OutboxEventMapper;
 import com.superz.aivista.generation.model.OutboxEventType;
 import com.superz.aivista.generation.service.GenerationSseConnectionService;
@@ -24,13 +24,13 @@ import org.springframework.stereotype.Service;
 @Service
 public class PublicationStatusEventDispatcher {
     private final OutboxEventMapper outbox;
-    private final GenerationImageMapper images;
+    private final ImageAssetMapper images;
     private final GenerationSseConnectionService connections;
     private final GenerationSseProperties properties;
     private final ObjectMapper objectMapper;
     private final Clock clock;
 
-    public PublicationStatusEventDispatcher(OutboxEventMapper outbox, GenerationImageMapper images,
+    public PublicationStatusEventDispatcher(OutboxEventMapper outbox, ImageAssetMapper images,
             GenerationSseConnectionService connections, GenerationSseProperties properties,
             ObjectMapper objectMapper, Clock clock) {
         this.outbox = outbox;
@@ -53,9 +53,9 @@ public class PublicationStatusEventDispatcher {
         if (claimed.isEmpty()) {
             return;
         }
-        Map<Long, GenerationImage> imagesById = images.selectByImageIds(
+        Map<Long, ImageAsset> imagesById = images.selectByAssetIds(
                 claimed.stream().map(OutboxEvent::getAggregateId).distinct().toList()).stream()
-                .collect(Collectors.toMap(GenerationImage::getId, Function.identity()));
+                .collect(Collectors.toMap(ImageAsset::getId, Function.identity()));
         List<Long> publishedIds = new ArrayList<>();
         List<Long> failedIds = new ArrayList<>();
         for (OutboxEvent event : claimed) {
@@ -69,7 +69,7 @@ public class PublicationStatusEventDispatcher {
         }
     }
 
-    private void publish(OutboxEvent event, GenerationImage image, List<Long> publishedIds, List<Long> failedIds) {
+    private void publish(OutboxEvent event, ImageAsset image, List<Long> publishedIds, List<Long> failedIds) {
         try {
             JsonNode payload = objectMapper.readTree(event.getPayloadJson());
             if (image != null && payload.hasNonNull("status")) {

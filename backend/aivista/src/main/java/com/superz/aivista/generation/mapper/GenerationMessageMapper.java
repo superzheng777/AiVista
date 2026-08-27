@@ -13,17 +13,6 @@ public interface GenerationMessageMapper extends BaseMapper<GenerationMessage> {
             SELECT id, session_id, sequence_no, prompt, negative_prompt, created_at
             FROM generation_messages
             WHERE session_id = #{sessionId}
-            ORDER BY sequence_no DESC
-            LIMIT #{limit}
-            """)
-    List<GenerationMessage> selectRecentBySessionId(
-            @Param("sessionId") long sessionId,
-            @Param("limit") int limit);
-
-    @Select("""
-            SELECT id, session_id, sequence_no, prompt, negative_prompt, created_at
-            FROM generation_messages
-            WHERE session_id = #{sessionId}
               AND (#{beforeSequenceNo} IS NULL OR sequence_no < #{beforeSequenceNo})
             ORDER BY sequence_no DESC
             LIMIT #{limit}

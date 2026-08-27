@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.superz.aivista.auth.entity.AuthSession;
 import com.superz.aivista.auth.mapper.AuthSessionMapper;
-import com.superz.aivista.generation.mapper.GenerationImageMapper;
+import com.superz.aivista.generation.mapper.ImageAssetMapper;
 import com.superz.aivista.generation.mapper.GenerationMessageMapper;
 import com.superz.aivista.generation.mapper.GenerationSessionMapper;
 import com.superz.aivista.generation.mapper.GenerationTaskMapper;
@@ -67,7 +67,7 @@ class DataAccessIntegrationIT {
     private GenerationTaskMapper generationTaskMapper;
 
     @Autowired
-    private GenerationImageMapper generationImageMapper;
+    private ImageAssetMapper imageAssetMapper;
 
     @Autowired
     private OutboxEventMapper outboxEventMapper;
@@ -93,12 +93,13 @@ class DataAccessIntegrationIT {
                 WHERE table_schema = DATABASE()
                   AND table_name IN (
                     'users', 'auth_sessions', 'generation_sessions', 'generation_messages',
-                    'generation_tasks', 'generation_images', 'outbox_events',
+                    'generation_tasks', 'image_assets', 'generation_task_input_assets',
+                    'image_publications', 'image_asset_likes', 'outbox_events',
                     'user_generation_daily_usage', 'user_consents'
                   )
                 """, Integer.class);
 
-        assertThat(tableCount).isEqualTo(9);
+        assertThat(tableCount).isEqualTo(12);
     }
 
     @Test
@@ -106,7 +107,7 @@ class DataAccessIntegrationIT {
         assertThat(generationSessionMapper).isNotNull();
         assertThat(generationMessageMapper).isNotNull();
         assertThat(generationTaskMapper).isNotNull();
-        assertThat(generationImageMapper).isNotNull();
+        assertThat(imageAssetMapper).isNotNull();
         assertThat(outboxEventMapper).isNotNull();
         assertThat(userGenerationDailyUsageMapper).isNotNull();
         assertThat(userConsentMapper).isNotNull();

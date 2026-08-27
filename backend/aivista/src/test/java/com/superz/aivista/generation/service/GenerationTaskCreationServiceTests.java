@@ -24,6 +24,8 @@ import com.superz.aivista.generation.entity.UserGenerationDailyUsage;
 import com.superz.aivista.generation.mapper.GenerationMessageMapper;
 import com.superz.aivista.generation.mapper.GenerationSessionMapper;
 import com.superz.aivista.generation.mapper.GenerationTaskMapper;
+import com.superz.aivista.generation.mapper.GenerationTaskInputAssetMapper;
+import com.superz.aivista.generation.mapper.ImageAssetMapper;
 import com.superz.aivista.generation.mapper.OutboxEventMapper;
 import com.superz.aivista.generation.mapper.UserGenerationDailyUsageMapper;
 import com.superz.aivista.user.mapper.UserMapper;
@@ -44,6 +46,8 @@ class GenerationTaskCreationServiceTests {
     private final GenerationSessionMapper sessionMapper = mock(GenerationSessionMapper.class);
     private final GenerationMessageMapper messageMapper = mock(GenerationMessageMapper.class);
     private final GenerationTaskMapper taskMapper = mock(GenerationTaskMapper.class);
+    private final ImageAssetMapper imageAssetMapper = mock(ImageAssetMapper.class);
+    private final GenerationTaskInputAssetMapper taskInputAssetMapper = mock(GenerationTaskInputAssetMapper.class);
     private final UserGenerationDailyUsageMapper dailyUsageMapper = mock(UserGenerationDailyUsageMapper.class);
     private final OutboxEventMapper outboxEventMapper = mock(OutboxEventMapper.class);
     private final IdempotencyRecordMapper idempotencyRecordMapper = mock(IdempotencyRecordMapper.class);
@@ -55,7 +59,7 @@ class GenerationTaskCreationServiceTests {
                 "bailian/qwen-image-2.0", 4, 12, 1000, 500, 1, 6,
                 Map.of("1:1", "2048*2048"));
         service = new GenerationTaskCreationService(userMapper, sessionMapper, messageMapper, taskMapper,
-                dailyUsageMapper, outboxEventMapper, idempotencyRecordMapper, properties,
+                imageAssetMapper, taskInputAssetMapper, dailyUsageMapper, outboxEventMapper, idempotencyRecordMapper, properties,
                 Clock.fixed(NOW, ZoneOffset.UTC), new ObjectMapper());
         when(userMapper.selectIdForUpdate(USER_ID)).thenReturn(USER_ID);
         when(taskMapper.countActiveByUserId(USER_ID)).thenReturn(0);
@@ -107,19 +111,23 @@ class GenerationTaskCreationServiceTests {
     }
 
     @Test
-    void allocatesExistingSessionMessageSequenceWhileHoldingLastMessageLock() {
+    void createsExistingSessionTaskWithOnlyCurrentPromptWhileHoldingLastMessageLock() {
         GenerationSession existingSession = new GenerationSession();
         existingSession.setId(101L);
         when(sessionMapper.selectOwnedByIdForUpdate(101L, USER_ID)).thenReturn(existingSession);
         when(messageMapper.selectLastSequenceNoForUpdate(101L)).thenReturn(2);
 
         service.create(USER_ID, IDEMPOTENCY_KEY,
-                new CreateGenerationTaskRequest("101", "future city", null, "1:1", true, 1));
+                new CreateGenerationTaskRequest("101", "future city", "no blur", "1:1", true, 1));
 
         ArgumentCaptor<GenerationMessage> message = ArgumentCaptor.forClass(GenerationMessage.class);
+        ArgumentCaptor<GenerationTask> task = ArgumentCaptor.forClass(GenerationTask.class);
         verify(messageMapper).insertSelective(message.capture());
+        verify(taskMapper).insertSelective(task.capture());
         verify(messageMapper).selectLastSequenceNoForUpdate(101L);
         assertThat(message.getValue().getSequenceNo()).isEqualTo(3);
+        assertThat(task.getValue().getFinalPrompt()).isEqualTo("future city");
+        assertThat(task.getValue().getFinalNegativePrompt()).isEqualTo("no blur");
     }
 
     @Test

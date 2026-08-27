@@ -7,9 +7,9 @@ import com.superz.aivista.generation.config.GenerationOssProperties;
 import com.superz.aivista.generation.config.GenerationBailianProperties;
 import com.superz.aivista.generation.dto.GenerationAssetImageResponse;
 import com.superz.aivista.generation.dto.GenerationTaskSnapshotResponse;
-import com.superz.aivista.generation.entity.GenerationImage;
+import com.superz.aivista.generation.entity.ImageAsset;
 import com.superz.aivista.generation.entity.GenerationTask;
-import com.superz.aivista.generation.mapper.GenerationImageMapper;
+import com.superz.aivista.generation.mapper.ImageAssetMapper;
 import com.superz.aivista.generation.model.GenerationImageObjectKeys;
 import com.superz.aivista.generation.mapper.GenerationTaskMapper;
 import java.net.URL;
@@ -24,18 +24,18 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class GenerationTaskQueryService {
     private final GenerationTaskMapper taskMapper;
-    private final GenerationImageMapper imageMapper;
+    private final ImageAssetMapper imageAssetMapper;
     private final OSS ossClient;
     private final GenerationOssProperties ossProperties;
     private final GenerationBailianProperties bailianProperties;
     private final Clock clock;
 
     /** 注入任务、图片读取器及仅用于签发私有对象短期 URL 的 OSS 客户端。 */
-    public GenerationTaskQueryService(GenerationTaskMapper taskMapper, GenerationImageMapper imageMapper,
+    public GenerationTaskQueryService(GenerationTaskMapper taskMapper, ImageAssetMapper imageAssetMapper,
             OSS generationOssClient, GenerationOssProperties ossProperties,
             GenerationBailianProperties bailianProperties, Clock clock) {
         this.taskMapper = taskMapper;
-        this.imageMapper = imageMapper;
+        this.imageAssetMapper = imageAssetMapper;
         this.ossClient = generationOssClient;
         this.ossProperties = ossProperties;
         this.bailianProperties = bailianProperties;
@@ -53,8 +53,8 @@ public class GenerationTaskQueryService {
         if (task == null) {
             throw new BusinessException(ErrorCode.GENERATION_RESOURCE_NOT_FOUND);
         }
-        List<GenerationImage> taskImages = isTerminal(task.getStatus())
-                ? imageMapper.selectByTaskId(task.getId())
+        List<ImageAsset> taskImages = isTerminal(task.getStatus())
+                ? imageAssetMapper.selectByOriginTaskId(task.getId())
                 : List.of();
         return snapshot(task, taskImages);
     }
@@ -62,7 +62,7 @@ public class GenerationTaskQueryService {
     /**
      * 将已查询出的任务及图片组装为响应快照，供批量历史查询复用，避免为每条消息重复查询图片。
      */
-    GenerationTaskSnapshotResponse snapshot(GenerationTask task, List<GenerationImage> taskImages) {
+    GenerationTaskSnapshotResponse snapshot(GenerationTask task, List<ImageAsset> taskImages) {
         Instant urlExpiresAt = clock.instant().plus(ossProperties.signedUrlTtl());
         List<GenerationAssetImageResponse> images = isTerminal(task.getStatus())
                 ? taskImages.stream()
@@ -79,7 +79,7 @@ public class GenerationTaskQueryService {
     }
 
     /** 将已转存图片转换为任务快照；已删除资产只保留其原始结果位置。 */
-    private GenerationAssetImageResponse imageResponse(GenerationTask task, GenerationImage image, Instant expiresAt) {
+    private GenerationAssetImageResponse imageResponse(GenerationTask task, ImageAsset image, Instant expiresAt) {
         GenerationAssetImageResponse.ImageUrls urls = image.getDeletedAt() == null
                 ? urls(image.getObjectKey(), expiresAt) : new GenerationAssetImageResponse.ImageUrls(null, null);
         return new GenerationAssetImageResponse(String.valueOf(image.getId()), image.getSourceIndex(), urls,

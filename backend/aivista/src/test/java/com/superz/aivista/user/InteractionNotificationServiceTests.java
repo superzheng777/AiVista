@@ -13,8 +13,8 @@ import static org.mockito.Mockito.when;
 import com.superz.aivista.common.exception.BusinessException;
 import com.superz.aivista.common.exception.ErrorCode;
 import com.superz.aivista.generation.dto.GenerationAssetImageResponse;
-import com.superz.aivista.generation.entity.GenerationImage;
-import com.superz.aivista.generation.mapper.GenerationImageMapper;
+import com.superz.aivista.generation.entity.ImageAsset;
+import com.superz.aivista.generation.mapper.ImageAssetMapper;
 import com.superz.aivista.publication.service.InspirationQueryService;
 import com.superz.aivista.user.entity.User;
 import com.superz.aivista.user.entity.UserNotification;
@@ -39,7 +39,7 @@ class InteractionNotificationServiceTests {
                 .thenReturn(notifications(16));
         when(users.selectPublicByIds(anyList())).thenReturn(List.of(actor()));
 
-        var response = service(notifications, users, mock(GenerationImageMapper.class), mock(InspirationQueryService.class))
+        var response = service(notifications, users, mock(ImageAssetMapper.class), mock(InspirationQueryService.class))
                 .list(1L, null);
 
         assertThat(response.items()).hasSize(15);
@@ -55,11 +55,11 @@ class InteractionNotificationServiceTests {
         notification.setPublicationVersion(2L);
         UserNotificationMapper notifications = mock(UserNotificationMapper.class);
         UserMapper users = mock(UserMapper.class);
-        GenerationImageMapper images = mock(GenerationImageMapper.class);
+        ImageAssetMapper images = mock(ImageAssetMapper.class);
         InspirationQueryService inspirations = mock(InspirationQueryService.class);
         when(notifications.selectInteractionPageByRecipientUserId(1L, null, null, 16)).thenReturn(List.of(notification));
         when(users.selectPublicByIds(List.of(2L))).thenReturn(List.of(actor()));
-        GenerationImage image = new GenerationImage();
+        ImageAsset image = new ImageAsset();
         image.setId(9L);
         when(images.selectPublishedByIds(List.of(9L))).thenReturn(List.of(image));
         when(inspirations.toPublicImages(anyList(), anyLong())).thenReturn(List.of(imageResponse(9L, 3L)));
@@ -73,7 +73,7 @@ class InteractionNotificationServiceTests {
     void rejectsMalformedCursorBeforeQueryingNotifications() {
         UserNotificationMapper notifications = mock(UserNotificationMapper.class);
 
-        assertThatThrownBy(() -> service(notifications, mock(UserMapper.class), mock(GenerationImageMapper.class),
+        assertThatThrownBy(() -> service(notifications, mock(UserMapper.class), mock(ImageAssetMapper.class),
                 mock(InspirationQueryService.class)).list(1L, "not-a-cursor"))
                 .isInstanceOfSatisfying(BusinessException.class,
                         exception -> assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.INVALID_CURSOR));
@@ -82,7 +82,7 @@ class InteractionNotificationServiceTests {
     }
 
     private static InteractionNotificationService service(UserNotificationMapper notifications, UserMapper users,
-            GenerationImageMapper images, InspirationQueryService inspirations) {
+            ImageAssetMapper images, InspirationQueryService inspirations) {
         return new InteractionNotificationService(notifications, users, images, inspirations,
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }

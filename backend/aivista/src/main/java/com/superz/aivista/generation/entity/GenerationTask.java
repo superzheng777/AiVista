@@ -19,6 +19,8 @@ public class GenerationTask {
     private Long userId;
     private Long sessionId;
     private Long sourceMessageId;
+    /** TEXT_TO_IMAGE 或 IMAGE_TO_IMAGE，由任务输入资产数量派生。 */
+    private String operation;
     private String model;
     /**
      * QUEUED、RUNNING、TRANSFERRING、SUCCEEDED、PARTIALLY_SUCCEEDED、FAILED 或 CANCELLED。
@@ -31,7 +33,7 @@ public class GenerationTask {
     private Integer attemptCount;
     /** 非空表示请求可能已发出；消息重投时不得据此再次调用服务商。 */
     private Instant providerCallStartedAt;
-    /** 按会话历史计算后的最终模型输入，仅保留给服务端追溯。 */
+    /** 本次任务实际发送给模型的提示词快照，仅保留给服务端追溯。 */
     private String finalPrompt;
     private String finalNegativePrompt;
     private Integer width;

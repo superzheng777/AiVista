@@ -9,6 +9,12 @@ export const officialNotificationQueryKeys = {
   unreadCount: ["notifications", "unread-count"] as const,
 };
 
+export type NotificationUnreadCount = {
+  officialUnreadCount: number;
+  interactionUnreadCount: number;
+  totalUnreadCount: number;
+};
+
 type OfficialNotificationDto = {
   notificationId: string;
   eventType: OfficialNotificationEventType;
@@ -28,9 +34,9 @@ export async function listOfficialNotifications(cursor: string | null): Promise<
   return { items: page.items.map(mapOfficialNotification), nextCursor: page.nextCursor };
 }
 
-export async function fetchOfficialNotificationUnreadCount(): Promise<number> {
-  const response = await browserApiClient.get<ApiResponse<{ totalUnreadCount: number }>>("/users/me/notifications/unread-count");
-  return unwrapApiResponse(response.data).totalUnreadCount;
+export async function fetchNotificationUnreadCount(): Promise<NotificationUnreadCount> {
+  const response = await browserApiClient.get<ApiResponse<NotificationUnreadCount>>("/users/me/notifications/unread-count");
+  return unwrapApiResponse(response.data);
 }
 
 export async function markOfficialNotificationRead(notificationId: string): Promise<void> {

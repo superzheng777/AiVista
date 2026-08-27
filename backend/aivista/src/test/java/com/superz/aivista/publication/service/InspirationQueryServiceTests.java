@@ -10,11 +10,11 @@ import static org.mockito.Mockito.when;
 
 import com.aliyun.oss.OSS;
 import com.superz.aivista.generation.config.GenerationOssProperties;
-import com.superz.aivista.generation.entity.GenerationImage;
-import com.superz.aivista.generation.mapper.GenerationImageMapper;
+import com.superz.aivista.generation.entity.ImageAsset;
+import com.superz.aivista.generation.mapper.ImageAssetMapper;
 import com.superz.aivista.common.exception.BusinessException;
 import com.superz.aivista.common.exception.ErrorCode;
-import com.superz.aivista.publication.mapper.GenerationImageLikeMapper;
+import com.superz.aivista.publication.mapper.ImageAssetLikeMapper;
 import java.net.URL;
 import java.time.Clock;
 import java.time.Duration;
@@ -28,9 +28,9 @@ class InspirationQueryServiceTests {
 
     @Test
     void listsAllCurrentUsersPublishedImagesIncludingDeletedAssets() throws Exception {
-        GenerationImageMapper images = mock(GenerationImageMapper.class);
+        ImageAssetMapper images = mock(ImageAssetMapper.class);
         OSS oss = mock(OSS.class);
-        GenerationImage image = image(11L);
+        ImageAsset image = image(11L);
         image.setDeletedAt(NOW.minusSeconds(60));
         when(images.selectPublishedByUserId(7L)).thenReturn(List.of(image));
         when(oss.generatePresignedUrl(anyString(), anyString(), any()))
@@ -48,51 +48,51 @@ class InspirationQueryServiceTests {
 
     @Test
     void returnsTwentyImagesAndAnOpaqueCursorOnTheFirstDiscoveryPage() throws Exception {
-        GenerationImageMapper images = mock(GenerationImageMapper.class);
+        ImageAssetMapper images = mock(ImageAssetMapper.class);
         OSS oss = mock(OSS.class);
-        List<GenerationImage> imagesOnPage = java.util.stream.LongStream.rangeClosed(1, 21)
+        List<ImageAsset> imagesOnPage = java.util.stream.LongStream.rangeClosed(1, 21)
                 .mapToObj(InspirationQueryServiceTests::image).toList();
-        when(images.selectPublishedPage(null, null, 21)).thenReturn(imagesOnPage);
+        when(images.selectPublishedPage(null, null, 31)).thenReturn(imagesOnPage);
         when(oss.generatePresignedUrl(anyString(), anyString(), any()))
                 .thenReturn(new URL("https://oss.example/signed"));
 
         var response = service(images, oss).list(null, null);
 
-        assertThat(response.items()).hasSize(20);
-        assertThat(response.nextCursor()).isNotBlank();
-        verify(images).selectPublishedPage(null, null, 21);
+        assertThat(response.items()).hasSize(21);
+        assertThat(response.nextCursor()).isNull();
+        verify(images).selectPublishedPage(null, null, 31);
     }
 
     @Test
     void returnsFortyImagesOnTheNextDiscoveryPage() throws Exception {
-        GenerationImageMapper images = mock(GenerationImageMapper.class);
+        ImageAssetMapper images = mock(ImageAssetMapper.class);
         OSS oss = mock(OSS.class);
-        when(images.selectPublishedPage(null, null, 21)).thenReturn(java.util.stream.LongStream.rangeClosed(1, 21)
+        when(images.selectPublishedPage(null, null, 31)).thenReturn(java.util.stream.LongStream.rangeClosed(1, 31)
                 .mapToObj(InspirationQueryServiceTests::image).toList());
         when(oss.generatePresignedUrl(anyString(), anyString(), any()))
                 .thenReturn(new URL("https://oss.example/signed"));
         InspirationQueryService service = service(images, oss);
         String cursor = service.list(null, null).nextCursor();
-        GenerationImage boundary = image(20L);
-        when(images.selectPublishedPage(boundary.getPublicAt(), 20L, 41)).thenReturn(
-                java.util.stream.LongStream.rangeClosed(101, 141)
+        ImageAsset boundary = image(30L);
+        when(images.selectPublishedPage(boundary.getPublicAt(), 30L, 31)).thenReturn(
+                java.util.stream.LongStream.rangeClosed(101, 131)
                         .mapToObj(InspirationQueryServiceTests::image).toList());
 
         var response = service.list(null, cursor);
 
-        assertThat(response.items()).hasSize(40);
+        assertThat(response.items()).hasSize(30);
         assertThat(response.nextCursor()).isNotBlank();
-        verify(images).selectPublishedPage(boundary.getPublicAt(), 20L, 41);
+        verify(images).selectPublishedPage(boundary.getPublicAt(), 30L, 31);
     }
 
     @Test
     void listsCurrentFollowedAuthorsAndRejectsDiscoveryCursorReuse() throws Exception {
-        GenerationImageMapper images = mock(GenerationImageMapper.class);
-        GenerationImageLikeMapper likes = mock(GenerationImageLikeMapper.class);
+        ImageAssetMapper images = mock(ImageAssetMapper.class);
+        ImageAssetLikeMapper likes = mock(ImageAssetLikeMapper.class);
         OSS oss = mock(OSS.class);
-        when(images.selectFollowingPublishedPage(7L, null, null, 21)).thenReturn(List.of(image(11L)));
-        when(likes.selectCurrentLikedImageIds(7L, List.of(11L))).thenReturn(List.of());
-        when(images.selectPublishedPage(null, null, 21)).thenReturn(java.util.stream.LongStream.rangeClosed(1, 21)
+        when(images.selectFollowingPublishedPage(7L, null, null, 31)).thenReturn(List.of(image(11L)));
+        when(likes.selectCurrentLikedAssetIds(7L, List.of(11L))).thenReturn(List.of());
+        when(images.selectPublishedPage(null, null, 31)).thenReturn(java.util.stream.LongStream.rangeClosed(1, 31)
                 .mapToObj(InspirationQueryServiceTests::image).toList());
         when(oss.generatePresignedUrl(anyString(), anyString(), any()))
                 .thenReturn(new URL("https://oss.example/signed"));
@@ -103,7 +103,7 @@ class InspirationQueryServiceTests {
 
         assertThat(following.items()).singleElement().satisfies(item -> assertThat(item.imageId()).isEqualTo("11"));
         assertThat(following.nextCursor()).isNull();
-        verify(images).selectFollowingPublishedPage(7L, null, null, 21);
+        verify(images).selectFollowingPublishedPage(7L, null, null, 31);
         assertThatThrownBy(() -> service.listFollowing(7L, discoveryCursor))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(error -> assertThat(((BusinessException) error).getErrorCode())
@@ -112,7 +112,7 @@ class InspirationQueryServiceTests {
 
     @Test
     void refreshesOnlyTheRequestedPublishedImage() throws Exception {
-        GenerationImageMapper images = mock(GenerationImageMapper.class);
+        ImageAssetMapper images = mock(ImageAssetMapper.class);
         OSS oss = mock(OSS.class);
         when(images.selectPublishedById(11L)).thenReturn(image(11L));
         when(oss.generatePresignedUrl(anyString(), anyString(), any()))
@@ -125,11 +125,11 @@ class InspirationQueryServiceTests {
         verify(images).selectPublishedById(11L);
     }
 
-    private static InspirationQueryService service(GenerationImageMapper images, OSS oss) {
-        return service(images, mock(GenerationImageLikeMapper.class), oss);
+    private static InspirationQueryService service(ImageAssetMapper images, OSS oss) {
+        return service(images, mock(ImageAssetLikeMapper.class), oss);
     }
 
-    private static InspirationQueryService service(GenerationImageMapper images, GenerationImageLikeMapper likes,
+    private static InspirationQueryService service(ImageAssetMapper images, ImageAssetLikeMapper likes,
             OSS oss) {
         return new InspirationQueryService(images, likes, oss,
                 new GenerationOssProperties("oss.example", "private-bucket", "id", "secret", "users",
@@ -137,9 +137,12 @@ class InspirationQueryServiceTests {
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
-    private static GenerationImage image(long id) {
-        GenerationImage image = new GenerationImage();
+    private static ImageAsset image(long id) {
+        ImageAsset image = new ImageAsset();
         image.setId(id);
+        image.setUserId(7L);
+        image.setSourceIndex(0);
+        image.setCreatedAt(NOW.minusSeconds(1));
         image.setObjectKey("users/7/images/" + id);
         image.setWidth(1024);
         image.setHeight(1024);
@@ -149,6 +152,8 @@ class InspirationQueryServiceTests {
         image.setPublicationPrompt("prompt");
         image.setPublicationRequestedImageCount(1);
         image.setPublicationPromptExtend(true);
+        image.setPublicationReviewStatus("APPROVED");
+        image.setPublicationVersion(1L);
         return image;
     }
 }

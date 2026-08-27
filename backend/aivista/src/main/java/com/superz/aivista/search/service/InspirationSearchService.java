@@ -3,8 +3,8 @@ package com.superz.aivista.search.service;
 import com.superz.aivista.common.exception.BusinessException;
 import com.superz.aivista.common.exception.ErrorCode;
 import com.superz.aivista.generation.dto.GenerationAssetImageResponse;
-import com.superz.aivista.generation.entity.GenerationImage;
-import com.superz.aivista.generation.mapper.GenerationImageMapper;
+import com.superz.aivista.generation.entity.ImageAsset;
+import com.superz.aivista.generation.mapper.ImageAssetMapper;
 import com.superz.aivista.publication.service.InspirationQueryService;
 import com.superz.aivista.search.client.MeilisearchSearchClient;
 import com.superz.aivista.search.client.MeilisearchSearchException;
@@ -22,10 +22,10 @@ public class InspirationSearchService {
     private static final int PAGE_SIZE = 30;
     private static final int MAX_OFFSET = 200;
     private final MeilisearchSearchClient searchClient;
-    private final GenerationImageMapper images;
+    private final ImageAssetMapper images;
     private final InspirationQueryService inspirationQuery;
 
-    public InspirationSearchService(MeilisearchSearchClient searchClient, GenerationImageMapper images,
+    public InspirationSearchService(MeilisearchSearchClient searchClient, ImageAssetMapper images,
             InspirationQueryService inspirationQuery) {
         this.searchClient = searchClient;
         this.images = images;
@@ -52,7 +52,7 @@ public class InspirationSearchService {
     }
 
     private InspirationSearchPageResponse collect(String query, int startOffset, int pageSize, Long viewerUserId) {
-        List<GenerationImage> collected = new ArrayList<>(pageSize);
+        List<ImageAsset> collected = new ArrayList<>(pageSize);
         Set<Long> seen = new HashSet<>();
         int rawOffset = startOffset;
         boolean exhausted = false;
@@ -64,12 +64,12 @@ public class InspirationSearchService {
                 break;
             }
             List<Long> uniqueIds = hitIds.stream().filter(seen::add).toList();
-            Map<Long, GenerationImage> validById = uniqueIds.isEmpty() ? Map.of()
+            Map<Long, ImageAsset> validById = uniqueIds.isEmpty() ? Map.of()
                     : images.selectPublishedByIds(uniqueIds).stream().collect(java.util.stream.Collectors.toMap(
-                            GenerationImage::getId, image -> image, (first, ignored) -> first, LinkedHashMap::new));
+                            ImageAsset::getId, image -> image, (first, ignored) -> first, LinkedHashMap::new));
             for (Long imageId : hitIds) {
                 rawOffset++;
-                GenerationImage image = validById.get(imageId);
+                ImageAsset image = validById.get(imageId);
                 if (image != null && collected.stream().noneMatch(item -> item.getId().equals(imageId))) {
                     collected.add(image);
                     if (collected.size() == pageSize) break;

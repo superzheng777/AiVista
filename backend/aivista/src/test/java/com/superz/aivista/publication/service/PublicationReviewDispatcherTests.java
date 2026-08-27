@@ -4,9 +4,9 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.superz.aivista.generation.entity.GenerationImage;
+import com.superz.aivista.generation.entity.ImageAsset;
 import com.superz.aivista.generation.entity.OutboxEvent;
-import com.superz.aivista.generation.mapper.GenerationImageMapper;
+import com.superz.aivista.generation.mapper.ImageAssetMapper;
 import com.superz.aivista.generation.mapper.OutboxEventMapper;
 import java.time.Clock;
 import java.time.Instant;
@@ -20,14 +20,14 @@ class PublicationReviewDispatcherTests {
     @Test
     void marksImageFailedAndStopsAfterThirdProviderFailure() {
         OutboxEventMapper outbox = mock(OutboxEventMapper.class);
-        GenerationImageMapper images = mock(GenerationImageMapper.class);
+        ImageAssetMapper images = mock(ImageAssetMapper.class);
         PublicationTextModerationClient moderation = mock(PublicationTextModerationClient.class);
         PublicationReviewOutcomeService outcomes = mock(PublicationReviewOutcomeService.class);
         OutboxEvent event = reviewEvent(18L, 42L, 7L, 2);
-        GenerationImage image = pendingImage(42L, 5L, 7L);
+        ImageAsset image = pendingImage(42L, 5L, 7L);
         when(outbox.selectAvailableByEventType("PUBLICATION_TEXT_REVIEW", NOW, 20)).thenReturn(List.of(event));
         when(outbox.claimPending(18L, NOW, NOW)).thenReturn(1);
-        when(images.selectByImageId(42L)).thenReturn(image);
+        when(images.selectByAssetId(42L)).thenReturn(image);
         when(images.incrementPublicationReviewAttemptCount(42L, 7L)).thenReturn(1);
         when(moderation.moderate("title", "publication-42-title"))
                 .thenThrow(new PublicationTextModerationException(new RuntimeException("timeout")));
@@ -38,7 +38,7 @@ class PublicationReviewDispatcherTests {
         verify(outbox).markFailed(18L, "PublicationTextModerationException");
     }
 
-    private static PublicationReviewDispatcher dispatcher(OutboxEventMapper outbox, GenerationImageMapper images,
+    private static PublicationReviewDispatcher dispatcher(OutboxEventMapper outbox, ImageAssetMapper images,
             PublicationTextModerationClient moderation, PublicationReviewOutcomeService outcomes) {
         return new PublicationReviewDispatcher(outbox, images, moderation, outcomes, Clock.fixed(NOW, ZoneOffset.UTC));
     }
@@ -52,8 +52,8 @@ class PublicationReviewDispatcherTests {
         return event;
     }
 
-    private static GenerationImage pendingImage(long id, long userId, long version) {
-        GenerationImage image = new GenerationImage();
+    private static ImageAsset pendingImage(long id, long userId, long version) {
+        ImageAsset image = new ImageAsset();
         image.setId(id);
         image.setUserId(userId);
         image.setPublicationVersion(version);

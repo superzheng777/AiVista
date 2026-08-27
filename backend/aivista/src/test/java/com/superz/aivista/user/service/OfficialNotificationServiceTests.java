@@ -55,6 +55,27 @@ class OfficialNotificationServiceTests {
     }
 
     @Test
+    void listsOfficialNotificationWhenItsOptionalImagePreviewCannotBeResolved() {
+        UserNotification notification = new UserNotification();
+        notification.setId(12L);
+        notification.setImageId(22L);
+        notification.setEventType("PUBLICATION_APPROVED");
+        notification.setTitle("图片发布成功");
+        notification.setContent("你的图片已发布到灵感页。");
+        notification.setCreatedAt(Instant.parse("2026-08-09T00:00:00Z"));
+        when(notificationMapper.selectOfficialPageByRecipientUserId(USER_ID, null, null, 16)).thenReturn(List.of(notification));
+        when(assets.getByIds(USER_ID, List.of(22L))).thenThrow(new IllegalStateException("OSS unavailable"));
+
+        var response = service.list(USER_ID, null);
+
+        assertThat(response.items()).singleElement().satisfies(item -> {
+            assertThat(item.notificationId()).isEqualTo("12");
+            assertThat(item.title()).isEqualTo("图片发布成功");
+            assertThat(item.image()).isNull();
+        });
+    }
+
+    @Test
     void returnsUnreadOfficialNotificationCount() {
         when(notificationMapper.countUnreadOfficialByRecipientUserId(USER_ID)).thenReturn(3L);
 

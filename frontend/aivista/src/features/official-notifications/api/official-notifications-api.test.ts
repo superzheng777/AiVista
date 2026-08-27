@@ -6,7 +6,7 @@ vi.mock("@/shared/api/browser-client", () => ({
 
 import { browserApiClient } from "@/shared/api/browser-client";
 import {
-  fetchOfficialNotificationUnreadCount,
+  fetchNotificationUnreadCount,
   deleteOfficialNotifications,
   deleteOfficialNotification,
   listOfficialNotifications,
@@ -77,9 +77,9 @@ describe("official-notifications-api", () => {
     expect(result.nextCursor).toBeNull();
   });
 
-  it("fetchOfficialNotificationUnreadCount 返回未读数", async () => {
+  it("fetchNotificationUnreadCount 保留官方与互动未读数", async () => {
     client.get.mockResolvedValue(responseData({ officialUnreadCount: 2, interactionUnreadCount: 1, totalUnreadCount: 3 }));
-    await expect(fetchOfficialNotificationUnreadCount()).resolves.toBe(3);
+    await expect(fetchNotificationUnreadCount()).resolves.toEqual({ officialUnreadCount: 2, interactionUnreadCount: 1, totalUnreadCount: 3 });
     expect(client.get).toHaveBeenCalledWith("/users/me/notifications/unread-count");
   });
 

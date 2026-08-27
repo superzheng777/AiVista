@@ -9,10 +9,10 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.superz.aivista.generation.entity.GenerationImage;
+import com.superz.aivista.generation.entity.ImageAsset;
 import com.superz.aivista.generation.entity.GenerationTask;
 import com.superz.aivista.generation.entity.OutboxEvent;
-import com.superz.aivista.generation.mapper.GenerationImageMapper;
+import com.superz.aivista.generation.mapper.ImageAssetMapper;
 import com.superz.aivista.generation.mapper.GenerationTaskMapper;
 import com.superz.aivista.generation.mapper.OutboxEventMapper;
 import com.superz.aivista.generation.message.ImageTransferMessage;
@@ -31,7 +31,7 @@ class GenerationImageTransferExecutionServiceTests {
     @Test
     void restoresDatabaseSnapshotAndPersistsSuccessfulTransfer() {
         GenerationTaskMapper taskMapper = mock(GenerationTaskMapper.class);
-        GenerationImageMapper imageMapper = mock(GenerationImageMapper.class);
+        ImageAssetMapper imageMapper = mock(ImageAssetMapper.class);
         OutboxEventMapper outboxMapper = mock(OutboxEventMapper.class);
         GenerationBailianClient client = mock(GenerationBailianClient.class);
         GenerationImageTransferService transferService = mock(GenerationImageTransferService.class);
@@ -52,7 +52,7 @@ class GenerationImageTransferExecutionServiceTests {
         verify(client).restore("snapshot");
         verify(taskMapper).markTransferStarted(301L, 2, NOW);
         verify(taskMapper).completeTransferring(301L, 2, "SUCCEEDED", 1, null, NOW);
-        ArgumentCaptor<GenerationImage> image = ArgumentCaptor.forClass(GenerationImage.class);
+        ArgumentCaptor<ImageAsset> image = ArgumentCaptor.forClass(ImageAsset.class);
         verify(imageMapper).insertSelective(image.capture());
         assertThat(image.getValue().getObjectKey()).isEqualTo("users/7/tasks/301/0");
         ArgumentCaptor<OutboxEvent> event = ArgumentCaptor.forClass(OutboxEvent.class);
@@ -64,7 +64,7 @@ class GenerationImageTransferExecutionServiceTests {
     @Test
     void convergesPartialTransferWithoutRetryingFailedImage() {
         GenerationTaskMapper taskMapper = mock(GenerationTaskMapper.class);
-        GenerationImageMapper imageMapper = mock(GenerationImageMapper.class);
+        ImageAssetMapper imageMapper = mock(ImageAssetMapper.class);
         GenerationBailianClient client = mock(GenerationBailianClient.class);
         GenerationImageTransferService transferService = mock(GenerationImageTransferService.class);
         GenerationTask waiting = task("TRANSFERRING", 2);
@@ -101,7 +101,7 @@ class GenerationImageTransferExecutionServiceTests {
                         0, "users/7/tasks/301/0", 1024, 2048, 2048));
         when(transferService.transfer(waiting, result.imageUrls())).thenReturn(images);
 
-        assertThat(service(taskMapper, mock(GenerationImageMapper.class), mock(OutboxEventMapper.class),
+        assertThat(service(taskMapper, mock(ImageAssetMapper.class), mock(OutboxEventMapper.class),
                 client, transferService).execute(new ImageTransferMessage(12L, 301L, 2))).isTrue();
 
         verify(transferService).deleteTransferred(images);
@@ -124,14 +124,14 @@ class GenerationImageTransferExecutionServiceTests {
                         0, "users/7/tasks/301/0", 1024, 2048, 2048));
         when(transferService.transfer(waiting, result.imageUrls())).thenReturn(images);
 
-        assertThat(service(taskMapper, mock(GenerationImageMapper.class), mock(OutboxEventMapper.class),
+        assertThat(service(taskMapper, mock(ImageAssetMapper.class), mock(OutboxEventMapper.class),
                 client, transferService).execute(new ImageTransferMessage(12L, 301L, 2))).isTrue();
 
         verify(transferService, never()).deleteTransferred(images);
     }
 
     private static GenerationImageTransferExecutionService service(GenerationTaskMapper taskMapper,
-            GenerationImageMapper imageMapper, OutboxEventMapper outboxMapper,
+            ImageAssetMapper imageMapper, OutboxEventMapper outboxMapper,
             GenerationBailianClient client, GenerationImageTransferService transferService) {
         PlatformTransactionManager manager = mock(PlatformTransactionManager.class);
         when(manager.getTransaction(any())).thenAnswer(ignored -> new SimpleTransactionStatus());

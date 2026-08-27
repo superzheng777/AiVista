@@ -1,7 +1,7 @@
 package com.superz.aivista.search.service;
 
-import com.superz.aivista.generation.entity.GenerationImage;
-import com.superz.aivista.generation.mapper.GenerationImageMapper;
+import com.superz.aivista.generation.entity.ImageAsset;
+import com.superz.aivista.generation.mapper.ImageAssetMapper;
 import com.superz.aivista.search.client.MeilisearchAdminClient;
 import com.superz.aivista.search.client.MeilisearchAdminException;
 import com.superz.aivista.search.config.MeilisearchProperties;
@@ -22,13 +22,13 @@ public class SearchIndexInitializer {
     private static final String LOCK_NAME = "aivista_search_index_init";
     private final MeilisearchProperties properties;
     private final MeilisearchAdminClient client;
-    private final GenerationImageMapper images;
+    private final ImageAssetMapper images;
     private final JdbcTemplate jdbcTemplate;
     private final AtomicBoolean ready = new AtomicBoolean();
     private final AtomicBoolean failureLogged = new AtomicBoolean();
 
     public SearchIndexInitializer(MeilisearchProperties properties, MeilisearchAdminClient client,
-            GenerationImageMapper images, JdbcTemplate jdbcTemplate) {
+            ImageAssetMapper images, JdbcTemplate jdbcTemplate) {
         this.properties = properties;
         this.client = client;
         this.images = images;
@@ -80,7 +80,7 @@ public class SearchIndexInitializer {
     void loadAll(String indexUid) {
         long afterId = 0;
         while (true) {
-            List<GenerationImage> batch = images.selectPublishedForSearchIndex(afterId, properties.syncBatchSize());
+            List<ImageAsset> batch = images.selectPublishedForSearchIndex(afterId, properties.syncBatchSize());
             if (batch.isEmpty()) return;
             client.waitForTask(client.upsertDocuments(indexUid,
                     batch.stream().map(SearchIndexProjectionMapper::toDocument).toList()));

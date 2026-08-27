@@ -1,13 +1,14 @@
 package com.superz.aivista.generation.service;
 
-import com.superz.aivista.generation.entity.GenerationImage;
+import com.superz.aivista.generation.entity.ImageAsset;
 import com.superz.aivista.generation.entity.GenerationTask;
-import com.superz.aivista.generation.mapper.GenerationImageMapper;
+import com.superz.aivista.generation.mapper.ImageAssetMapper;
 import com.superz.aivista.generation.mapper.GenerationTaskMapper;
 import com.superz.aivista.generation.mapper.OutboxEventMapper;
 import com.superz.aivista.generation.message.ImageTransferMessage;
 import com.superz.aivista.generation.model.GenerationFailureCode;
 import com.superz.aivista.generation.model.GenerationTaskStatus;
+import com.superz.aivista.generation.model.GenerationImageObjectKeys;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
@@ -19,7 +20,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 public class GenerationImageTransferExecutionService {
     private final GenerationTaskMapper taskMapper;
-    private final GenerationImageMapper imageMapper;
+    private final ImageAssetMapper imageAssetMapper;
     private final OutboxEventMapper outboxEventMapper;
     private final GenerationBailianClient bailianClient;
     private final GenerationImageTransferService transferService;
@@ -27,11 +28,11 @@ public class GenerationImageTransferExecutionService {
     private final Clock clock;
 
     public GenerationImageTransferExecutionService(GenerationTaskMapper taskMapper,
-            GenerationImageMapper imageMapper, OutboxEventMapper outboxEventMapper,
+            ImageAssetMapper imageAssetMapper, OutboxEventMapper outboxEventMapper,
             GenerationBailianClient bailianClient, GenerationImageTransferService transferService,
             PlatformTransactionManager transactionManager, Clock clock) {
         this.taskMapper = taskMapper;
-        this.imageMapper = imageMapper;
+        this.imageAssetMapper = imageAssetMapper;
         this.outboxEventMapper = outboxEventMapper;
         this.bailianClient = bailianClient;
         this.transferService = transferService;
@@ -91,17 +92,20 @@ public class GenerationImageTransferExecutionService {
                     || image.width() != current.getWidth() || image.height() != current.getHeight()) {
                 throw new IllegalStateException("Transferred image dimensions do not match the generation response");
             }
-            GenerationImage entity = new GenerationImage();
-            entity.setTaskId(current.getId());
+            ImageAsset entity = new ImageAsset();
             entity.setUserId(current.getUserId());
+            entity.setOrigin("GENERATED");
+            entity.setLifecycle("PERSISTENT");
+            entity.setOriginTaskId(current.getId());
+            entity.setSourceIndex(image.sourceIndex());
             entity.setObjectKey(image.objectKey());
+            entity.setOriginalObjectKey(GenerationImageObjectKeys.fromStoredValue(image.objectKey()).original());
             entity.setContentType("image/png");
             entity.setFileSize(image.fileSize());
             entity.setWidth(image.width());
             entity.setHeight(image.height());
-            entity.setSourceIndex(image.sourceIndex());
             entity.setCreatedAt(now);
-            imageMapper.insertSelective(entity);
+            imageAssetMapper.insertSelective(entity);
         }
         String finalStatus = images.size() == result.imageUrls().size()
                 ? GenerationTaskStatus.SUCCEEDED.name()

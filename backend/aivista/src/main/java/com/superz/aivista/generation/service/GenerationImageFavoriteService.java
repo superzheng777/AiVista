@@ -2,7 +2,7 @@ package com.superz.aivista.generation.service;
 
 import com.superz.aivista.common.exception.BusinessException;
 import com.superz.aivista.common.exception.ErrorCode;
-import com.superz.aivista.generation.mapper.GenerationImageMapper;
+import com.superz.aivista.generation.mapper.ImageAssetMapper;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -13,9 +13,9 @@ import org.springframework.transaction.annotation.Transactional;
 /** 管理当前用户生成图片的收藏状态。 */
 @Service
 public class GenerationImageFavoriteService {
-    private final GenerationImageMapper imageMapper;
+    private final ImageAssetMapper imageMapper;
 
-    public GenerationImageFavoriteService(GenerationImageMapper imageMapper) {
+    public GenerationImageFavoriteService(ImageAssetMapper imageMapper) {
         this.imageMapper = imageMapper;
     }
 

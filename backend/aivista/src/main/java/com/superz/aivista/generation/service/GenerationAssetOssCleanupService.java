@@ -4,8 +4,8 @@ import com.aliyun.oss.OSS;
 import com.aliyun.oss.OSSException;
 import com.superz.aivista.generation.config.GenerationAssetCleanupProperties;
 import com.superz.aivista.generation.config.GenerationOssProperties;
-import com.superz.aivista.generation.entity.GenerationImage;
-import com.superz.aivista.generation.mapper.GenerationImageMapper;
+import com.superz.aivista.generation.entity.ImageAsset;
+import com.superz.aivista.generation.mapper.ImageAssetMapper;
 import com.superz.aivista.generation.model.GenerationImageObjectKeys;
 import java.time.Clock;
 import java.time.Instant;
@@ -18,13 +18,13 @@ import org.springframework.stereotype.Service;
 public class GenerationAssetOssCleanupService {
     private static final int ERROR_MAX_LENGTH = 512;
 
-    private final GenerationImageMapper imageMapper;
+    private final ImageAssetMapper imageMapper;
     private final OSS ossClient;
     private final GenerationOssProperties ossProperties;
     private final GenerationAssetCleanupProperties cleanupProperties;
     private final Clock clock;
 
-    public GenerationAssetOssCleanupService(GenerationImageMapper imageMapper, OSS generationOssClient,
+    public GenerationAssetOssCleanupService(ImageAssetMapper imageMapper, OSS generationOssClient,
             GenerationOssProperties ossProperties, GenerationAssetCleanupProperties cleanupProperties, Clock clock) {
         this.imageMapper = imageMapper;
         this.ossClient = generationOssClient;
@@ -37,18 +37,22 @@ public class GenerationAssetOssCleanupService {
     @Scheduled(fixedDelayString = "${app.generation.asset-cleanup.fixed-delay}")
     public void cleanAvailableObjects() {
         Instant now = clock.instant();
-        List<GenerationImage> images = imageMapper.selectPendingOssCleanup(now, cleanupProperties.batchSize());
-        for (GenerationImage image : images) {
+        List<ImageAsset> images = imageMapper.selectPendingOssCleanup(now, cleanupProperties.batchSize());
+        for (ImageAsset image : images) {
             clean(image, now);
         }
     }
 
-    private void clean(GenerationImage image, Instant now) {
+    private void clean(ImageAsset image, Instant now) {
         try {
-            GenerationImageObjectKeys keys = GenerationImageObjectKeys.fromStoredValue(image.getObjectKey());
-            deleteIfPresent(keys.original());
-            deleteIfPresent(keys.thumbnail());
-            deleteIfPresent(keys.display());
+            if ("UPLOADED".equals(image.getOrigin())) {
+                deleteIfPresent(image.getOriginalObjectKey());
+            } else {
+                GenerationImageObjectKeys keys = GenerationImageObjectKeys.fromStoredValue(image.getObjectKey());
+                deleteIfPresent(keys.original());
+                deleteIfPresent(keys.thumbnail());
+                deleteIfPresent(keys.display());
+            }
             imageMapper.markOssCleanupSucceeded(image.getId());
         } catch (OSSException exception) {
             reschedule(image, now, safeError(exception));
@@ -57,7 +61,7 @@ public class GenerationAssetOssCleanupService {
         }
     }
 
-    private void reschedule(GenerationImage image, Instant now, String error) {
+    private void reschedule(ImageAsset image, Instant now, String error) {
         imageMapper.rescheduleOssCleanup(image.getId(), now.plus(cleanupProperties.retryDelay()), error);
     }
 

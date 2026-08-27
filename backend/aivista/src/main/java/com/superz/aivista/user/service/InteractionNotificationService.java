@@ -3,8 +3,7 @@ package com.superz.aivista.user.service;
 import com.superz.aivista.common.exception.BusinessException;
 import com.superz.aivista.common.exception.ErrorCode;
 import com.superz.aivista.generation.dto.GenerationAssetImageResponse;
-import com.superz.aivista.generation.entity.GenerationImage;
-import com.superz.aivista.generation.mapper.GenerationImageMapper;
+import com.superz.aivista.generation.mapper.ImageAssetMapper;
 import com.superz.aivista.publication.service.InspirationQueryService;
 import com.superz.aivista.user.dto.InteractionNotificationActorResponse;
 import com.superz.aivista.user.dto.InteractionNotificationPageResponse;
@@ -30,12 +29,12 @@ public class InteractionNotificationService {
 
     private final UserNotificationMapper notifications;
     private final UserMapper users;
-    private final GenerationImageMapper images;
+    private final ImageAssetMapper images;
     private final InspirationQueryService inspirations;
     private final Clock clock;
 
     public InteractionNotificationService(UserNotificationMapper notifications, UserMapper users,
-            GenerationImageMapper images, InspirationQueryService inspirations, Clock clock) {
+            ImageAssetMapper images, InspirationQueryService inspirations, Clock clock) {
         this.notifications = notifications;
         this.users = users;
         this.images = images;

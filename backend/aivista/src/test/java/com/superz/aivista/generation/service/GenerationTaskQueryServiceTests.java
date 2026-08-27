@@ -12,9 +12,9 @@ import com.superz.aivista.common.exception.ErrorCode;
 import com.superz.aivista.generation.config.GenerationOssProperties;
 import com.superz.aivista.generation.config.GenerationBailianProperties;
 import com.superz.aivista.generation.dto.GenerationTaskSnapshotResponse;
-import com.superz.aivista.generation.entity.GenerationImage;
+import com.superz.aivista.generation.entity.ImageAsset;
 import com.superz.aivista.generation.entity.GenerationTask;
-import com.superz.aivista.generation.mapper.GenerationImageMapper;
+import com.superz.aivista.generation.mapper.ImageAssetMapper;
 import com.superz.aivista.generation.mapper.GenerationTaskMapper;
 import java.net.URL;
 import java.time.Clock;
@@ -30,13 +30,13 @@ class GenerationTaskQueryServiceTests {
     @Test
     void returnsOnlySafeSnapshotFieldsAndSignsSucceededImages() throws Exception {
         GenerationTaskMapper taskMapper = mock(GenerationTaskMapper.class);
-        GenerationImageMapper imageMapper = mock(GenerationImageMapper.class);
+        ImageAssetMapper imageMapper = mock(ImageAssetMapper.class);
         OSS ossClient = mock(OSS.class);
         GenerationTask task = task("SUCCEEDED");
         task.setCompletedImageCount(1);
-        GenerationImage image = image();
+        ImageAsset image = image();
         when(taskMapper.selectOwnedById(7L, 301L)).thenReturn(task);
-        when(imageMapper.selectByTaskId(301L)).thenReturn(List.of(image));
+        when(imageMapper.selectByOriginTaskId(301L)).thenReturn(List.of(image));
         when(ossClient.generatePresignedUrl(org.mockito.ArgumentMatchers.eq("private-bucket"),
                 org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.eq(java.util.Date.from(NOW.plusSeconds(600)))))
                 .thenAnswer(invocation -> new URL("https://oss.example/" + invocation.getArgument(1)));
@@ -51,24 +51,23 @@ class GenerationTaskQueryServiceTests {
             assertThat(result.sourceIndex()).isZero();
             assertThat(result.imageUrls().thumbnail().url()).endsWith("/card.webp");
             assertThat(result.imageUrls().display().url()).endsWith("/display.webp");
-            assertThat(result.imageUrls().original().url()).endsWith("/original.png");
             assertThat(result.imageUrls().display().expiresAt()).isEqualTo(NOW.plusSeconds(600));
             assertThat(result.generationConfig().width()).isEqualTo(2048);
         });
-        verify(imageMapper).selectByTaskId(301L);
+        verify(imageMapper).selectByOriginTaskId(301L);
     }
 
     @Test
     void keepsDeletedImagePositionWithoutSigningItsUrl() {
         GenerationTaskMapper taskMapper = mock(GenerationTaskMapper.class);
-        GenerationImageMapper imageMapper = mock(GenerationImageMapper.class);
+        ImageAssetMapper imageMapper = mock(ImageAssetMapper.class);
         OSS ossClient = mock(OSS.class);
         GenerationTask task = task("SUCCEEDED");
         task.setCompletedImageCount(1);
-        GenerationImage image = image();
+        ImageAsset image = image();
         image.setDeletedAt(NOW.minusSeconds(1));
         when(taskMapper.selectOwnedById(7L, 301L)).thenReturn(task);
-        when(imageMapper.selectByTaskId(301L)).thenReturn(List.of(image));
+        when(imageMapper.selectByOriginTaskId(301L)).thenReturn(List.of(image));
 
         GenerationTaskSnapshotResponse response = service(taskMapper, imageMapper, ossClient).get(7L, 301L);
 
@@ -77,7 +76,6 @@ class GenerationTaskQueryServiceTests {
             assertThat(result.sourceIndex()).isZero();
             assertThat(result.imageUrls().thumbnail()).isNull();
             assertThat(result.imageUrls().display()).isNull();
-            assertThat(result.imageUrls().original()).isNull();
         });
         verify(ossClient, org.mockito.Mockito.never()).generatePresignedUrl(
                 org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
@@ -87,7 +85,7 @@ class GenerationTaskQueryServiceTests {
     @Test
     void returnsNoImagesForRunningTask() {
         GenerationTaskMapper taskMapper = mock(GenerationTaskMapper.class);
-        GenerationImageMapper imageMapper = mock(GenerationImageMapper.class);
+        ImageAssetMapper imageMapper = mock(ImageAssetMapper.class);
         GenerationTask task = task("RUNNING");
         when(taskMapper.selectOwnedById(7L, 301L)).thenReturn(task);
 
@@ -103,13 +101,13 @@ class GenerationTaskQueryServiceTests {
         GenerationTaskMapper taskMapper = mock(GenerationTaskMapper.class);
         when(taskMapper.selectOwnedById(7L, 301L)).thenReturn(null);
 
-        assertThatThrownBy(() -> service(taskMapper, mock(GenerationImageMapper.class), mock(OSS.class)).get(7L, 301L))
+        assertThatThrownBy(() -> service(taskMapper, mock(ImageAssetMapper.class), mock(OSS.class)).get(7L, 301L))
                 .isInstanceOfSatisfying(BusinessException.class,
                         exception -> assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.GENERATION_RESOURCE_NOT_FOUND));
     }
 
     private static GenerationTaskQueryService service(GenerationTaskMapper taskMapper,
-            GenerationImageMapper imageMapper, OSS ossClient) {
+            ImageAssetMapper imageMapper, OSS ossClient) {
         return new GenerationTaskQueryService(taskMapper, imageMapper, ossClient,
                 new GenerationOssProperties("oss.example", "private-bucket", "key-id", "key-secret", "users",
                         Duration.ofMinutes(10), Duration.ofSeconds(5), Duration.ofSeconds(60)),
@@ -127,12 +125,15 @@ class GenerationTaskQueryServiceTests {
         task.setTaskVersion(4);
         task.setRequestedImageCount(1);
         task.setCompletedImageCount(0);
+        task.setWidth(2048);
+        task.setHeight(2048);
+        task.setPromptExtend(true);
         task.setCreatedAt(NOW.minusSeconds(30));
         return task;
     }
 
-    private static GenerationImage image() {
-        GenerationImage image = new GenerationImage();
+    private static ImageAsset image() {
+        ImageAsset image = new ImageAsset();
         image.setId(901L);
         image.setObjectKey("users/7/tasks/301/0");
         image.setWidth(2048);

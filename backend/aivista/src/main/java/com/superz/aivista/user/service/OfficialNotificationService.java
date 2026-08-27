@@ -19,12 +19,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /** Queries and acknowledges the current user's official notifications. */
 @Service
 public class OfficialNotificationService {
     private static final int PAGE_SIZE = 15;
+    private static final Logger log = LoggerFactory.getLogger(OfficialNotificationService.class);
     private final UserNotificationMapper notificationMapper;
     private final GenerationAssetQueryService assets;
     private final ObjectMapper objectMapper;
@@ -46,8 +49,7 @@ public class OfficialNotificationService {
                 PAGE_SIZE + 1);
         boolean hasNext = page.size() > PAGE_SIZE;
         List<UserNotification> notifications = hasNext ? page.subList(0, PAGE_SIZE) : page;
-        Map<Long, GenerationAssetImageResponse> images = assets.getByIds(userId, notifications.stream()
-                .map(UserNotification::getImageId).filter(Objects::nonNull).distinct().toList());
+        Map<Long, GenerationAssetImageResponse> images = associatedImages(userId, notifications);
         List<OfficialNotificationResponse> items = notifications.stream()
                 .map(notification -> toResponse(notification, images.get(notification.getImageId()))).toList();
         return new OfficialNotificationPageResponse(items, hasNext ? encode(notifications.getLast()) : null);
@@ -88,6 +90,18 @@ public class OfficialNotificationService {
                 image,
                 notification.getReadAt(),
                 notification.getCreatedAt());
+    }
+
+    /** A notification remains readable even when its optional image preview cannot be resolved. */
+    private Map<Long, GenerationAssetImageResponse> associatedImages(long userId, List<UserNotification> notifications) {
+        List<Long> imageIds = notifications.stream().map(UserNotification::getImageId)
+                .filter(Objects::nonNull).distinct().toList();
+        try {
+            return assets.getByIds(userId, imageIds);
+        } catch (RuntimeException exception) {
+            log.warn("Official notification image previews could not be resolved for user {}", userId, exception);
+            return Map.of();
+        }
     }
 
     @SuppressWarnings("unchecked")

@@ -14,8 +14,8 @@ import com.superz.aivista.common.exception.BusinessException;
 import com.superz.aivista.common.exception.ErrorCode;
 import com.superz.aivista.generation.config.GenerationOssProperties;
 import com.superz.aivista.generation.dto.GenerationAssetImageResponse;
-import com.superz.aivista.generation.dto.GenerationAssetImageRow;
-import com.superz.aivista.generation.mapper.GenerationImageMapper;
+import com.superz.aivista.generation.entity.ImageAsset;
+import com.superz.aivista.generation.mapper.ImageAssetMapper;
 import java.net.URL;
 import java.time.Clock;
 import java.time.Duration;
@@ -30,9 +30,9 @@ class GenerationAssetQueryServiceTests {
 
     @Test
     void returnsAllVisibleAssetsWithTheSharedImageDto() throws Exception {
-        GenerationImageMapper imageMapper = mock(GenerationImageMapper.class);
+        ImageAssetMapper imageMapper = mock(ImageAssetMapper.class);
         OSS ossClient = mock(OSS.class);
-        GenerationAssetImageRow pending = row(100L, NOW, "PENDING", 3L);
+        ImageAsset pending = row(100L, NOW, "PENDING", 3L);
         pending.setPublicAt(null);
         pending.setPublicationTitle("待审核作品");
         pending.setPublicationDescription("说明");
@@ -57,34 +57,32 @@ class GenerationAssetQueryServiceTests {
             assertThat(item.description()).isEqualTo("说明");
         });
         ArgumentCaptor<java.util.Date> expiresAt = ArgumentCaptor.forClass(java.util.Date.class);
-        verify(ossClient, times(2)).generatePresignedUrl(anyString(), anyString(), expiresAt.capture());
+        verify(ossClient, times(4)).generatePresignedUrl(anyString(), anyString(), expiresAt.capture());
         assertThat(expiresAt.getAllValues()).allSatisfy(value -> assertThat(value.toInstant()).isEqualTo(NOW.plusSeconds(600)));
     }
 
     @Test
     void returnsOneVisibleAssetWithANewSignedUrl() throws Exception {
-        GenerationImageMapper imageMapper = mock(GenerationImageMapper.class);
+        ImageAssetMapper imageMapper = mock(ImageAssetMapper.class);
         OSS ossClient = mock(OSS.class);
-        when(imageMapper.selectVisibleByUserIdAndId(7L, 41L)).thenReturn(row(41L, NOW, null, null));
+        when(imageMapper.selectVisibleDetailByUserIdAndId(7L, 41L)).thenReturn(row(41L, NOW, null, null));
         when(ossClient.generatePresignedUrl(anyString(), anyString(), any())).thenReturn(new URL("https://oss.example/signed-detail"));
 
         var response = service(imageMapper, ossClient).get(7L, 41L);
 
         assertThat(response.imageId()).isEqualTo("41");
         assertThat(response.imageUrls().display().url()).isEqualTo("https://oss.example/signed-detail");
-        assertThat(response.imageUrls().original().url()).isEqualTo("https://oss.example/signed-detail");
         assertThat(response.publicationReviewStatus()).isEqualTo("NONE");
         assertThat(response.publicationVersion()).isZero();
     }
 
     @Test
-    void returnsPublishedAssetEvenWhenTheAssetPageWasDeleted() throws Exception {
-        GenerationImageMapper imageMapper = mock(GenerationImageMapper.class);
+    void returnsPublishedAssetWhenItIsStillVisibleToItsOwner() throws Exception {
+        ImageAssetMapper imageMapper = mock(ImageAssetMapper.class);
         OSS ossClient = mock(OSS.class);
-        // 已发布（public_at 非空）的图片资源由发布状态保障：即使资产页已删除（deleted_at 非空），单图查询仍应返回。
-        GenerationAssetImageRow published = row(42L, NOW, "APPROVED", 5L);
+        ImageAsset published = row(42L, NOW, "APPROVED", 5L);
         published.setPublicAt(NOW);
-        when(imageMapper.selectVisibleByUserIdAndId(7L, 42L)).thenReturn(published);
+        when(imageMapper.selectVisibleDetailByUserIdAndId(7L, 42L)).thenReturn(published);
         when(ossClient.generatePresignedUrl(anyString(), anyString(), any())).thenReturn(new URL("https://oss.example/signed-published"));
 
         var response = service(imageMapper, ossClient).get(7L, 42L);
@@ -98,30 +96,31 @@ class GenerationAssetQueryServiceTests {
 
     @Test
     void hidesDeletedOrOtherUsersAssetAsNotFound() {
-        assertThatThrownBy(() -> service(mock(GenerationImageMapper.class), mock(OSS.class)).get(7L, 41L))
+        assertThatThrownBy(() -> service(mock(ImageAssetMapper.class), mock(OSS.class)).get(7L, 41L))
                 .isInstanceOfSatisfying(BusinessException.class,
                         exception -> assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.GENERATION_RESOURCE_NOT_FOUND));
     }
 
-    private static GenerationAssetQueryService service(GenerationImageMapper imageMapper, OSS ossClient) {
+    private static GenerationAssetQueryService service(ImageAssetMapper imageMapper, OSS ossClient) {
         return new GenerationAssetQueryService(imageMapper, ossClient,
                 new GenerationOssProperties("oss.example", "private-bucket", "key-id", "key-secret", "users",
                         Duration.ofMinutes(10), Duration.ofSeconds(5), Duration.ofSeconds(60)),
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
-    private static GenerationAssetImageRow row(long imageId, Instant createdAt, String status, Long version) {
-        GenerationAssetImageRow row = new GenerationAssetImageRow();
-        row.setImageId(imageId);
+    private static ImageAsset row(long imageId, Instant createdAt, String status, Long version) {
+        ImageAsset row = new ImageAsset();
+        row.setId(imageId);
+        row.setSourceIndex(0);
         row.setObjectKey("users/7/images/" + imageId);
         row.setWidth(1024);
         row.setHeight(768);
         row.setCreatedAt(createdAt);
         row.setFavorited(false);
-        row.setFinalPrompt("prompt-" + imageId);
-        row.setFinalNegativePrompt("negative-" + imageId);
-        row.setRequestedImageCount(4);
-        row.setPromptExtend(true);
+        row.setPublicationPrompt("prompt-" + imageId);
+        row.setPublicationNegativePrompt("negative-" + imageId);
+        row.setPublicationRequestedImageCount(4);
+        row.setPublicationPromptExtend(true);
         row.setPublicationReviewStatus(status);
         row.setPublicationVersion(version);
         return row;

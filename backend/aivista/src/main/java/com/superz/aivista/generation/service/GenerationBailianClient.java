@@ -1,8 +1,19 @@
 package com.superz.aivista.generation.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.aliyun.oss.OSS;
 import com.superz.aivista.generation.config.GenerationBailianProperties;
+import com.superz.aivista.generation.config.GenerationOssProperties;
 import com.superz.aivista.generation.entity.GenerationTask;
+import com.superz.aivista.generation.entity.GenerationTaskInputAsset;
+import com.superz.aivista.generation.entity.ImageAsset;
+import com.superz.aivista.generation.mapper.GenerationTaskInputAssetMapper;
+import com.superz.aivista.generation.mapper.ImageAssetMapper;
+import java.net.URL;
+import java.time.Clock;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Date;
 import java.net.SocketException;
 import java.net.SocketTimeoutException;
 import java.util.List;
@@ -23,21 +34,32 @@ public class GenerationBailianClient {
     private final RestClient restClient;
     private final GenerationBailianProperties properties;
     private final ObjectMapper objectMapper;
+    private final GenerationTaskInputAssetMapper taskInputAssetMapper;
+    private final ImageAssetMapper imageAssetMapper;
+    private final OSS ossClient;
+    private final GenerationOssProperties ossProperties;
+    private final Clock clock;
 
     /** 注入已设置 Endpoint 和超时的 HTTP 客户端及百炼凭证配置。 */
     public GenerationBailianClient(RestClient generationBailianRestClient,
-            GenerationBailianProperties properties, ObjectMapper objectMapper) {
+            GenerationBailianProperties properties, ObjectMapper objectMapper,
+            GenerationTaskInputAssetMapper taskInputAssetMapper, ImageAssetMapper imageAssetMapper,
+            OSS generationOssClient, GenerationOssProperties ossProperties, Clock clock) {
         this.restClient = generationBailianRestClient;
         this.properties = properties;
         this.objectMapper = objectMapper;
+        this.taskInputAssetMapper = taskInputAssetMapper;
+        this.imageAssetMapper = imageAssetMapper;
+        this.ossClient = generationOssClient;
+        this.ossProperties = ossProperties;
+        this.clock = clock;
     }
 
     /** 将任务中的最终提示词和已校验参数发送给百炼，并提取临时图片 URL。 */
     public ProviderResult generate(GenerationTask task) {
         Map<String, Object> request = Map.of(
                 "model", task.getModel().replace("bailian/", ""),
-                "input", Map.of("messages", List.of(Map.of(
-                        "role", "user", "content", List.of(Map.of("text", task.getFinalPrompt()))))),
+                "input", Map.of("messages", List.of(Map.of("role", "user", "content", contentOf(task)))),
                 "parameters", Map.of(
                         "negative_prompt", task.getFinalNegativePrompt() == null ? "" : task.getFinalNegativePrompt(),
                         "size", task.getWidth() + "*" + task.getHeight(),
@@ -66,6 +88,22 @@ public class GenerationBailianClient {
             }
             throw exception;
         }
+    }
+
+    private List<Map<String, String>> contentOf(GenerationTask task) {
+        List<Map<String, String>> content = new ArrayList<>();
+        List<GenerationTaskInputAsset> inputs = taskInputAssetMapper.selectByTaskId(task.getId());
+        for (GenerationTaskInputAsset input : inputs) {
+            ImageAsset asset = imageAssetMapper.selectByAssetId(input.getAssetId());
+            if (asset == null) {
+                throw new IllegalStateException("Generation input asset is unavailable");
+            }
+            URL url = ossClient.generatePresignedUrl(ossProperties.bucket(), asset.getOriginalObjectKey(),
+                    Date.from(clock.instant().plus(ossProperties.signedUrlTtl())));
+            content.add(Map.of("image", url.toString()));
+        }
+        content.add(Map.of("text", task.getFinalPrompt()));
+        return content;
     }
 
     /** 从已落库的百炼响应快照恢复 URL，避免重投消息时再次生成图片。 */

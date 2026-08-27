@@ -12,7 +12,7 @@ import static org.mockito.Mockito.when;
 
 import com.superz.aivista.common.exception.BusinessException;
 import com.superz.aivista.common.exception.ErrorCode;
-import com.superz.aivista.generation.mapper.GenerationImageMapper;
+import com.superz.aivista.generation.mapper.ImageAssetMapper;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -20,7 +20,7 @@ class GenerationImageFavoriteServiceTests {
 
     @Test
     void setsAllImagesToTheRequestedFavoriteState() {
-        GenerationImageMapper imageMapper = mock(GenerationImageMapper.class);
+        ImageAssetMapper imageMapper = mock(ImageAssetMapper.class);
         when(imageMapper.selectVisibleOwnedIdsForUpdate(7L, List.of(101L, 102L))).thenReturn(List.of(101L, 102L));
 
         new GenerationImageFavoriteService(imageMapper).setFavorites(7L, List.of("101", "102"), true);
@@ -30,7 +30,7 @@ class GenerationImageFavoriteServiceTests {
 
     @Test
     void rejectsInvalidOrUnavailableImageIdsWithoutUpdating() {
-        GenerationImageMapper imageMapper = mock(GenerationImageMapper.class);
+        ImageAssetMapper imageMapper = mock(ImageAssetMapper.class);
         GenerationImageFavoriteService service = new GenerationImageFavoriteService(imageMapper);
 
         assertThatThrownBy(() -> service.setFavorites(7L, List.of("101", "101"), true))

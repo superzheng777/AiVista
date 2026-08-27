@@ -1,8 +1,8 @@
 package com.superz.aivista.search.service;
 
-import com.superz.aivista.generation.entity.GenerationImage;
+import com.superz.aivista.generation.entity.ImageAsset;
 import com.superz.aivista.generation.entity.OutboxEvent;
-import com.superz.aivista.generation.mapper.GenerationImageMapper;
+import com.superz.aivista.generation.mapper.ImageAssetMapper;
 import com.superz.aivista.generation.mapper.OutboxEventMapper;
 import com.superz.aivista.generation.model.OutboxEventType;
 import com.superz.aivista.search.client.MeilisearchAdminClient;
@@ -29,13 +29,13 @@ public class SearchIndexOutboxDispatcher {
     private final MeilisearchProperties properties;
     private final SearchIndexInitializer initializer;
     private final MeilisearchAdminClient client;
-    private final GenerationImageMapper images;
+    private final ImageAssetMapper images;
     private final OutboxEventMapper outbox;
     private final Clock clock;
     private boolean paused;
 
     public SearchIndexOutboxDispatcher(MeilisearchProperties properties, SearchIndexInitializer initializer,
-            MeilisearchAdminClient client, GenerationImageMapper images, OutboxEventMapper outbox, Clock clock) {
+            MeilisearchAdminClient client, ImageAssetMapper images, OutboxEventMapper outbox, Clock clock) {
         this.properties = properties;
         this.initializer = initializer;
         this.client = client;
@@ -70,9 +70,9 @@ public class SearchIndexOutboxDispatcher {
     void syncImagesTo(String indexUid, Collection<Long> requestedImageIds) {
         List<Long> imageIds = new ArrayList<>(new LinkedHashSet<>(requestedImageIds));
         if (imageIds.isEmpty()) return;
-        List<GenerationImage> published = images.selectPublishedByIds(imageIds);
+        List<ImageAsset> published = images.selectPublishedByIds(imageIds);
         Set<Long> publishedIds = new LinkedHashSet<>();
-        for (GenerationImage image : published) publishedIds.add(image.getId());
+        for (ImageAsset image : published) publishedIds.add(image.getId());
         List<Long> deletedIds = imageIds.stream().filter(imageId -> !publishedIds.contains(imageId)).toList();
         long upsertTaskUid = client.upsertDocuments(indexUid,
                 published.stream().map(SearchIndexProjectionMapper::toDocument).toList());

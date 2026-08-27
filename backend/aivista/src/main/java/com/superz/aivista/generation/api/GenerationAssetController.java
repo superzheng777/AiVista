@@ -7,9 +7,11 @@ import com.superz.aivista.common.response.ResponseUtils;
 import com.superz.aivista.generation.dto.DeleteGenerationImagesRequest;
 import com.superz.aivista.generation.dto.GenerationAssetImageResponse;
 import com.superz.aivista.generation.dto.SetGenerationImageFavoritesRequest;
+import com.superz.aivista.generation.dto.UploadedImageAssetResponse;
 import com.superz.aivista.generation.service.GenerationAssetDeletionService;
 import com.superz.aivista.generation.service.GenerationAssetQueryService;
 import com.superz.aivista.generation.service.GenerationImageFavoriteService;
+import com.superz.aivista.generation.service.ImageAssetUploadService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -24,6 +26,8 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.multipart.MultipartFile;
 
 /** Current user's private generated-image assets. */
 @Tag(name = "个人生成资产")
@@ -34,12 +38,21 @@ public class GenerationAssetController {
     private final GenerationAssetQueryService queryService;
     private final GenerationAssetDeletionService deletionService;
     private final GenerationImageFavoriteService favoriteService;
+    private final ImageAssetUploadService uploadService;
 
     public GenerationAssetController(GenerationAssetQueryService queryService,
-            GenerationAssetDeletionService deletionService, GenerationImageFavoriteService favoriteService) {
+            GenerationAssetDeletionService deletionService, GenerationImageFavoriteService favoriteService,
+            ImageAssetUploadService uploadService) {
         this.queryService = queryService;
         this.deletionService = deletionService;
         this.favoriteService = favoriteService;
+        this.uploadService = uploadService;
+    }
+
+    @Operation(summary = "上传图生图参考图片", description = "上传后返回临时图片资产 ID；该资产只可由当前用户在有效期内作为图生图输入。")
+    @PostMapping(path = "/uploads", consumes = "multipart/form-data")
+    public ApiResponse<UploadedImageAssetResponse> upload(Authentication authentication, @RequestParam("file") MultipartFile file) {
+        return ResponseUtils.success(uploadService.upload(currentUserId(authentication), file));
     }
 
     @Operation(summary = "获取个人生成资产", description = "返回当前用户全部未删除资产，按生成时间倒序。"

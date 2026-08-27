@@ -9,9 +9,9 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.superz.aivista.generation.entity.GenerationImage;
+import com.superz.aivista.generation.entity.ImageAsset;
 import com.superz.aivista.generation.entity.OutboxEvent;
-import com.superz.aivista.generation.mapper.GenerationImageMapper;
+import com.superz.aivista.generation.mapper.ImageAssetMapper;
 import com.superz.aivista.generation.mapper.OutboxEventMapper;
 import com.superz.aivista.search.client.MeilisearchAdminClient;
 import com.superz.aivista.search.client.MeilisearchAdminException;
@@ -149,7 +149,7 @@ class SearchIndexOutboxDispatcherTests {
                 Duration.ofSeconds(5), Duration.ofSeconds(30), 100, false, false);
         SearchIndexInitializer initializer = mock(SearchIndexInitializer.class);
         MeilisearchAdminClient client = mock(MeilisearchAdminClient.class);
-        GenerationImageMapper images = mock(GenerationImageMapper.class);
+        ImageAssetMapper images = mock(ImageAssetMapper.class);
         OutboxEventMapper outbox = mock(OutboxEventMapper.class);
         when(initializer.ready()).thenReturn(true);
         SearchIndexOutboxDispatcher dispatcher = new SearchIndexOutboxDispatcher(properties, initializer, client,
@@ -165,8 +165,8 @@ class SearchIndexOutboxDispatcherTests {
         return event;
     }
 
-    private static GenerationImage publicImage(long imageId) {
-        GenerationImage image = new GenerationImage();
+    private static ImageAsset publicImage(long imageId) {
+        ImageAsset image = new ImageAsset();
         image.setId(imageId);
         image.setPublicationTitle("AI 星空");
         image.setPublicationPrompt("blue stars");
@@ -176,5 +176,5 @@ class SearchIndexOutboxDispatcherTests {
     }
 
     private record Fixture(SearchIndexOutboxDispatcher dispatcher, MeilisearchAdminClient client,
-                           GenerationImageMapper images, OutboxEventMapper outbox) { }
+                           ImageAssetMapper images, OutboxEventMapper outbox) { }
 }

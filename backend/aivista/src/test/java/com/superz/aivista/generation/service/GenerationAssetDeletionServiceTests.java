@@ -11,7 +11,7 @@ import static org.mockito.Mockito.verify;
 
 import com.superz.aivista.common.exception.BusinessException;
 import com.superz.aivista.common.exception.ErrorCode;
-import com.superz.aivista.generation.mapper.GenerationImageMapper;
+import com.superz.aivista.generation.mapper.ImageAssetMapper;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -23,7 +23,7 @@ class GenerationAssetDeletionServiceTests {
 
     @Test
     void marksOnlySelectedImagesForCurrentUser() {
-        GenerationImageMapper imageMapper = mock(GenerationImageMapper.class);
+        ImageAssetMapper imageMapper = mock(ImageAssetMapper.class);
 
         service(imageMapper).delete(7L, List.of("101", "102"));
 
@@ -32,7 +32,7 @@ class GenerationAssetDeletionServiceTests {
 
     @Test
     void rejectsDuplicateOrInvalidImageIdsBeforeDatabaseUpdate() {
-        GenerationImageMapper imageMapper = mock(GenerationImageMapper.class);
+        ImageAssetMapper imageMapper = mock(ImageAssetMapper.class);
         GenerationAssetDeletionService service = service(imageMapper);
 
         assertThatThrownBy(() -> service.delete(7L, List.of("101", "101")))
@@ -44,7 +44,7 @@ class GenerationAssetDeletionServiceTests {
         verify(imageMapper, never()).markVisibleDeletedByUserIdAndIds(anyLong(), anyList(), any());
     }
 
-    private static GenerationAssetDeletionService service(GenerationImageMapper imageMapper) {
+    private static GenerationAssetDeletionService service(ImageAssetMapper imageMapper) {
         return new GenerationAssetDeletionService(imageMapper, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 }

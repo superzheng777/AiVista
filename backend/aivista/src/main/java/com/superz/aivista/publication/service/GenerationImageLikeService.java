@@ -2,13 +2,13 @@ package com.superz.aivista.publication.service;
 
 import com.superz.aivista.common.exception.BusinessException;
 import com.superz.aivista.common.exception.ErrorCode;
-import com.superz.aivista.generation.entity.GenerationImage;
+import com.superz.aivista.generation.entity.ImageAsset;
 import com.superz.aivista.generation.entity.OutboxEvent;
-import com.superz.aivista.generation.mapper.GenerationImageMapper;
+import com.superz.aivista.generation.mapper.ImageAssetMapper;
 import com.superz.aivista.generation.mapper.OutboxEventMapper;
 import com.superz.aivista.generation.model.OutboxEventType;
 import com.superz.aivista.generation.model.OutboxStatus;
-import com.superz.aivista.publication.mapper.GenerationImageLikeMapper;
+import com.superz.aivista.publication.mapper.ImageAssetLikeMapper;
 import com.superz.aivista.user.entity.UserNotification;
 import com.superz.aivista.user.mapper.UserMapper;
 import com.superz.aivista.user.mapper.UserNotificationMapper;
@@ -19,15 +19,15 @@ import com.superz.aivista.search.service.SearchIndexOutboxEvent;
 
 @Service
 public class GenerationImageLikeService {
-    private final GenerationImageMapper imageMapper;
-    private final GenerationImageLikeMapper likeMapper;
+    private final ImageAssetMapper imageMapper;
+    private final ImageAssetLikeMapper likeMapper;
     private final UserMapper userMapper;
     private final UserNotificationMapper notificationMapper;
     private final OutboxEventMapper outboxEventMapper;
     private final LikeRateLimiter rateLimiter;
     private final Clock clock;
 
-    public GenerationImageLikeService(GenerationImageMapper imageMapper, GenerationImageLikeMapper likeMapper,
+    public GenerationImageLikeService(ImageAssetMapper imageMapper, ImageAssetLikeMapper likeMapper,
             UserMapper userMapper, UserNotificationMapper notificationMapper, OutboxEventMapper outboxEventMapper,
             LikeRateLimiter rateLimiter, Clock clock) {
         this.imageMapper = imageMapper;
@@ -52,13 +52,13 @@ public class GenerationImageLikeService {
     }
 
     private void change(long userId, long imageId, long publicationVersion, boolean liked) {
-        GenerationImage image = imageMapper.selectByImageIdForUpdate(imageId);
+        ImageAsset image = imageMapper.selectByAssetIdForUpdate(imageId);
         if (!isCurrentPublicVersion(image, publicationVersion)) {
             throw new BusinessException(ErrorCode.GENERATION_RESOURCE_NOT_FOUND);
         }
         int changed = liked
                 ? likeMapper.insertIfAbsent(userId, imageId, publicationVersion, clock.instant())
-                : likeMapper.deleteByUserImageAndVersion(userId, imageId, publicationVersion);
+                : likeMapper.deleteByUserAssetAndVersion(userId, imageId, publicationVersion);
         if (changed == 0) {
             return;
         }
@@ -105,7 +105,7 @@ public class GenerationImageLikeService {
         outboxEventMapper.insertSelective(event);
     }
 
-    private static boolean isCurrentPublicVersion(GenerationImage image, long publicationVersion) {
+    private static boolean isCurrentPublicVersion(ImageAsset image, long publicationVersion) {
         return image != null && image.getPublicAt() != null && "APPROVED".equals(image.getPublicationReviewStatus())
                 && image.getPublicationVersion() != null && image.getPublicationVersion() == publicationVersion;
     }

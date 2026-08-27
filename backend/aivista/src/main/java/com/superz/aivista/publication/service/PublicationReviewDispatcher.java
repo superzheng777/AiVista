@@ -1,8 +1,8 @@
 package com.superz.aivista.publication.service;
 
-import com.superz.aivista.generation.entity.GenerationImage;
+import com.superz.aivista.generation.entity.ImageAsset;
 import com.superz.aivista.generation.entity.OutboxEvent;
-import com.superz.aivista.generation.mapper.GenerationImageMapper;
+import com.superz.aivista.generation.mapper.ImageAssetMapper;
 import com.superz.aivista.generation.mapper.OutboxEventMapper;
 import com.superz.aivista.generation.model.OutboxEventType;
 import com.superz.aivista.publication.model.PublicationViolation;
@@ -20,12 +20,12 @@ public class PublicationReviewDispatcher {
     private static final long PROCESSING_LEASE_SECONDS = 120;
 
     private final OutboxEventMapper outbox;
-    private final GenerationImageMapper images;
+    private final ImageAssetMapper images;
     private final PublicationTextModerationClient moderation;
     private final PublicationReviewOutcomeService outcomes;
     private final Clock clock;
 
-    public PublicationReviewDispatcher(OutboxEventMapper outbox, GenerationImageMapper images,
+    public PublicationReviewDispatcher(OutboxEventMapper outbox, ImageAssetMapper images,
             PublicationTextModerationClient moderation, PublicationReviewOutcomeService outcomes, Clock clock) {
         this.outbox = outbox;
         this.images = images;
@@ -49,7 +49,7 @@ public class PublicationReviewDispatcher {
     private void recoverExpiredLeases(Instant now) {
         for (OutboxEvent event : outbox.selectProcessingLockedBefore(
                 OutboxEventType.PUBLICATION_TEXT_REVIEW.name(), now.minusSeconds(PROCESSING_LEASE_SECONDS), 20)) {
-            GenerationImage image = images.selectByImageId(event.getAggregateId());
+            ImageAsset image = images.selectByAssetId(event.getAggregateId());
             if (!isCurrentPendingReview(image, event)) {
                 outbox.markPublished(event.getId(), now);
                 continue;
@@ -65,7 +65,7 @@ public class PublicationReviewDispatcher {
     }
 
     private void review(OutboxEvent event, Instant now) {
-        GenerationImage image = images.selectByImageId(event.getAggregateId());
+        ImageAsset image = images.selectByAssetId(event.getAggregateId());
         if (!isCurrentPendingReview(image, event)) {
             outbox.markPublished(event.getId(), now);
             return;
@@ -97,7 +97,7 @@ public class PublicationReviewDispatcher {
         }
     }
 
-    private static boolean isCurrentPendingReview(GenerationImage image, OutboxEvent event) {
+    private static boolean isCurrentPendingReview(ImageAsset image, OutboxEvent event) {
         return image != null
                 && "PENDING".equals(image.getPublicationReviewStatus())
                 && event.getAggregateVersion().equals(image.getPublicationVersion());

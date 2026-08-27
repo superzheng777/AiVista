@@ -16,7 +16,7 @@ public interface UserNotificationMapper extends BaseMapper<UserNotification> {
     @Options(useGeneratedKeys = true, keyProperty = "id")
     int insertInteraction(UserNotification notification);
 
-    @Insert("INSERT IGNORE INTO user_notifications (recipient_user_id, category, event_type, actor_user_id, image_id, publication_version, title, content, metadata_json, created_at) VALUES (#{recipientUserId}, #{category}, #{eventType}, #{actorUserId}, #{imageId}, #{publicationVersion}, #{title}, #{content}, #{metadataJson}, #{createdAt})")
+    @Insert("INSERT IGNORE INTO user_notifications (recipient_user_id, category, event_type, actor_user_id, asset_id, publication_version, title, content, metadata_json, created_at) VALUES (#{recipientUserId}, #{category}, #{eventType}, #{actorUserId}, #{imageId}, #{publicationVersion}, #{title}, #{content}, #{metadataJson}, #{createdAt})")
     @Options(useGeneratedKeys = true, keyProperty = "id")
     int insertImageLikeInteractionIfAbsent(UserNotification notification);
 

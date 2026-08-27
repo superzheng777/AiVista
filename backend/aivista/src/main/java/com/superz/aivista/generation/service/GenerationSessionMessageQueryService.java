@@ -5,10 +5,10 @@ import com.superz.aivista.common.exception.ErrorCode;
 import com.superz.aivista.generation.dto.GenerationMessageItemResponse;
 import com.superz.aivista.generation.dto.GenerationMessagePageResponse;
 import com.superz.aivista.generation.dto.GenerationMessageResponse;
-import com.superz.aivista.generation.entity.GenerationImage;
+import com.superz.aivista.generation.entity.ImageAsset;
 import com.superz.aivista.generation.entity.GenerationMessage;
 import com.superz.aivista.generation.entity.GenerationTask;
-import com.superz.aivista.generation.mapper.GenerationImageMapper;
+import com.superz.aivista.generation.mapper.ImageAssetMapper;
 import com.superz.aivista.generation.mapper.GenerationMessageMapper;
 import com.superz.aivista.generation.mapper.GenerationSessionMapper;
 import com.superz.aivista.generation.mapper.GenerationTaskMapper;
@@ -32,7 +32,7 @@ public class GenerationSessionMessageQueryService {
     private final GenerationSessionMapper sessionMapper;
     private final GenerationMessageMapper messageMapper;
     private final GenerationTaskMapper taskMapper;
-    private final GenerationImageMapper imageMapper;
+    private final ImageAssetMapper imageAssetMapper;
     private final GenerationTaskQueryService taskQueryService;
 
     /**
@@ -40,11 +40,11 @@ public class GenerationSessionMessageQueryService {
      */
     public GenerationSessionMessageQueryService(GenerationSessionMapper sessionMapper,
             GenerationMessageMapper messageMapper, GenerationTaskMapper taskMapper,
-            GenerationImageMapper imageMapper, GenerationTaskQueryService taskQueryService) {
+            ImageAssetMapper imageAssetMapper, GenerationTaskQueryService taskQueryService) {
         this.sessionMapper = sessionMapper;
         this.messageMapper = messageMapper;
         this.taskMapper = taskMapper;
-        this.imageMapper = imageMapper;
+        this.imageAssetMapper = imageAssetMapper;
         this.taskQueryService = taskQueryService;
     }
 
@@ -75,14 +75,14 @@ public class GenerationSessionMessageQueryService {
         List<Long> messageIds = messages.stream().map(GenerationMessage::getId).toList();
         Map<Long, GenerationTask> tasksByMessageId = taskMapper.selectBySourceMessageIds(messageIds).stream()
                 .collect(Collectors.toMap(GenerationTask::getSourceMessageId, Function.identity()));
-        Map<Long, List<GenerationImage>> imagesByTaskId = imagesByTaskId(tasksByMessageId.values());
+        Map<Long, List<ImageAsset>> imagesByTaskId = imagesByTaskId(tasksByMessageId.values());
         return messages.stream()
                 .map(message -> toItem(message, tasksByMessageId.get(message.getId()), imagesByTaskId))
                 .toList();
     }
 
     /** 批量读取任务图片，并按任务 ID 分组，供任务快照复用。 */
-    private Map<Long, List<GenerationImage>> imagesByTaskId(Iterable<GenerationTask> tasks) {
+    private Map<Long, List<ImageAsset>> imagesByTaskId(Iterable<GenerationTask> tasks) {
         List<Long> taskIds = new ArrayList<>();
         for (GenerationTask task : tasks) {
             taskIds.add(task.getId());
@@ -90,13 +90,13 @@ public class GenerationSessionMessageQueryService {
         if (taskIds.isEmpty()) {
             return Map.of();
         }
-        return imageMapper.selectByTaskIds(taskIds).stream()
-                .collect(Collectors.groupingBy(GenerationImage::getTaskId));
+        return imageAssetMapper.selectByOriginTaskIds(taskIds).stream()
+                .collect(Collectors.groupingBy(ImageAsset::getOriginTaskId));
     }
 
     /** 组装单条消息和其任务快照；异常历史数据缺少任务时仍返回消息本身。 */
     private GenerationMessageItemResponse toItem(GenerationMessage message, GenerationTask task,
-            Map<Long, List<GenerationImage>> imagesByTaskId) {
+            Map<Long, List<ImageAsset>> imagesByTaskId) {
         GenerationMessageResponse messageResponse = new GenerationMessageResponse(
                 String.valueOf(message.getId()), message.getSequenceNo(), message.getPrompt(),
                 message.getNegativePrompt(), message.getCreatedAt());

@@ -3,6 +3,7 @@ package com.superz.aivista.user.entity;
 import com.mybatisflex.annotation.Id;
 import com.mybatisflex.annotation.KeyType;
 import com.mybatisflex.annotation.Table;
+import com.mybatisflex.annotation.Column;
 import java.time.Instant;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -20,6 +21,7 @@ public class UserNotification {
     private String category;
     private String eventType;
     private Long actorUserId;
+    @Column("asset_id")
     private Long imageId;
     private Long publicationVersion;
     private String title;

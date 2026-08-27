@@ -1,6 +1,6 @@
 package com.superz.aivista.search.service;
 
-import com.superz.aivista.generation.mapper.GenerationImageMapper;
+import com.superz.aivista.generation.mapper.ImageAssetMapper;
 import com.superz.aivista.generation.mapper.OutboxEventMapper;
 import com.superz.aivista.generation.model.OutboxEventType;
 import com.superz.aivista.search.client.MeilisearchAdminClient;
@@ -21,7 +21,7 @@ public class SearchHealthMonitor {
     private final MeilisearchSearchClient searchClient;
     private final MeilisearchAdminClient adminClient;
     private final SearchIndexInitializer initializer;
-    private final GenerationImageMapper images;
+    private final ImageAssetMapper images;
     private final OutboxEventMapper outbox;
     private final Clock clock;
     private Boolean available;
@@ -31,7 +31,7 @@ public class SearchHealthMonitor {
     private boolean mismatchLogged;
 
     public SearchHealthMonitor(MeilisearchProperties properties, MeilisearchSearchClient searchClient,
-            MeilisearchAdminClient adminClient, SearchIndexInitializer initializer, GenerationImageMapper images,
+            MeilisearchAdminClient adminClient, SearchIndexInitializer initializer, ImageAssetMapper images,
             OutboxEventMapper outbox, Clock clock) {
         this.properties = properties;
         this.searchClient = searchClient;

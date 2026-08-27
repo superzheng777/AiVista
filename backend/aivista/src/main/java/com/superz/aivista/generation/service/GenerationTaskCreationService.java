@@ -12,14 +12,19 @@ import com.superz.aivista.generation.dto.CreateGenerationTaskResponse;
 import com.superz.aivista.generation.entity.GenerationMessage;
 import com.superz.aivista.generation.entity.GenerationSession;
 import com.superz.aivista.generation.entity.GenerationTask;
+import com.superz.aivista.generation.entity.GenerationTaskInputAsset;
+import com.superz.aivista.generation.entity.ImageAsset;
 import com.superz.aivista.generation.entity.OutboxEvent;
 import com.superz.aivista.generation.entity.UserGenerationDailyUsage;
 import com.superz.aivista.generation.mapper.GenerationMessageMapper;
 import com.superz.aivista.generation.mapper.GenerationSessionMapper;
 import com.superz.aivista.generation.mapper.GenerationTaskMapper;
+import com.superz.aivista.generation.mapper.GenerationTaskInputAssetMapper;
+import com.superz.aivista.generation.mapper.ImageAssetMapper;
 import com.superz.aivista.generation.mapper.OutboxEventMapper;
 import com.superz.aivista.generation.mapper.UserGenerationDailyUsageMapper;
 import com.superz.aivista.generation.model.GenerationTaskStatus;
+import com.superz.aivista.generation.model.GenerationOperation;
 import com.superz.aivista.generation.model.OutboxEventType;
 import com.superz.aivista.generation.model.OutboxStatus;
 import com.superz.aivista.user.mapper.UserMapper;
@@ -28,8 +33,9 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
-import java.util.List;
 import java.util.Map;
+import java.util.List;
+import java.util.HashSet;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,7 +44,6 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class GenerationTaskCreationService {
     private static final String NEW_SESSION_IDENTITY = "NEW";
-    private static final int HISTORY_FETCH_LIMIT = 1000;
     private static final ZoneId QUOTA_ZONE = ZoneId.of("Asia/Shanghai");
     private static final String IDEMPOTENCY_SCOPE = "GENERATION_TASK_CREATE";
 
@@ -46,6 +51,8 @@ public class GenerationTaskCreationService {
     private final GenerationSessionMapper sessionMapper;
     private final GenerationMessageMapper messageMapper;
     private final GenerationTaskMapper taskMapper;
+    private final ImageAssetMapper imageAssetMapper;
+    private final GenerationTaskInputAssetMapper taskInputAssetMapper;
     private final UserGenerationDailyUsageMapper dailyUsageMapper;
     private final OutboxEventMapper outboxEventMapper;
     private final IdempotencyRecordMapper idempotencyRecordMapper;
@@ -58,6 +65,8 @@ public class GenerationTaskCreationService {
             GenerationSessionMapper sessionMapper,
             GenerationMessageMapper messageMapper,
             GenerationTaskMapper taskMapper,
+            ImageAssetMapper imageAssetMapper,
+            GenerationTaskInputAssetMapper taskInputAssetMapper,
             UserGenerationDailyUsageMapper dailyUsageMapper,
             OutboxEventMapper outboxEventMapper,
             IdempotencyRecordMapper idempotencyRecordMapper,
@@ -67,6 +76,8 @@ public class GenerationTaskCreationService {
         this.sessionMapper = sessionMapper;
         this.messageMapper = messageMapper;
         this.taskMapper = taskMapper;
+        this.imageAssetMapper = imageAssetMapper;
+        this.taskInputAssetMapper = taskInputAssetMapper;
         this.dailyUsageMapper = dailyUsageMapper;
         this.outboxEventMapper = outboxEventMapper;
         this.idempotencyRecordMapper = idempotencyRecordMapper;
@@ -106,17 +117,6 @@ public class GenerationTaskCreationService {
         LocalDate usageDate = LocalDate.ofInstant(now, QUOTA_ZONE);
         reserveDailyQuota(userId, usageDate, command.imageCount(), now);
 
-        // 1000 条上限足以覆盖当前 1000 个正向 Unicode 码点预算下的最小消息粒度。
-        List<GenerationMessage> history = command.sessionId() == null
-                ? List.of()
-                : messageMapper.selectRecentBySessionId(session.getId(), HISTORY_FETCH_LIMIT);
-        String finalPrompt = GenerationPromptComposer.compose(command.prompt(), history,
-                properties.maxPromptCodePoints(), false);
-        String finalNegativePrompt = command.negativePrompt() == null
-                ? null
-                : GenerationPromptComposer.compose(command.negativePrompt(), history,
-                        properties.maxNegativePromptCodePoints(), true);
-
         GenerationMessage message = new GenerationMessage();
         message.setSessionId(session.getId());
         message.setSequenceNo(nextMessageSequenceNo(command.sessionId(), session.getId()));
@@ -133,12 +133,15 @@ public class GenerationTaskCreationService {
         task.setUserId(userId);
         task.setSessionId(session.getId());
         task.setSourceMessageId(message.getId());
+        task.setOperation(command.inputAssetIds().isEmpty()
+                ? GenerationOperation.TEXT_TO_IMAGE.name() : GenerationOperation.IMAGE_TO_IMAGE.name());
         task.setModel(properties.model());
         task.setStatus(GenerationTaskStatus.QUEUED.name());
         task.setTaskVersion(0);
         task.setAttemptCount(0);
-        task.setFinalPrompt(finalPrompt);
-        task.setFinalNegativePrompt(finalNegativePrompt);
+        // 每次提交都是独立生成请求；会话消息只用于历史展示，不参与模型输入。
+        task.setFinalPrompt(command.prompt());
+        task.setFinalNegativePrompt(command.negativePrompt());
         task.setWidth(dimension.width());
         task.setHeight(dimension.height());
         task.setPromptExtend(command.promptExtend());
@@ -147,6 +150,7 @@ public class GenerationTaskCreationService {
         task.setCreatedAt(now);
         task.setUpdatedAt(now);
         taskMapper.insertSelective(task);
+        persistInputAssets(task.getId(), command.inputAssetIds(), userId, now);
 
         // 与任务同事务写入；提交后由后续 Outbox 分发器投递 RabbitMQ，避免“任务已创建但消息丢失”。
         OutboxEvent event = new OutboxEvent();
@@ -173,10 +177,10 @@ public class GenerationTaskCreationService {
         if (request == null || !isCanonicalUuid(idempotencyKey)) {
             throw invalid("Idempotency-Key：必须是 UUID v4 格式");
         }
-        GenerationPromptComposer.requireValidPrompt(
+        GenerationPromptValidator.requireValidPrompt(
                 "prompt", request.prompt(), properties.maxPromptCodePoints(), true);
         String negativePrompt = normalizeNegativePrompt(request.negativePrompt());
-        GenerationPromptComposer.requireValidPrompt(
+        GenerationPromptValidator.requireValidPrompt(
                 "negativePrompt", negativePrompt, properties.maxNegativePromptCodePoints(), false);
 
         String aspectRatio = request.aspectRatio() == null ? null : request.aspectRatio().trim();
@@ -192,10 +196,11 @@ public class GenerationTaskCreationService {
         // 新会话没有数据库 ID，使用稳定标识参与指纹，避免与已有会话请求混淆。
         String sessionIdentity = sessionId == null ? NEW_SESSION_IDENTITY : Long.toString(sessionId);
         boolean promptExtend = request.promptExtend() == null || request.promptExtend();
+        List<Long> inputAssetIds = normalizeInputAssetIds(request.inputAssetIds());
         String fingerprint = GenerationRequestFingerprint.sha256(
-                userId, sessionIdentity, request.prompt(), negativePrompt, aspectRatio, promptExtend, request.imageCount());
+                userId, sessionIdentity, request.prompt(), negativePrompt, aspectRatio, promptExtend, request.imageCount(), inputAssetIds);
         return new CreationCommand(sessionId, request.prompt(), negativePrompt, aspectRatio, promptExtend,
-                request.imageCount(), idempotencyKey, fingerprint);
+                request.imageCount(), inputAssetIds, idempotencyKey, fingerprint);
     }
 
     // 加载或新建会话
@@ -349,10 +354,47 @@ public class GenerationTaskCreationService {
         }
     }
 
+    private static List<Long> normalizeInputAssetIds(List<String> values) {
+        if (values == null || values.isEmpty()) return List.of();
+        if (values.size() > 3) throw invalid("inputAssetIds：最多只能选择3张参考图片");
+        List<Long> result = values.stream().map(GenerationTaskCreationService::parseAssetId).toList();
+        if (new HashSet<>(result).size() != result.size()) throw invalid("inputAssetIds：不能包含重复图片");
+        return result;
+    }
+
+    private static long parseAssetId(String value) {
+        try {
+            long id = Long.parseLong(value);
+            if (id <= 0 || !Long.toString(id).equals(value)) throw invalid("inputAssetIds：必须是正整数ID");
+            return id;
+        } catch (NumberFormatException exception) {
+            throw invalid("inputAssetIds：必须是正整数ID");
+        }
+    }
+
+    private void persistInputAssets(long taskId, List<Long> assetIds, long userId, Instant now) {
+        if (assetIds.isEmpty()) return;
+        List<ImageAsset> assets = imageAssetMapper.selectUsableInputsForUpdate(userId, assetIds);
+        if (assets.size() != assetIds.size()) throw new BusinessException(ErrorCode.GENERATION_RESOURCE_NOT_FOUND);
+        Map<Long, ImageAsset> byId = assets.stream().collect(java.util.stream.Collectors.toMap(ImageAsset::getId, asset -> asset));
+        for (int index = 0; index < assetIds.size(); index++) {
+            ImageAsset asset = byId.get(assetIds.get(index));
+            if (asset == null) {
+                throw new BusinessException(ErrorCode.GENERATION_RESOURCE_NOT_FOUND);
+            }
+            GenerationTaskInputAsset input = new GenerationTaskInputAsset();
+            input.setTaskId(taskId);
+            input.setAssetId(asset.getId());
+            input.setSourceIndex(index);
+            input.setCreatedAt(now);
+            taskInputAssetMapper.insertSelective(input);
+        }
+    }
+
     private static String defaultTitle(String prompt) {
         String title = prompt.strip();
         int maxEnd = title.offsetByCodePoints(0, Math.min(100,
-                GenerationPromptComposer.codePointCount(title)));
+                GenerationPromptValidator.codePointCount(title)));
         return title.substring(0, maxEnd);
     }
 
@@ -367,6 +409,7 @@ public class GenerationTaskCreationService {
             String aspectRatio,
             boolean promptExtend,
             int imageCount,
+            List<Long> inputAssetIds,
             String idempotencyKey,
             String requestFingerprint) {
     }

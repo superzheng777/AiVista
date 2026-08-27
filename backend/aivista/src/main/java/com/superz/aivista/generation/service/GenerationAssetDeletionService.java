@@ -2,7 +2,7 @@ package com.superz.aivista.generation.service;
 
 import com.superz.aivista.common.exception.BusinessException;
 import com.superz.aivista.common.exception.ErrorCode;
-import com.superz.aivista.generation.mapper.GenerationImageMapper;
+import com.superz.aivista.generation.mapper.ImageAssetMapper;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -15,10 +15,10 @@ import org.springframework.transaction.annotation.Transactional;
 /** 标记当前用户手动勾选的生成资产，并安排私有 OSS 异步清理。 */
 @Service
 public class GenerationAssetDeletionService {
-    private final GenerationImageMapper imageMapper;
+    private final ImageAssetMapper imageMapper;
     private final Clock clock;
 
-    public GenerationAssetDeletionService(GenerationImageMapper imageMapper, Clock clock) {
+    public GenerationAssetDeletionService(ImageAssetMapper imageMapper, Clock clock) {
         this.imageMapper = imageMapper;
         this.clock = clock;
     }
