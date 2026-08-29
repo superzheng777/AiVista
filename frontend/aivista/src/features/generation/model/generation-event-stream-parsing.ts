@@ -51,7 +51,7 @@ export function isPublicationStatusUpdateEvent(value: unknown): value is Publica
 
 export function isTerminalStatus(status: GenerationTaskStatus): boolean {
   return status === "SUCCEEDED" || status === "PARTIALLY_SUCCEEDED"
-    || status === "FAILED" || status === "CANCELLED";
+    || status === "FAILED";
 }
 
 export function parseSseBlock(block: string): { eventName: string; data: string } | null {

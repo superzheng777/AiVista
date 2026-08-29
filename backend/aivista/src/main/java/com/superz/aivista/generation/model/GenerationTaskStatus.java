@@ -10,6 +10,5 @@ public enum GenerationTaskStatus {
     TRANSFERRING,
     SUCCEEDED,
     PARTIALLY_SUCCEEDED,
-    FAILED,
-    CANCELLED
+    FAILED
 }

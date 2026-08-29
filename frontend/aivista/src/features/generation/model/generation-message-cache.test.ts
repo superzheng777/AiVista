@@ -11,7 +11,7 @@ function message(version: number, status: GenerationMessage["generation"]["statu
     id: "message-1", sequenceNo: 1, prompt: "test", negativePrompt: null, createdAt: "2026-08-12T00:00:00Z",
     generation: {
       id: "task-1", sessionId: "session-1", version, status, retryCount: 0, maxRetryCount: 3,
-      requestedImageCount: 1, completedImageCount: 0, failedImageCount: 0, cancelledImageCount: 0,
+      requestedImageCount: 1, completedImageCount: 0, failedImageCount: 0,
       failureCode: null, failureMessage: null, images: [], createdAt: "2026-08-12T00:00:00Z", completedAt: null,
     },
   };

@@ -76,7 +76,7 @@ describe("isPublicationStatusUpdateEvent", () => {
 
 describe("isTerminalStatus", () => {
   it("识别生成终态", () => {
-    for (const status of ["SUCCEEDED", "PARTIALLY_SUCCEEDED", "FAILED", "CANCELLED"]) {
+    for (const status of ["SUCCEEDED", "PARTIALLY_SUCCEEDED", "FAILED"]) {
       expect(isTerminalStatus(status as never)).toBe(true);
     }
     for (const status of ["QUEUED", "RUNNING", "TRANSFERRING"]) {

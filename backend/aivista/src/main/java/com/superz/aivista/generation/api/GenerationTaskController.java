@@ -8,7 +8,6 @@ import com.superz.aivista.generation.dto.CreateGenerationTaskRequest;
 import com.superz.aivista.generation.dto.CreateGenerationTaskResponse;
 import com.superz.aivista.generation.dto.GenerationTaskSnapshotResponse;
 import com.superz.aivista.generation.service.GenerationTaskCreationService;
-import com.superz.aivista.generation.service.GenerationTaskCancellationService;
 import com.superz.aivista.generation.service.GenerationTaskQueryService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -34,13 +33,11 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/generation-tasks")
 public class GenerationTaskController {
     private final GenerationTaskCreationService creationService;
-    private final GenerationTaskCancellationService cancellationService;
     private final GenerationTaskQueryService queryService;
 
     public GenerationTaskController(GenerationTaskCreationService creationService,
-            GenerationTaskCancellationService cancellationService, GenerationTaskQueryService queryService) {
+            GenerationTaskQueryService queryService) {
         this.creationService = creationService;
-        this.cancellationService = cancellationService;
         this.queryService = queryService;
     }
 
@@ -74,15 +71,6 @@ public class GenerationTaskController {
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore().cachePrivate())
                 .body(ResponseUtils.success(response));
-    }
-
-    @Operation(summary = "取消生成任务", description = "直接取消当前用户未结束的任务；重复取消属于幂等成功。")
-    @PostMapping("/{taskId}/cancel")
-    public ApiResponse<GenerationTaskSnapshotResponse> cancel(
-            Authentication authentication, @PathVariable long taskId) {
-        long userId = currentUserId(authentication);
-        cancellationService.cancel(userId, taskId);
-        return ResponseUtils.success(queryService.get(userId, taskId));
     }
 
     private long currentUserId(Authentication authentication) {

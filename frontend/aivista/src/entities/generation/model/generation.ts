@@ -1,4 +1,4 @@
-export type GenerationTaskStatus = "QUEUED" | "RUNNING" | "TRANSFERRING" | "SUCCEEDED" | "PARTIALLY_SUCCEEDED" | "FAILED" | "CANCELLED";
+export type GenerationTaskStatus = "QUEUED" | "RUNNING" | "TRANSFERRING" | "SUCCEEDED" | "PARTIALLY_SUCCEEDED" | "FAILED";
 
 export function isActiveGenerationStatus(status: GenerationTaskStatus): boolean {
   return status === "QUEUED" || status === "RUNNING" || status === "TRANSFERRING";
@@ -17,7 +17,6 @@ export type GenerationTask = {
   requestedImageCount: number;
   completedImageCount: number;
   failedImageCount: number;
-  cancelledImageCount: number;
   failureCode: string | null;
   failureMessage: string | null;
   images: GenerationAsset[];
@@ -30,6 +29,7 @@ export type GenerationSession = {
   title: string;
   lastMessageAt: string;
   latestTask: Pick<GenerationTask, "id" | "status" | "version"> | null;
+  hasActiveTask: boolean;
 };
 
 export type GenerationMessage = {

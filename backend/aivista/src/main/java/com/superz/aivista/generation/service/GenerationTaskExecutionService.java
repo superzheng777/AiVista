@@ -247,7 +247,7 @@ public class GenerationTaskExecutionService {
     /** 判断任务是否已经进入不可再执行的终态。 */
     private static boolean isTerminal(String status) {
         return "SUCCEEDED".equals(status) || "PARTIALLY_SUCCEEDED".equals(status)
-                || "FAILED".equals(status) || "CANCELLED".equals(status);
+                || "FAILED".equals(status);
     }
 
     private static int modelRetryCount(GenerationTask task) {

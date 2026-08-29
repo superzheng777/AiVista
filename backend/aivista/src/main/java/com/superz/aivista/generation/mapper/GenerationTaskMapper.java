@@ -64,6 +64,17 @@ public interface GenerationTaskMapper extends BaseMapper<GenerationTask> {
 
     @Select("""
             <script>
+            SELECT DISTINCT session_id
+            FROM generation_tasks
+            WHERE status IN ('QUEUED', 'RUNNING', 'TRANSFERRING')
+              AND session_id IN
+            <foreach collection="sessionIds" item="sessionId" open="(" separator="," close=")">#{sessionId}</foreach>
+            </script>
+            """)
+    List<Long> selectActiveSessionIds(@Param("sessionIds") List<Long> sessionIds);
+
+    @Select("""
+            <script>
             SELECT id, user_id, session_id, source_message_id, model, status, task_version,
                    attempt_count, provider_call_started_at, final_prompt, final_negative_prompt,
                    width, height, prompt_extend, requested_image_count, completed_image_count, quota_refunded_at,
@@ -185,18 +196,6 @@ public interface GenerationTaskMapper extends BaseMapper<GenerationTask> {
             LIMIT #{limit}
             """)
     List<GenerationTask> selectTransferWaitingBefore(@Param("before") Instant before, @Param("limit") int limit);
-
-    @Update("""
-            UPDATE generation_tasks
-            SET status = 'CANCELLED', task_version = task_version + 1,
-                quota_refunded_at = COALESCE(#{quotaRefundedAt}, quota_refunded_at),
-                provider_result_snapshot = NULL,
-                completed_at = #{now}, updated_at = #{now}
-            WHERE id = #{taskId} AND status = #{status} AND task_version = #{taskVersion}
-            """)
-    int cancelActive(@Param("taskId") long taskId, @Param("status") String status,
-            @Param("taskVersion") int taskVersion, @Param("quotaRefundedAt") Instant quotaRefundedAt,
-            @Param("now") Instant now);
 
     @Update("""
             UPDATE generation_tasks

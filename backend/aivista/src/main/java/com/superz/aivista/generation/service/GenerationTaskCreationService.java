@@ -107,9 +107,6 @@ public class GenerationTaskCreationService {
 
         // 已有会话会在 loadOrCreateSession 中继续加锁，锁顺序始终是“用户 → 会话”。
         GenerationSession session = loadOrCreateSession(userId, command, now);
-        if (command.sessionId() != null && taskMapper.countActiveBySessionId(session.getId()) > 0) {
-            throw new BusinessException(ErrorCode.SESSION_ACTIVE_TASK_EXISTS);
-        }
         if (taskMapper.countActiveByUserId(userId) >= properties.maxActiveTasksPerUser()) {
             throw new BusinessException(ErrorCode.USER_GENERATION_CONCURRENCY_LIMIT);
         }

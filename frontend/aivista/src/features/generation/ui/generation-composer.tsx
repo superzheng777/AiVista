@@ -32,7 +32,6 @@ import { GenerationReferenceImagePicker, GenerationReferenceImages } from "@/fea
 
 type GenerationComposerProps = {
   sessionId?: string;
-  hasActiveTask?: boolean;
   compact?: boolean;
   onExpand?: () => void;
 };
@@ -189,7 +188,6 @@ function readStoredPendingSubmission(): StoredPendingSubmission | null {
 function feedbackFromCreateError(error: unknown): SubmissionFeedback {
   const code = getApiErrorCode(error);
   if (code === 40902 || code === 40903) return { message: "生成规则已更新，请重新确认后再提交。", retryable: false, requiresConsent: true };
-  if (code === 40904) return { message: "当前会话仍有生成任务，请等待完成或取消后再试。", retryable: false };
   if (code === 40905) return { message: "未完成的生成任务已达上限，请等待其中的任务完成后再试。", retryable: true };
   if (code === 40906) return { message: "本次提交标识发生冲突，请重新提交。", retryable: true, clearPendingSubmission: true };
   if (code === 42901) return { message: "今日生成图片额度已用尽，请明日再试。", retryable: false };
@@ -198,7 +196,7 @@ function feedbackFromCreateError(error: unknown): SubmissionFeedback {
   return { message: "创建任务时发生网络或服务异常，请重试。", retryable: true };
 }
 
-export function GenerationComposer({ sessionId, hasActiveTask = false, compact = false, onExpand }: GenerationComposerProps) {
+export function GenerationComposer({ sessionId, compact = false, onExpand }: GenerationComposerProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { status, user } = useSession();
@@ -374,7 +372,7 @@ export function GenerationComposer({ sessionId, hasActiveTask = false, compact =
 
   const isCheckingConsent = status === "authenticated" && consentQuery.isLoading;
   const isSubmitting = createTask.isPending || confirmConsent.isPending || isPreparingStream;
-  const isSubmitDisabled = hasActiveTask || isSubmitting || isCheckingConsent;
+  const isSubmitDisabled = isSubmitting || isCheckingConsent;
 
   return (
     <>
@@ -394,7 +392,7 @@ export function GenerationComposer({ sessionId, hasActiveTask = false, compact =
           className={compact ? "h-[58px] w-full resize-none overflow-hidden bg-transparent px-6 py-0 pr-16 text-base leading-[58px] text-[var(--primary)] outline-none placeholder:text-[var(--placeholder)] disabled:cursor-not-allowed disabled:opacity-60" : "min-h-20 max-h-[240px] w-full resize-none overflow-y-auto bg-transparent px-6 pb-[18px] pt-2 text-base leading-7 text-[var(--primary)] outline-none placeholder:text-[var(--placeholder)] disabled:cursor-not-allowed disabled:opacity-60 sm:px-[26px]"}
           {...form.register("prompt")}
         />
-        {compact ? <button type="submit" disabled={isSubmitDisabled} aria-label={hasActiveTask ? "当前会话正在生成" : isPreparingStream ? "正在建立实时连接" : isSubmitting ? "正在创建生成任务" : "开始生成"} className="absolute right-2 top-1/2 z-10 inline-flex size-[42px] -translate-y-1/2 items-center justify-center rounded-full bg-[var(--primary)] text-[var(--surface-bg)] transition hover:bg-[var(--primary-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-60">{isSubmitting || isCheckingConsent ? <LoaderCircle className="size-4 animate-spin" /> : <Send className="size-4" />}</button> : null}
+        {compact ? <button type="submit" disabled={isSubmitDisabled} aria-label={isPreparingStream ? "正在建立实时连接" : isSubmitting ? "正在创建生成任务" : "开始生成"} className="absolute right-2 top-1/2 z-10 inline-flex size-[42px] -translate-y-1/2 items-center justify-center rounded-full bg-[var(--primary)] text-[var(--surface-bg)] transition hover:bg-[var(--primary-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-60">{isSubmitting || isCheckingConsent ? <LoaderCircle className="size-4 animate-spin" /> : <Send className="size-4" />}</button> : null}
         {form.formState.errors.prompt && !compact ? <p role="alert" className="px-6 pb-3 text-sm text-destructive">{form.formState.errors.prompt.message}</p> : null}
 
         {!compact ? <div className="flex min-h-[88px] flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] px-4 py-3 sm:flex-nowrap sm:px-4">
@@ -459,7 +457,7 @@ export function GenerationComposer({ sessionId, hasActiveTask = false, compact =
           </div>
           <div className="relative mr-2 shrink-0">
             <span aria-hidden="true" className="absolute -bottom-2.5 -right-2.5 size-[38px] rounded-[3px] bg-[var(--accent)]" />
-            <button type="submit" disabled={isSubmitDisabled} aria-label={hasActiveTask ? "当前会话正在生成" : isPreparingStream ? "正在建立实时连接" : isSubmitting ? "正在创建生成任务" : "开始生成"} className="relative z-10 inline-flex size-[52px] shrink-0 items-center justify-center rounded-[7px] bg-[var(--primary)] text-[var(--surface-bg)] transition hover:bg-[var(--primary-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60">
+            <button type="submit" disabled={isSubmitDisabled} aria-label={isPreparingStream ? "正在建立实时连接" : isSubmitting ? "正在创建生成任务" : "开始生成"} className="relative z-10 inline-flex size-[52px] shrink-0 items-center justify-center rounded-[7px] bg-[var(--primary)] text-[var(--surface-bg)] transition hover:bg-[var(--primary-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60">
               {isSubmitting || isCheckingConsent ? <LoaderCircle className="size-5 animate-spin" /> : <Send className="size-5" />}
             </button>
           </div>

@@ -31,7 +31,7 @@ class GenerationStatusEventDispatcherTests {
         GenerationTaskMapper taskMapper = mock(GenerationTaskMapper.class);
         GenerationSseConnectionService connections = mock(GenerationSseConnectionService.class);
         OutboxEvent event = event(99L, 301L, 4);
-        GenerationTask task = task(301L, 7L, 201L, 4, "CANCELLED");
+        GenerationTask task = task(301L, 7L, 201L, 4, "FAILED");
         when(outboxMapper.selectAvailableByEventType("GENERATION_TASK_STATUS_CHANGED", NOW, 100)).thenReturn(List.of(event));
         when(outboxMapper.claimPending(99L, NOW, NOW)).thenReturn(1);
         when(taskMapper.selectStatusEventTasksByIds(List.of(301L))).thenReturn(List.of(task));
@@ -39,7 +39,7 @@ class GenerationStatusEventDispatcherTests {
         dispatcher(outboxMapper, taskMapper, connections).dispatchAvailableEvents();
 
         verify(connections).publish(7L, 99L,
-                new GenerationTaskStatusEvent("201", "301", 4, "CANCELLED", 1, 3));
+                new GenerationTaskStatusEvent("201", "301", 4, "FAILED", 1, 3));
         verify(outboxMapper).markPublishedBatch(List.of(99L), NOW);
     }
 
@@ -52,7 +52,7 @@ class GenerationStatusEventDispatcherTests {
         when(outboxMapper.selectAvailableByEventType("GENERATION_TASK_STATUS_CHANGED", NOW, 100)).thenReturn(List.of(event));
         when(outboxMapper.claimPending(99L, NOW, NOW)).thenReturn(1);
         when(taskMapper.selectStatusEventTasksByIds(List.of(301L)))
-                .thenReturn(List.of(task(301L, 7L, 201L, 4, "CANCELLED")));
+                .thenReturn(List.of(task(301L, 7L, 201L, 4, "FAILED")));
 
         dispatcher(outboxMapper, taskMapper, connections).dispatchAvailableEvents();
 
@@ -93,7 +93,7 @@ class GenerationStatusEventDispatcherTests {
         event.setAggregateType("GENERATION_TASK");
         event.setAggregateId(taskId);
         event.setAggregateVersion((long) taskVersion);
-        event.setPayloadJson("{\"status\":\"" + (taskVersion == 3 ? "RUNNING" : "CANCELLED")
+        event.setPayloadJson("{\"status\":\"" + (taskVersion == 3 ? "RUNNING" : "FAILED")
                 + "\",\"modelRetryCount\":1}");
         return event;
     }

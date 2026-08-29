@@ -7,5 +7,6 @@ public record GenerationSessionSummaryResponse(
         String sessionId,
         String title,
         Instant lastMessageAt,
-        GenerationSessionLatestTaskResponse latestTask) {
+        GenerationSessionLatestTaskResponse latestTask,
+        boolean hasActiveTask) {
 }

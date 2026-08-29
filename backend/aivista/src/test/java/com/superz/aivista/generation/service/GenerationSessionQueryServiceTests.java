@@ -27,6 +27,7 @@ class GenerationSessionQueryServiceTests {
                 session(2, "2026-07-30T02:00:00Z"), session(1, "2026-07-30T01:00:00Z"));
         when(sessionMapper.selectPageByUserId(7L, null, null, 3)).thenReturn(sessions);
         when(taskMapper.selectLatestBySessionIds(List.of(3L, 2L))).thenReturn(List.of(task(301, 3, "RUNNING", 2)));
+        when(taskMapper.selectActiveSessionIds(List.of(3L, 2L))).thenReturn(List.of(3L));
 
         GenerationSessionPageResponse response = service(sessionMapper, taskMapper).list(7L, null, 2);
 
@@ -34,8 +35,11 @@ class GenerationSessionQueryServiceTests {
         assertThat(response.nextCursor()).isNotBlank();
         assertThat(response.items()).extracting(item -> item.sessionId()).containsExactly("3", "2");
         assertThat(response.items().getFirst().latestTask().status()).isEqualTo("RUNNING");
+        assertThat(response.items().getFirst().hasActiveTask()).isTrue();
         assertThat(response.items().get(1).latestTask()).isNull();
+        assertThat(response.items().get(1).hasActiveTask()).isFalse();
         verify(taskMapper).selectLatestBySessionIds(List.of(3L, 2L));
+        verify(taskMapper).selectActiveSessionIds(List.of(3L, 2L));
     }
 
     @Test

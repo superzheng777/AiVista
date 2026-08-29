@@ -52,13 +52,6 @@ public class GenerationImageTransferService {
         return result;
     }
 
-    /** 尽力删除因取消或终态竞争而未写入数据库的对象；删除失败时记录安全日志。 */
-    public void deleteTransferred(List<TransferredImage> images) {
-        for (TransferredImage image : images) {
-            deleteObjectGroup(image.objectKey());
-        }
-    }
-
     /** 将单张服务商临时图片直接流式写入 OSS，只统计已转存字节数。 */
     private TransferredImage transferOne(GenerationTask task, int sourceIndex, String url) throws Exception {
         URI uri = URI.create(url);

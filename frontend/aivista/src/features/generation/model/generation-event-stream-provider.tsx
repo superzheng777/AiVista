@@ -82,7 +82,7 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
     if (event.status === "SUCCEEDED" || event.status === "PARTIALLY_SUCCEEDED") {
       setCompletedSessionIds((current) => current.has(event.sessionId) ? current : new Set(current).add(event.sessionId));
     }
-    if (event.status === "FAILED" || event.status === "CANCELLED") {
+    if (event.status === "FAILED") {
       setAttentionSessionIds((current) => current.has(event.sessionId) ? current : new Set(current).add(event.sessionId));
     }
     void (async () => {

@@ -69,12 +69,11 @@ public class GenerationTaskQueryService {
                         .map(image -> imageResponse(task, image, urlExpiresAt))
                         .toList()
                 : List.of();
-        Counts counts = countsOf(task);
         String failureCode = isTerminal(task.getStatus()) ? task.getFailureCode() : null;
         return new GenerationTaskSnapshotResponse(
                 String.valueOf(task.getId()), String.valueOf(task.getSessionId()), task.getStatus(), task.getTaskVersion(),
                 task.getAttemptCount() == null ? 0 : task.getAttemptCount(), bailianProperties.maxRetries(),
-                task.getRequestedImageCount(), task.getCompletedImageCount(), counts.failed(), counts.cancelled(),
+                task.getRequestedImageCount(), task.getCompletedImageCount(), failedImageCount(task),
                 failureCode, failureMessage(failureCode), images, task.getCreatedAt(), task.getCompletedAt());
     }
 
@@ -103,22 +102,20 @@ public class GenerationTaskQueryService {
         return new GenerationAssetImageResponse.ImageUrl(url.toString(), expiresAt);
     }
 
-    /** 根据任务终态计算未持久化的失败数和取消数，避免在数据库中重复保存派生字段。 */
-    private static Counts countsOf(GenerationTask task) {
+    /** 根据任务终态计算未持久化的失败数，避免在数据库中重复保存派生字段。 */
+    private static int failedImageCount(GenerationTask task) {
         int requested = task.getRequestedImageCount();
         return switch (task.getStatus()) {
-            case "SUCCEEDED" -> new Counts(0, 0);
-            case "PARTIALLY_SUCCEEDED" -> new Counts(requested - task.getCompletedImageCount(), 0);
-            case "FAILED" -> new Counts(requested, 0);
-            case "CANCELLED" -> new Counts(0, requested);
-            default -> new Counts(0, 0);
+            case "PARTIALLY_SUCCEEDED" -> requested - task.getCompletedImageCount();
+            case "FAILED" -> requested;
+            default -> 0;
         };
     }
 
     /** 判断任务是否已进入不再执行模型调用的终态。 */
     private static boolean isTerminal(String status) {
         return "SUCCEEDED".equals(status) || "PARTIALLY_SUCCEEDED".equals(status)
-                || "FAILED".equals(status) || "CANCELLED".equals(status);
+                || "FAILED".equals(status);
     }
 
     /** 将内部稳定失败码映射为可安全展示给用户的简短说明。 */
@@ -136,6 +133,4 @@ public class GenerationTaskQueryService {
         };
     }
 
-    private record Counts(int failed, int cancelled) {
-    }
 }

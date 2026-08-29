@@ -124,6 +124,7 @@ class GenerationTaskCreationServiceTests {
         ArgumentCaptor<GenerationTask> task = ArgumentCaptor.forClass(GenerationTask.class);
         verify(messageMapper).insertSelective(message.capture());
         verify(taskMapper).insertSelective(task.capture());
+        verify(taskMapper, never()).countActiveBySessionId(101L);
         verify(messageMapper).selectLastSequenceNoForUpdate(101L);
         assertThat(message.getValue().getSequenceNo()).isEqualTo(3);
         assertThat(task.getValue().getFinalPrompt()).isEqualTo("future city");

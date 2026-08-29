@@ -12,6 +12,7 @@ import com.superz.aivista.generation.mapper.GenerationTaskMapper;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -41,7 +42,7 @@ public class GenerationSessionQueryService {
     /**
      * 返回当前用户的会话侧栏摘要。
      *
-     * <p>查询会额外读取一条记录以判断是否还有下一页，并批量加载当前页各会话的最新任务，避免逐会话查询。
+     * <p>查询会额外读取一条记录以判断是否还有下一页，并批量加载当前页各会话的最新任务和活动状态，避免逐会话查询。
      * 返回的游标只由最后一项的 {@code lastMessageAt} 和会话 ID 构成，因此能在同一排序规则下稳定继续分页。</p>
      *
      * @param userId 当前已认证用户 ID
@@ -61,8 +62,11 @@ public class GenerationSessionQueryService {
         Map<Long, GenerationTask> latestTasks = sessions.isEmpty() ? Map.of()
                 : taskMapper.selectLatestBySessionIds(sessions.stream().map(GenerationSession::getId).toList()).stream()
                         .collect(java.util.stream.Collectors.toMap(GenerationTask::getSessionId, Function.identity()));
+        java.util.Set<Long> activeSessionIds = sessions.isEmpty() ? java.util.Set.of()
+                : new HashSet<>(taskMapper.selectActiveSessionIds(
+                        sessions.stream().map(GenerationSession::getId).toList()));
         List<GenerationSessionSummaryResponse> items = sessions.stream()
-                .map(session -> summary(session, latestTasks.get(session.getId())))
+                .map(session -> summary(session, latestTasks.get(session.getId()), activeSessionIds.contains(session.getId())))
                 .toList();
         String nextCursor = hasMore ? encodeCursor(sessions.getLast()) : null;
         return new GenerationSessionPageResponse(items, nextCursor, hasMore);
@@ -90,12 +94,13 @@ public class GenerationSessionQueryService {
      * @param latestTask 当前会话最近一次提交所关联的任务；无任务时为 {@code null}
      * @return 不包含提示词、模型参数和图片地址的会话摘要
      */
-    private static GenerationSessionSummaryResponse summary(GenerationSession session, GenerationTask latestTask) {
+    private static GenerationSessionSummaryResponse summary(GenerationSession session, GenerationTask latestTask,
+            boolean hasActiveTask) {
         GenerationSessionLatestTaskResponse task = latestTask == null ? null
                 : new GenerationSessionLatestTaskResponse(String.valueOf(latestTask.getId()), latestTask.getStatus(),
                         latestTask.getTaskVersion());
         return new GenerationSessionSummaryResponse(String.valueOf(session.getId()), session.getTitle(),
-                session.getLastMessageAt(), task);
+                session.getLastMessageAt(), task, hasActiveTask);
     }
 
     /**
