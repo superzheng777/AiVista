@@ -5,7 +5,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.superz.aivista.auth.entity.AuthSession;
 import com.superz.aivista.auth.mapper.AuthSessionMapper;
 import com.superz.aivista.generation.mapper.ImageAssetMapper;
-import com.superz.aivista.generation.mapper.GenerationMessageMapper;
+import com.superz.aivista.generation.mapper.ConversationMessageMapper;
+import com.superz.aivista.generation.mapper.CreationTaskInputAssetMapper;
+import com.superz.aivista.generation.mapper.CreationTaskMapper;
 import com.superz.aivista.generation.mapper.GenerationSessionMapper;
 import com.superz.aivista.generation.mapper.GenerationTaskMapper;
 import com.superz.aivista.generation.mapper.OutboxEventMapper;
@@ -61,7 +63,13 @@ class DataAccessIntegrationIT {
     private GenerationSessionMapper generationSessionMapper;
 
     @Autowired
-    private GenerationMessageMapper generationMessageMapper;
+    private ConversationMessageMapper conversationMessageMapper;
+
+    @Autowired
+    private CreationTaskMapper creationTaskMapper;
+
+    @Autowired
+    private CreationTaskInputAssetMapper creationTaskInputAssetMapper;
 
     @Autowired
     private GenerationTaskMapper generationTaskMapper;
@@ -92,20 +100,23 @@ class DataAccessIntegrationIT {
                 FROM information_schema.tables
                 WHERE table_schema = DATABASE()
                   AND table_name IN (
-                    'users', 'auth_sessions', 'generation_sessions', 'generation_messages',
+                    'users', 'auth_sessions', 'generation_sessions', 'conversation_messages',
+                    'creation_tasks', 'creation_task_input_assets',
                     'generation_tasks', 'image_assets', 'generation_task_input_assets',
                     'image_publications', 'image_asset_likes', 'outbox_events',
                     'user_generation_daily_usage', 'user_consents'
                   )
                 """, Integer.class);
 
-        assertThat(tableCount).isEqualTo(12);
+        assertThat(tableCount).isEqualTo(14);
     }
 
     @Test
     void generationMappersAreRegistered() {
         assertThat(generationSessionMapper).isNotNull();
-        assertThat(generationMessageMapper).isNotNull();
+        assertThat(conversationMessageMapper).isNotNull();
+        assertThat(creationTaskMapper).isNotNull();
+        assertThat(creationTaskInputAssetMapper).isNotNull();
         assertThat(generationTaskMapper).isNotNull();
         assertThat(imageAssetMapper).isNotNull();
         assertThat(outboxEventMapper).isNotNull();

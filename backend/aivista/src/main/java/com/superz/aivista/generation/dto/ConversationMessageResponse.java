@@ -2,11 +2,11 @@ package com.superz.aivista.generation.dto;
 
 import java.time.Instant;
 
-/** 单条提示词消息的历史记录。 */
-public record GenerationMessageResponse(
+/** 一次创作轮次中的用户输入或助手回复。 */
+public record ConversationMessageResponse(
         String messageId,
         int sequenceNo,
-        String prompt,
-        String negativePrompt,
+        String role,
+        String content,
         Instant createdAt) {
 }

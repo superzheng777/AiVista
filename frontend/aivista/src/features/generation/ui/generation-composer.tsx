@@ -236,7 +236,7 @@ export function GenerationComposer({ sessionId, compact = false, onExpand }: Gen
       setReferenceImages([]);
       void Promise.all([
         queryClient.invalidateQueries({ queryKey: generationQueryKeys.sessions() }),
-        queryClient.invalidateQueries({ queryKey: generationQueryKeys.messages(task.sessionId) }),
+        queryClient.invalidateQueries({ queryKey: generationQueryKeys.turns(task.sessionId) }),
       ]);
       router.push(`/generate?sessionId=${encodeURIComponent(task.sessionId)}`);
     },

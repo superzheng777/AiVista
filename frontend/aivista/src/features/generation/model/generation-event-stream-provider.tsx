@@ -6,9 +6,9 @@ import { createContext, type ReactNode, use, useCallback, useEffect, useRef, use
 import { generationQueryKeys } from "@/features/generation/api/generation-api";
 import { useAuthStore } from "@/features/auth/model/auth-store";
 import {
-  applyGenerationTaskUpdateToMessages,
-  type GenerationMessagePage,
-} from "@/features/generation/model/generation-message-cache";
+  applyGenerationTaskUpdateToTurns,
+  type GenerationTurnPage,
+} from "@/features/generation/model/generation-turn-cache";
 import {
   consumeSseStream,
   isTerminalStatus,
@@ -86,12 +86,12 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
       setAttentionSessionIds((current) => current.has(event.sessionId) ? current : new Set(current).add(event.sessionId));
     }
     void (async () => {
-      await queryClient.cancelQueries({ queryKey: generationQueryKeys.messages(event.sessionId) });
-      queryClient.setQueryData<InfiniteData<GenerationMessagePage>>(generationQueryKeys.messages(event.sessionId), (current) =>
-        applyGenerationTaskUpdateToMessages(current, event));
+      await queryClient.cancelQueries({ queryKey: generationQueryKeys.turns(event.sessionId) });
+      queryClient.setQueryData<InfiniteData<GenerationTurnPage>>(generationQueryKeys.turns(event.sessionId), (current) =>
+        applyGenerationTaskUpdateToTurns(current, event));
       await Promise.all([
         queryClient.refetchQueries({ queryKey: generationQueryKeys.sessions(), type: "active" }),
-        queryClient.refetchQueries({ queryKey: generationQueryKeys.messages(event.sessionId), type: "active" }),
+        queryClient.refetchQueries({ queryKey: generationQueryKeys.turns(event.sessionId), type: "active" }),
       ]);
       if (isTerminalStatus(event.status)) {
         if (event.status === "SUCCEEDED" || event.status === "PARTIALLY_SUCCEEDED") {

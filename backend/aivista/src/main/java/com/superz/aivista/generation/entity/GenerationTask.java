@@ -18,7 +18,8 @@ public class GenerationTask {
     private Long id;
     private Long userId;
     private Long sessionId;
-    private Long sourceMessageId;
+    /** 所属通用创作轮次；普通与未来 Agent 模式共享。 */
+    private Long creationTaskId;
     /** TEXT_TO_IMAGE 或 IMAGE_TO_IMAGE，由任务输入资产数量派生。 */
     private String operation;
     private String model;
@@ -48,8 +49,6 @@ public class GenerationTask {
     private String providerResultSnapshot;
     /** 非空表示转存消费者已经领取当前任务；用于区分两分钟排队超时与正常转存耗时。 */
     private Instant transferStartedAt;
-    /** 同一用户的一次主动提交及其网络重试使用同一个 UUID v4。 */
-    /** 规范化创建参数的 SHA-256 摘要，用于识别相同幂等键的冲突请求。 */
     /** 仅在 FAILED 或 PARTIALLY_SUCCEEDED 时保存稳定失败分类。 */
     private String failureCode;
     private Instant createdAt;

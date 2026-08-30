@@ -58,7 +58,7 @@ class GenerationTaskExecutionServiceTests {
     }
 
     @Test
-    void acknowledgesStaleGenerationMessageAfterTaskEnteredTransferStage() {
+    void acknowledgesStaleExecutionCommandAfterTaskEnteredTransferStage() {
         GenerationTaskMapper taskMapper = mock(GenerationTaskMapper.class);
         GenerationBailianClient client = mock(GenerationBailianClient.class);
         when(taskMapper.selectByIdForUpdate(301L)).thenReturn(task("TRANSFERRING", 2));
@@ -70,7 +70,7 @@ class GenerationTaskExecutionServiceTests {
     }
 
     @Test
-    void doesNotCallProviderWhenCancellationWinsBeforeCallStarts() throws Exception {
+    void doesNotCallProviderWhenProviderCallClaimIsLost() throws Exception {
         GenerationTaskMapper taskMapper = mock(GenerationTaskMapper.class);
         GenerationBailianClient client = mock(GenerationBailianClient.class);
         GenerationProviderCallGate callGate = permitGate();

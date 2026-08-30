@@ -100,7 +100,7 @@ function SidebarLink({
   const hasAttention = generationBadge?.hasAttention;
   const hasCompletion = generationBadge?.hasCompletedResults;
   const badge = hasAttention
-      ? <span aria-label="有生成任务失败或已取消" className="absolute -right-0.5 -top-0.5 size-2.5 rounded-full bg-destructive ring-2 ring-sidebar" />
+      ? <span aria-label="有生成任务失败" className="absolute -right-0.5 -top-0.5 size-2.5 rounded-full bg-destructive ring-2 ring-sidebar" />
       : hasCompletion
         ? <span aria-label="有新的生成结果" className="absolute -right-0.5 -top-0.5 size-2.5 rounded-full bg-[var(--accent)] ring-2 ring-sidebar" />
         : null;

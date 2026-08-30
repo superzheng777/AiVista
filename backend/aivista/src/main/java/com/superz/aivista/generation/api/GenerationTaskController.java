@@ -41,7 +41,7 @@ public class GenerationTaskController {
         this.queryService = queryService;
     }
 
-    @Operation(summary = "创建普通文生图任务", description = "原子创建会话、提示词消息、排队任务和执行 Outbox 事件；任务将在后续队列阶段消费。")
+    @Operation(summary = "创建普通图像生成任务", description = "原子创建会话、NORMAL 创作轮次、双角色消息、排队任务和执行 Outbox 事件。")
     @PostMapping
     public ResponseEntity<ApiResponse<CreateGenerationTaskResponse>> create(
             Authentication authentication,

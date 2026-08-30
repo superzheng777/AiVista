@@ -1,7 +1,7 @@
 -- The development database contains no production data. This migration deliberately
 -- replaces the legacy generated-image model instead of copying it.
 ALTER TABLE `generation_tasks`
-    ADD COLUMN `operation` VARCHAR(32) NOT NULL DEFAULT 'TEXT_TO_IMAGE' AFTER `source_message_id`;
+    ADD COLUMN `operation` VARCHAR(32) NOT NULL DEFAULT 'TEXT_TO_IMAGE' AFTER `creation_task_id`;
 
 CREATE TABLE `image_assets` (
     `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -46,6 +46,20 @@ CREATE TABLE `generation_task_input_assets` (
         FOREIGN KEY (`task_id`) REFERENCES `generation_tasks` (`id`) ON DELETE RESTRICT,
     CONSTRAINT `fk_generation_task_input_assets_asset_id`
         FOREIGN KEY (`asset_id`) REFERENCES `image_assets` (`id`) ON DELETE RESTRICT
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
+
+CREATE TABLE `creation_task_input_assets` (
+    `creation_task_id` BIGINT UNSIGNED NOT NULL,
+    `image_asset_id` BIGINT UNSIGNED NOT NULL,
+    `source_index` TINYINT UNSIGNED NOT NULL,
+    `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (`creation_task_id`, `source_index`),
+    UNIQUE KEY `uk_creation_task_input_assets_task_asset` (`creation_task_id`, `image_asset_id`),
+    KEY `idx_creation_task_input_assets_asset` (`image_asset_id`),
+    CONSTRAINT `fk_creation_task_input_assets_creation_task_id`
+        FOREIGN KEY (`creation_task_id`) REFERENCES `creation_tasks` (`id`) ON DELETE RESTRICT,
+    CONSTRAINT `fk_creation_task_input_assets_image_asset_id`
+        FOREIGN KEY (`image_asset_id`) REFERENCES `image_assets` (`id`) ON DELETE RESTRICT
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
 
 CREATE TABLE `image_publications` (

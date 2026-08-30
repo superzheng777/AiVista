@@ -2,7 +2,7 @@ CREATE TABLE `generation_sessions` (
     `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '生成会话ID',
     `user_id` BIGINT UNSIGNED NOT NULL COMMENT '所属用户ID',
     `title` VARCHAR(100) NOT NULL COMMENT '用户可修改的会话标题',
-    `last_message_at` DATETIME(3) NOT NULL COMMENT '最后一次用户提示词消息时间',
+    `last_message_at` DATETIME(3) NOT NULL COMMENT '最后一次用户消息时间',
     `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT '创建时间',
     `updated_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3) COMMENT '更新时间',
     PRIMARY KEY (`id`),
@@ -12,25 +12,45 @@ CREATE TABLE `generation_sessions` (
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci
   COMMENT = '用户生成会话表';
 
-CREATE TABLE `generation_messages` (
-    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '提示词消息ID',
+CREATE TABLE `creation_tasks` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '一次会话创作轮次ID',
+    `user_id` BIGINT UNSIGNED NOT NULL COMMENT '所属用户ID',
     `session_id` BIGINT UNSIGNED NOT NULL COMMENT '所属生成会话ID',
-    `sequence_no` INT UNSIGNED NOT NULL COMMENT '会话内从1开始的消息顺序',
-    `prompt` TEXT NOT NULL COMMENT '本轮正向提示词',
-    `negative_prompt` TEXT DEFAULT NULL COMMENT '本轮负向提示词',
-    `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT '创建时间',
+    `mode` VARCHAR(16) NOT NULL COMMENT 'NORMAL或未来的AGENT',
+    `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updated_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
     PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_generation_messages_session_sequence` (`session_id`, `sequence_no`),
-    CONSTRAINT `fk_generation_messages_session_id`
+    KEY `idx_creation_tasks_session_created` (`session_id`, `created_at`, `id`),
+    CONSTRAINT `fk_creation_tasks_user_id`
+        FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE RESTRICT,
+    CONSTRAINT `fk_creation_tasks_session_id`
         FOREIGN KEY (`session_id`) REFERENCES `generation_sessions` (`id`) ON DELETE RESTRICT
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci
-  COMMENT = '生成会话提示词消息表';
+  COMMENT = '普通与Agent模式共用的会话创作轮次';
+
+CREATE TABLE `conversation_messages` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '会话消息ID',
+    `session_id` BIGINT UNSIGNED NOT NULL COMMENT '所属生成会话ID',
+    `creation_task_id` BIGINT UNSIGNED NOT NULL COMMENT '所属创作轮次ID',
+    `sequence_no` INT UNSIGNED NOT NULL COMMENT '会话内从1开始的消息顺序',
+    `role` VARCHAR(16) NOT NULL COMMENT 'USER或ASSISTANT',
+    `content` TEXT DEFAULT NULL COMMENT '用户可见消息内容',
+    `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT '创建时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_conversation_messages_session_sequence` (`session_id`, `sequence_no`),
+    UNIQUE KEY `uk_conversation_messages_task_role` (`creation_task_id`, `role`),
+    CONSTRAINT `fk_conversation_messages_session_id`
+        FOREIGN KEY (`session_id`) REFERENCES `generation_sessions` (`id`) ON DELETE RESTRICT,
+    CONSTRAINT `fk_conversation_messages_creation_task_id`
+        FOREIGN KEY (`creation_task_id`) REFERENCES `creation_tasks` (`id`) ON DELETE RESTRICT
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci
+  COMMENT = '普通与Agent模式共用的用户可见会话消息';
 
 CREATE TABLE `generation_tasks` (
     `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '异步图像生成任务ID',
     `user_id` BIGINT UNSIGNED NOT NULL COMMENT '所属用户ID',
     `session_id` BIGINT UNSIGNED NOT NULL COMMENT '所属会话ID',
-    `source_message_id` BIGINT UNSIGNED NOT NULL COMMENT '触发本次任务的提示词消息ID',
+    `creation_task_id` BIGINT UNSIGNED NOT NULL COMMENT '所属创作轮次ID',
     `model` VARCHAR(128) NOT NULL COMMENT '完整模型标识，例如bailian/qwen-image-2.0',
     `status` VARCHAR(32) NOT NULL DEFAULT 'QUEUED' COMMENT '任务状态，由应用状态机校验',
     `task_version` INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '乐观锁与SSE状态版本',
@@ -54,15 +74,15 @@ CREATE TABLE `generation_tasks` (
     `completed_at` DATETIME(3) DEFAULT NULL COMMENT '进入终态的时间',
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_generation_tasks_user_idempotency` (`user_id`, `idempotency_key`),
-    UNIQUE KEY `uk_generation_tasks_source_message` (`source_message_id`),
+    UNIQUE KEY `uk_generation_tasks_creation_task` (`creation_task_id`),
     KEY `idx_generation_tasks_session_created` (`session_id`, `created_at`),
     KEY `idx_generation_tasks_user_status` (`user_id`, `status`),
     CONSTRAINT `fk_generation_tasks_user_id`
         FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE RESTRICT,
     CONSTRAINT `fk_generation_tasks_session_id`
         FOREIGN KEY (`session_id`) REFERENCES `generation_sessions` (`id`) ON DELETE RESTRICT,
-    CONSTRAINT `fk_generation_tasks_source_message_id`
-        FOREIGN KEY (`source_message_id`) REFERENCES `generation_messages` (`id`) ON DELETE RESTRICT
+    CONSTRAINT `fk_generation_tasks_creation_task_id`
+        FOREIGN KEY (`creation_task_id`) REFERENCES `creation_tasks` (`id`) ON DELETE RESTRICT
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci
   COMMENT = '异步图像生成任务表';
 

@@ -32,12 +32,20 @@ export type GenerationSession = {
   hasActiveTask: boolean;
 };
 
-export type GenerationMessage = {
+export type ConversationMessage = {
   id: string;
   sequenceNo: number;
-  prompt: string;
-  negativePrompt: string | null;
+  role: "USER" | "ASSISTANT";
+  content: string | null;
   createdAt: string;
+};
+
+export type GenerationTurn = {
+  id: string;
+  mode: "NORMAL" | "AGENT";
+  userMessage: ConversationMessage;
+  assistantMessage: ConversationMessage;
+  normalGenerationRequest: { negativePrompt: string | null };
   generation: GenerationTask;
 };
 

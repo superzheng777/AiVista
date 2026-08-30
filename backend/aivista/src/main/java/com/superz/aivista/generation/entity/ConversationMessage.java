@@ -8,17 +8,18 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-/** 会话内一轮用户提示词消息。 */
+/** 一次创作轮次中的用户输入或助手回复。 */
 @Getter
 @Setter
 @NoArgsConstructor
-@Table(value = "generation_messages", mapperGenerateEnable = false)
-public class GenerationMessage {
+@Table(value = "conversation_messages", mapperGenerateEnable = false)
+public class ConversationMessage {
     @Id(keyType = KeyType.Auto)
     private Long id;
     private Long sessionId;
+    private Long creationTaskId;
     private Integer sequenceNo;
-    private String prompt;
-    private String negativePrompt;
+    private String role;
+    private String content;
     private Instant createdAt;
 }

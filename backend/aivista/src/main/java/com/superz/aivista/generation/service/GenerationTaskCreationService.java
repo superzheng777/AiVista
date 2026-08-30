@@ -9,14 +9,18 @@ import com.superz.aivista.common.exception.ErrorCode;
 import com.superz.aivista.generation.config.GenerationTaskProperties;
 import com.superz.aivista.generation.dto.CreateGenerationTaskRequest;
 import com.superz.aivista.generation.dto.CreateGenerationTaskResponse;
-import com.superz.aivista.generation.entity.GenerationMessage;
+import com.superz.aivista.generation.entity.ConversationMessage;
+import com.superz.aivista.generation.entity.CreationTask;
+import com.superz.aivista.generation.entity.CreationTaskInputAsset;
 import com.superz.aivista.generation.entity.GenerationSession;
 import com.superz.aivista.generation.entity.GenerationTask;
 import com.superz.aivista.generation.entity.GenerationTaskInputAsset;
 import com.superz.aivista.generation.entity.ImageAsset;
 import com.superz.aivista.generation.entity.OutboxEvent;
 import com.superz.aivista.generation.entity.UserGenerationDailyUsage;
-import com.superz.aivista.generation.mapper.GenerationMessageMapper;
+import com.superz.aivista.generation.mapper.ConversationMessageMapper;
+import com.superz.aivista.generation.mapper.CreationTaskInputAssetMapper;
+import com.superz.aivista.generation.mapper.CreationTaskMapper;
 import com.superz.aivista.generation.mapper.GenerationSessionMapper;
 import com.superz.aivista.generation.mapper.GenerationTaskMapper;
 import com.superz.aivista.generation.mapper.GenerationTaskInputAssetMapper;
@@ -24,6 +28,8 @@ import com.superz.aivista.generation.mapper.ImageAssetMapper;
 import com.superz.aivista.generation.mapper.OutboxEventMapper;
 import com.superz.aivista.generation.mapper.UserGenerationDailyUsageMapper;
 import com.superz.aivista.generation.model.GenerationTaskStatus;
+import com.superz.aivista.generation.model.CreationMode;
+import com.superz.aivista.generation.model.ConversationRole;
 import com.superz.aivista.generation.model.GenerationOperation;
 import com.superz.aivista.generation.model.OutboxEventType;
 import com.superz.aivista.generation.model.OutboxStatus;
@@ -49,7 +55,9 @@ public class GenerationTaskCreationService {
 
     private final UserMapper userMapper;
     private final GenerationSessionMapper sessionMapper;
-    private final GenerationMessageMapper messageMapper;
+    private final ConversationMessageMapper messageMapper;
+    private final CreationTaskMapper creationTaskMapper;
+    private final CreationTaskInputAssetMapper creationTaskInputAssetMapper;
     private final GenerationTaskMapper taskMapper;
     private final ImageAssetMapper imageAssetMapper;
     private final GenerationTaskInputAssetMapper taskInputAssetMapper;
@@ -63,7 +71,9 @@ public class GenerationTaskCreationService {
     public GenerationTaskCreationService(
             UserMapper userMapper,
             GenerationSessionMapper sessionMapper,
-            GenerationMessageMapper messageMapper,
+            ConversationMessageMapper messageMapper,
+            CreationTaskMapper creationTaskMapper,
+            CreationTaskInputAssetMapper creationTaskInputAssetMapper,
             GenerationTaskMapper taskMapper,
             ImageAssetMapper imageAssetMapper,
             GenerationTaskInputAssetMapper taskInputAssetMapper,
@@ -75,6 +85,8 @@ public class GenerationTaskCreationService {
         this.userMapper = userMapper;
         this.sessionMapper = sessionMapper;
         this.messageMapper = messageMapper;
+        this.creationTaskMapper = creationTaskMapper;
+        this.creationTaskInputAssetMapper = creationTaskInputAssetMapper;
         this.taskMapper = taskMapper;
         this.imageAssetMapper = imageAssetMapper;
         this.taskInputAssetMapper = taskInputAssetMapper;
@@ -114,13 +126,32 @@ public class GenerationTaskCreationService {
         LocalDate usageDate = LocalDate.ofInstant(now, QUOTA_ZONE);
         reserveDailyQuota(userId, usageDate, command.imageCount(), now);
 
-        GenerationMessage message = new GenerationMessage();
-        message.setSessionId(session.getId());
-        message.setSequenceNo(nextMessageSequenceNo(command.sessionId(), session.getId()));
-        message.setPrompt(command.prompt());
-        message.setNegativePrompt(command.negativePrompt());
-        message.setCreatedAt(now);
-        messageMapper.insertSelective(message);
+        CreationTask creationTask = new CreationTask();
+        creationTask.setUserId(userId);
+        creationTask.setSessionId(session.getId());
+        creationTask.setMode(CreationMode.NORMAL.name());
+        creationTask.setCreatedAt(now);
+        creationTask.setUpdatedAt(now);
+        creationTaskMapper.insertSelective(creationTask);
+
+        int userSequenceNo = nextMessageSequenceNo(command.sessionId(), session.getId());
+        ConversationMessage userMessage = new ConversationMessage();
+        userMessage.setSessionId(session.getId());
+        userMessage.setCreationTaskId(creationTask.getId());
+        userMessage.setSequenceNo(userSequenceNo);
+        userMessage.setRole(ConversationRole.USER.name());
+        userMessage.setContent(command.prompt());
+        userMessage.setCreatedAt(now);
+        messageMapper.insertSelective(userMessage);
+
+        ConversationMessage assistantMessage = new ConversationMessage();
+        assistantMessage.setSessionId(session.getId());
+        assistantMessage.setCreationTaskId(creationTask.getId());
+        assistantMessage.setSequenceNo(userSequenceNo + 1);
+        assistantMessage.setRole(ConversationRole.ASSISTANT.name());
+        assistantMessage.setContent(null);
+        assistantMessage.setCreatedAt(now);
+        messageMapper.insertSelective(assistantMessage);
         if (command.sessionId() != null) {
             sessionMapper.updateLastMessageAt(session.getId(), now);
         }
@@ -129,7 +160,7 @@ public class GenerationTaskCreationService {
         GenerationTask task = new GenerationTask();
         task.setUserId(userId);
         task.setSessionId(session.getId());
-        task.setSourceMessageId(message.getId());
+        task.setCreationTaskId(creationTask.getId());
         task.setOperation(command.inputAssetIds().isEmpty()
                 ? GenerationOperation.TEXT_TO_IMAGE.name() : GenerationOperation.IMAGE_TO_IMAGE.name());
         task.setModel(properties.model());
@@ -147,6 +178,7 @@ public class GenerationTaskCreationService {
         task.setCreatedAt(now);
         task.setUpdatedAt(now);
         taskMapper.insertSelective(task);
+        persistCreationTaskInputAssets(creationTask.getId(), command.inputAssetIds(), now);
         persistInputAssets(task.getId(), command.inputAssetIds(), userId, now);
 
         // 与任务同事务写入；提交后由后续 Outbox 分发器投递 RabbitMQ，避免“任务已创建但消息丢失”。
@@ -385,6 +417,17 @@ public class GenerationTaskCreationService {
             input.setSourceIndex(index);
             input.setCreatedAt(now);
             taskInputAssetMapper.insertSelective(input);
+        }
+    }
+
+    private void persistCreationTaskInputAssets(long creationTaskId, List<Long> assetIds, Instant now) {
+        for (int index = 0; index < assetIds.size(); index++) {
+            CreationTaskInputAsset input = new CreationTaskInputAsset();
+            input.setCreationTaskId(creationTaskId);
+            input.setImageAssetId(assetIds.get(index));
+            input.setSourceIndex(index);
+            input.setCreatedAt(now);
+            creationTaskInputAssetMapper.insertSelective(input);
         }
     }
 

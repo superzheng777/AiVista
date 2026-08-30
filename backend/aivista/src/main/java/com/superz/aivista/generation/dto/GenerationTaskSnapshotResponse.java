@@ -3,7 +3,7 @@ package com.superz.aivista.generation.dto;
 import java.time.Instant;
 import java.util.List;
 
-/** 供任务详情、会话消息和状态对账复用的安全任务快照。 */
+/** 供任务详情、会话创作轮次和状态对账复用的安全任务快照。 */
 public record GenerationTaskSnapshotResponse(
         String taskId,
         String sessionId,

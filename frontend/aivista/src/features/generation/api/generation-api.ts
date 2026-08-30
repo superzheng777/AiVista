@@ -3,7 +3,7 @@ import type {
   CursorPage,
   GenerationAsset,
   GenerationAssetImageDto,
-  GenerationMessage,
+  GenerationTurn,
   GenerationSession,
   GenerationTask,
   GenerationTaskStatus,
@@ -14,7 +14,8 @@ import { type ApiResponse, unwrapApiResponse } from "@/shared/api/api-response";
 type GenerationTaskDto = { taskId: string; sessionId: string; status: GenerationTaskStatus; taskVersion: number; retryCount: number; maxRetryCount: number; requestedImageCount: number; completedImageCount: number; failedImageCount: number; failureCode: string | null; failureMessage: string | null; images: GenerationAssetImageDto[]; createdAt: string; completedAt: string | null };
 type GenerationSessionDto = { sessionId: string; title: string; lastMessageAt: string; latestTask: { taskId: string; status: GenerationTaskStatus; taskVersion: number } | null; hasActiveTask: boolean };
 type UpdatedGenerationSessionDto = { sessionId: string; title: string; createdAt: string; lastMessageAt: string };
-type GenerationMessageDto = { message: { messageId: string; sequenceNo: number; prompt: string; negativePrompt: string | null; createdAt: string }; generation: GenerationTaskDto };
+type ConversationMessageDto = { messageId: string; sequenceNo: number; role: "USER" | "ASSISTANT"; content: string | null; createdAt: string };
+type GenerationTurnDto = { creationTaskId: string; mode: "NORMAL" | "AGENT"; userMessage: ConversationMessageDto; assistantMessage: ConversationMessageDto; normalGenerationRequest: { negativePrompt: string | null }; generation: GenerationTaskDto };
 type CreatedGenerationTaskDto = Pick<GenerationTaskDto, "taskId" | "sessionId" | "status" | "taskVersion" | "requestedImageCount" | "createdAt">;
 
 export type CreateGenerationTaskInput = { sessionId?: string; prompt: string; inputAssetIds?: string[]; negativePrompt?: string; aspectRatio: string; promptExtend: boolean; imageCount: number };
@@ -23,7 +24,7 @@ export type UpdatedGenerationSession = { id: string; title: string; createdAt: s
 export const generationQueryKeys = {
   all: ["generation"] as const,
   sessions: () => [...generationQueryKeys.all, "sessions"] as const,
-  messages: (sessionId: string) => [...generationQueryKeys.all, "session", sessionId, "messages"] as const,
+  turns: (sessionId: string) => [...generationQueryKeys.all, "session", sessionId, "turns"] as const,
   task: (taskId: string) => [...generationQueryKeys.all, "task", taskId] as const,
 };
 
@@ -35,7 +36,7 @@ function toSession(dto: GenerationSessionDto): GenerationSession { return { id: 
 function toUpdatedSession(dto: UpdatedGenerationSessionDto): UpdatedGenerationSession { return { id: dto.sessionId, title: dto.title, createdAt: dto.createdAt, lastMessageAt: dto.lastMessageAt }; }
 
 export async function listGenerationSessions(cursor?: string): Promise<CursorPage<GenerationSession>> { const response = await browserApiClient.get<ApiResponse<{ items: GenerationSessionDto[]; nextCursor: string | null }>>("/generation-sessions", { params: { cursor, limit: 20 } }); const data = unwrapApiResponse(response.data); return { items: data.items.map(toSession), nextCursor: data.nextCursor }; }
-export async function listGenerationMessages(sessionId: string, before?: string): Promise<{ items: GenerationMessage[]; nextBefore: string | null; hasMore: boolean }> { const response = await browserApiClient.get<ApiResponse<{ items: GenerationMessageDto[]; nextBefore: string | null; hasMore: boolean }>>(`/generation-sessions/${sessionId}/messages`, { params: { before, limit: 5 } }); const data = unwrapApiResponse(response.data); return { items: data.items.map(({ message, generation }) => ({ id: message.messageId, sequenceNo: message.sequenceNo, prompt: message.prompt, negativePrompt: message.negativePrompt, createdAt: message.createdAt, generation: toTask(generation) })), nextBefore: data.nextBefore, hasMore: data.hasMore }; }
+export async function listGenerationTurns(sessionId: string, before?: string): Promise<{ items: GenerationTurn[]; nextBefore: string | null; hasMore: boolean }> { const response = await browserApiClient.get<ApiResponse<{ items: GenerationTurnDto[]; nextBefore: string | null; hasMore: boolean }>>(`/generation-sessions/${sessionId}/turns`, { params: { before, limit: 5 } }); const data = unwrapApiResponse(response.data); return { items: data.items.map((turn) => ({ id: turn.creationTaskId, mode: turn.mode, userMessage: { id: turn.userMessage.messageId, sequenceNo: turn.userMessage.sequenceNo, role: turn.userMessage.role, content: turn.userMessage.content, createdAt: turn.userMessage.createdAt }, assistantMessage: { id: turn.assistantMessage.messageId, sequenceNo: turn.assistantMessage.sequenceNo, role: turn.assistantMessage.role, content: turn.assistantMessage.content, createdAt: turn.assistantMessage.createdAt }, normalGenerationRequest: turn.normalGenerationRequest, generation: toTask(turn.generation) })), nextBefore: data.nextBefore, hasMore: data.hasMore }; }
 export async function updateGenerationSessionTitle(sessionId: string, title: string): Promise<UpdatedGenerationSession> { const response = await browserApiClient.patch<ApiResponse<UpdatedGenerationSessionDto>>(`/generation-sessions/${sessionId}`, { title }); return toUpdatedSession(unwrapApiResponse(response.data)); }
 export async function createGenerationTask(input: CreateGenerationTaskInput, idempotencyKey: string): Promise<Pick<GenerationTask, "id" | "sessionId" | "status" | "version" | "requestedImageCount" | "createdAt">> { const response = await browserApiClient.post<ApiResponse<CreatedGenerationTaskDto>>("/generation-tasks", input, { headers: { "Idempotency-Key": idempotencyKey } }); const data = unwrapApiResponse(response.data); return { id: data.taskId, sessionId: data.sessionId, status: data.status, version: data.taskVersion, requestedImageCount: data.requestedImageCount, createdAt: data.createdAt }; }
 export async function getGenerationTask(taskId: string): Promise<GenerationTask> { const response = await browserApiClient.get<ApiResponse<GenerationTaskDto>>(`/generation-tasks/${taskId}`); return toTask(unwrapApiResponse(response.data)); }

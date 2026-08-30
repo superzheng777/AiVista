@@ -4,11 +4,11 @@ import com.superz.aivista.common.exception.BusinessException;
 import com.superz.aivista.common.exception.ErrorCode;
 import com.superz.aivista.common.response.ApiResponse;
 import com.superz.aivista.common.response.ResponseUtils;
-import com.superz.aivista.generation.dto.GenerationMessagePageResponse;
+import com.superz.aivista.generation.dto.ConversationTurnPageResponse;
 import com.superz.aivista.generation.dto.GenerationSessionResponse;
 import com.superz.aivista.generation.dto.GenerationSessionPageResponse;
 import com.superz.aivista.generation.dto.UpdateGenerationSessionTitleRequest;
-import com.superz.aivista.generation.service.GenerationSessionMessageQueryService;
+import com.superz.aivista.generation.service.GenerationSessionTurnQueryService;
 import com.superz.aivista.generation.service.GenerationSessionQueryService;
 import com.superz.aivista.generation.service.GenerationSessionService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -32,17 +32,17 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/generation-sessions")
 public class GenerationSessionController {
     private final GenerationSessionQueryService queryService;
-    private final GenerationSessionMessageQueryService messageQueryService;
+    private final GenerationSessionTurnQueryService turnQueryService;
     private final GenerationSessionService sessionService;
 
     public GenerationSessionController(GenerationSessionQueryService queryService,
-            GenerationSessionMessageQueryService messageQueryService, GenerationSessionService sessionService) {
+            GenerationSessionTurnQueryService turnQueryService, GenerationSessionService sessionService) {
         this.queryService = queryService;
-        this.messageQueryService = messageQueryService;
+        this.turnQueryService = turnQueryService;
         this.sessionService = sessionService;
     }
 
-    @Operation(summary = "获取生成会话列表", description = "按最近提示词时间倒序，使用不透明游标分页返回当前用户已有内容的会话。")
+    @Operation(summary = "获取生成会话列表", description = "按最近用户消息时间倒序，使用不透明游标分页返回当前用户已有内容的会话。")
     @GetMapping
     public ApiResponse<GenerationSessionPageResponse> list(
             Authentication authentication,
@@ -51,14 +51,14 @@ public class GenerationSessionController {
         return ResponseUtils.success(queryService.list(currentUserId(authentication), cursor, limit));
     }
 
-    @Operation(summary = "获取生成会话消息历史", description = "按消息序号向前翻页，响应中的消息按时间正序排列。")
-    @GetMapping("/{sessionId}/messages")
-    public ApiResponse<GenerationMessagePageResponse> listMessages(
+    @Operation(summary = "获取生成会话创作历史", description = "按创作轮次向前翻页，响应中的轮次按时间正序排列。")
+    @GetMapping("/{sessionId}/turns")
+    public ApiResponse<ConversationTurnPageResponse> listTurns(
             Authentication authentication,
             @Parameter(description = "会话 ID") @PathVariable long sessionId,
-            @Parameter(description = "当前页最早消息返回的不透明游标") @RequestParam(required = false) String before,
-            @Parameter(description = "每页数量，默认 30，范围 1 到 100") @RequestParam(required = false) Integer limit) {
-        return ResponseUtils.success(messageQueryService.list(currentUserId(authentication), sessionId, before, limit));
+            @Parameter(description = "当前页最早创作轮次返回的不透明游标") @RequestParam(required = false) String before,
+            @Parameter(description = "每页数量，默认及最大值均为 5") @RequestParam(required = false) Integer limit) {
+        return ResponseUtils.success(turnQueryService.list(currentUserId(authentication), sessionId, before, limit));
     }
 
     @Operation(summary = "修改生成会话标题", description = "仅允许当前用户修改自己的会话标题，不改变会话侧栏排序。")
