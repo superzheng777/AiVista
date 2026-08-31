@@ -212,7 +212,7 @@ export function GenerationComposer({ sessionId, compact = false, onExpand }: Gen
   const controlsRef = useRef<HTMLDivElement>(null);
   const optionsTriggerRef = useRef<HTMLButtonElement>(null);
   const pendingSubmission = useRef<PendingSubmission | null>(null);
-  const recoveryStarted = useRef(false);
+  const recoveryCheckedUserId = useRef<string | null>(null);
   const form = useForm<GenerationFormValues>({
     resolver: zodResolver(generationFormSchema),
     defaultValues: { prompt: "", negativePrompt: "", aspectRatio: "1:1", promptExtend: true, imageCount: 1 },
@@ -233,6 +233,7 @@ export function GenerationComposer({ sessionId, compact = false, onExpand }: Gen
     onSuccess: (task) => {
       pendingSubmission.current = null;
       window.sessionStorage.removeItem(PENDING_SUBMISSION_STORAGE_KEY);
+      setSubmitFeedback(null);
       setReferenceImages([]);
       void Promise.all([
         queryClient.invalidateQueries({ queryKey: generationQueryKeys.sessions() }),
@@ -259,7 +260,8 @@ export function GenerationComposer({ sessionId, compact = false, onExpand }: Gen
   });
 
   useEffect(() => {
-    if (status !== "authenticated" || !user || recoveryStarted.current) return;
+    if (status !== "authenticated" || !user || recoveryCheckedUserId.current === user.id) return;
+    recoveryCheckedUserId.current = user.id;
     const stored = readStoredPendingSubmission();
     if (!stored) return;
     if (stored.userId !== user.id || Date.now() - stored.createdAt > PENDING_SUBMISSION_MAX_AGE_MS) {
@@ -267,7 +269,6 @@ export function GenerationComposer({ sessionId, compact = false, onExpand }: Gen
       return;
     }
 
-    recoveryStarted.current = true;
     pendingSubmission.current = { fingerprint: stored.fingerprint, idempotencyKey: stored.idempotencyKey };
     void (async () => {
       await Promise.resolve();
