@@ -1,6 +1,7 @@
 package com.superz.aivista.generation.service;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
 
@@ -26,5 +27,8 @@ public record BailianGenerationResponse(
     public record Content(String image) { }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record Usage(@JsonProperty("image_count") Integer imageCount, Integer width, Integer height) { }
+    public record Usage(
+            @JsonProperty("image_count") @JsonAlias("output_image_count") Integer imageCount,
+            @JsonProperty("width") @JsonAlias("output_width") Integer width,
+            @JsonProperty("height") @JsonAlias("output_height") Integer height) { }
 }
