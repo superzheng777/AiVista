@@ -27,7 +27,7 @@
 首期计划内置一至两个内部 Skill，优先候选为：
 
 - `image-create`：未命中垂类 Skill 时使用的通用文生图 Skill。
-- `poster-design`：处理海报用途、视觉层级、主体布局和文字留白的垂类 Skill。
+- `poster-design`：处理海报用途、视觉层级、主体布局和文字留白的原子型垂类 Skill；首期先用原子型 Skill 跑通单工具闭环，复合型 Skill 在基础链路稳定后再增加。
 
 ### 1.2 首期范围
 
@@ -36,8 +36,9 @@
 - 有限的意图分类、手动 Skill 选择与自动 Skill 路由。
 - 内部版本化 Skill 注册、加载和工具白名单。
 - 结构化模型动作与模型—工具执行循环。
-- 复用现有文生图任务、MQ、转存和资产链路。
+- 复用并扩展现有文生图任务、MQ、转存和资产链路，使一个 Agent Run 可批量创建多个独立 Prompt 的生成任务。
 - `WAITING_TOOL` 异步等待、事件恢复和重复消息处理。
+- 使用 Agent LLM 的多模态视觉能力按当前 Skill 标准检查已转存图片，并在预算和迭代上限内有限重试。
 - 持久化 Agent 执行事件及 SSE 实时展示。
 - 一条最终助手消息和多个执行事件、图片资产的回合聚合展示。
 - 最小结构化会话记忆；是否在首期启用待确认。
@@ -48,7 +49,7 @@
 - Skill 市场和第三方 Skill。
 - 多 Agent、子 Agent 或长时间自主后台工作。
 - 默认不在首期主链引入向量数据库；模糊历史图片语义检索是否作为首期后续小步纳入仍待确认。
-- 自动视觉质检、手部或文字缺陷修复。
+- 通用自动修复闭环；首期可由具备视觉能力的 Agent LLM 按当前 Skill 的质量标准检查结果并给出或触发有限重试，但不承诺尚未接入的手部、文字等专项修复能力。
 - 超分、抠图、扩图、局部重绘等尚未完成的原子能力。
 - 自动算力降级和复杂供应商路由。
 - 视频、音乐和项目打包交付。
@@ -62,7 +63,9 @@
 - 用户可以显式选择 Skill，也可以不选择并由 Agent 自动匹配。
 - 用户显式选择且满足权限、输入和能力要求的 Skill 优先于自动路由。
 - 未命中垂类图片 Skill 时使用默认 `image-create`，不在 Runtime 中另写一套普通文生图业务分支。
-- Skill 以自然语言工作流指令为主体，并带有可执行 Manifest、允许工具列表、触发摘要、版本和定义哈希。
+- Skill 以单个 Markdown 文件发布，YAML frontmatter 只包含 `name` 和 `description`；`description` 同时作为发现和路由摘要，不重复维护 `triggerSummary`。
+- Skill 正文承载领域知识、设计方法、Prompt 规范、工具调用时机、分支、默认值和验收要求；Runtime 不为不同设计 Skill 编写专属 Prompt Renderer。
+- Skill 正文的“工具使用规范”表必须显式使用标准 Tool ID；Skill Loader 静态提取并校验该表中的工具名，形成当前 Skill 的运行时工具白名单。
 - 不同 Skill 可以具有不同步骤、工具调用次数、调用时机、用户确认点和交付要求。
 - Skill 负责创作策略；Runtime 强制工具权限、参数约束、状态转换、幂等、等待恢复和可确定验证的验收项。
 
@@ -100,31 +103,34 @@
 | Agent 服务语言与部署 | 新增独立 TypeScript Agent Service，保留 Java 主服务 | 模型、Skill 和 Tool 编排适合 TS 生态；现有可靠生成和业务资产能力无需重写 | 新增一个部署单元和 Agent MQ 消费者 |
 | Agent 与图像服务边界 | Agent 通过 Java 内部 Tool API 创建和读取生成任务 | 防止两套语言重复实现额度、权限、幂等和资产规则 | TS 不直接写 `generation_tasks`、`image_assets` |
 | 普通文生图 | 使用默认内部 `image-create` Skill | 统一垂类和通用创作的执行机制，避免 Runtime 业务分支膨胀 | 图片创作都经 Skill Runtime，聊天/查询/控制除外 |
-| Skill 形态 | `manifest.json + SKILL.md`，随代码版本化发布 | 贴合自然语言 Skill 与工具约束的目标，首期无需在线 DSL 或管理后台 | Run 固定保存 Skill ID、版本和定义哈希 |
-| 工具权限 | Manifest 声明，Runtime 强制白名单 | 自然语言禁止规则不能提供可靠权限隔离 | 未授权工具调用必须在执行前拒绝 |
+| Skill 形态 | 单个带标准 frontmatter 的 Markdown 文件，随代码版本化发布 | 对齐参考 Skill 规范，创作知识和工作流保持为模型可直接理解的自然语言 | frontmatter 只保留 `name`、`description`；Run 固定保存 Skill 名称、版本和定义哈希 |
+| Skill 路由摘要 | 直接使用 frontmatter 的 `description` | 避免与额外 `triggerSummary` 重复维护和漂移 | 路由阶段只加载启用 Skill 的 `name + description`，选中后再加载完整正文 |
+| 工具权限 | 从正文标准“工具使用规范”表静态提取 Tool ID，Runtime 强制白名单 | 保持单文件交付，同时不把自然语言指令当作可靠权限边界 | 未知工具导致 Skill 加载失败；未授权 Tool Call 在执行前拒绝 |
 | Runtime 形态 | 有限状态、Tool Registry 和模型—工具循环 | 控制面可测试，创作经验仍可由 Skill 扩展 | 不按 Skill ID 编写大型 `if/else` 流程 |
 | 首期 Agent LLM | 使用千问 `qwen3.8-flash`，默认关闭思考模式 | 该模型支持 Function Calling 和 JSON Schema；首期任务重点是可靠编排而非复杂推理 | 通过 `AgentModelProvider` 隔离供应商协议，Run 保存模型及运行参数快照 |
 | 模型能力分工 | 请求理解使用 Structured Output；Skill 执行使用原生 Function Calling；最终回复禁止 Tool Calling | 避免用自由文本或自定义 JSON 模拟工具协议，也不依赖同轮混用 Structured Output 与 Tools | Runtime 分阶段调用模型，并分别校验分类结果、Tool Call 和最终回复 |
-| Skill 传入模型 | 只向模型传当前 Skill 编译后的工作指令，不上传整个 Skill 包或 Runtime 内部配置 | 模型需要创作方法和调用时机，不需要数据库、MQ、权限和部署细节 | 新增 Skill Loader/Compiler，Run 固定 Skill ID、版本和定义哈希 |
+| Skill 传入模型 | 向模型传当前 Skill 的完整有效正文，不传其他 Skill 正文或 Runtime 内部配置 | 模型直接阅读领域知识、设计方法、参考示例、Prompt 规范和工具调用时机 | 新增通用 Skill Loader；不把自然语言编译成专属代码，Run 固定 Skill 名称、版本和定义哈希 |
 | Tool 协议 | 模型侧 Function Schema、Agent 内部 Tool Contract、Java Tool API Contract 分层解耦 | 防止业务代码绑定千问响应对象，并避免模型控制可信身份字段 | Provider Adapter 解析 Tool Call，Runtime 二次校验并注入可信上下文 |
-| 并行工具调用 | 首期关闭 `parallel_tool_calls` | 当前工具存在前后依赖，多任务、部分失败和并行恢复语义尚未建立 | 单轮最多接受一个 Tool Call；后续多生成任务能力设计完成后再开放 |
+| 并行工具调用 | 首期关闭模型协议的 `parallel_tool_calls`，但允许一次批量生图 Tool Call 携带多个差异化方案 | 避免依赖供应商并行 Tool Call 语义，同时满足一轮多个 Prompt 并行生成 | `text2image`/`image2image` 使用 `variants[]`；Java 为每个方案创建独立 `generation_task` |
 | 异步等待 | 提交生成后持久化为 `WAITING_TOOL` 并 ACK；生成终态事件重新唤醒 | 避免持有 MQ Delivery、进程内 Promise 或主动高频轮询 | Java 需在生成终态事务中创建 Agent Resume Outbox |
-| 用户等待 | 首期实现 `WAITING_USER`，仅在 Skill 工作流或系统确定性预检实际要求用户输入时进入 | Runtime 具备暂停恢复能力，但不让模型无依据追问 | 持久化等待原因和表单，用户提交后由 Resume Outbox 唤醒 |
+| 用户等待 | 保留 `WAITING_USER` 状态，表单确认、普通方案确认、超时、取消和恢复协议后续专项讨论 | 复合型 Skill 常用此能力，但首期先跑通不依赖用户中途确认的原子型 Skill | 状态机预留，具体请求和恢复协议未定前不作为原子型闭环验收前提 |
 | Agent 前端过程 | 展示持久化结构化事件，不展示原始思维链 | 同时满足可解释进度、隐私、安全和可恢复要求 | 新增 Agent 事件协议与聚合查询 |
 | 会话消息语义 | 每轮一条最终 ASSISTANT 消息，阶段信息独立存储 | 避免将进度噪声带入后续模型上下文 | 现有每轮每角色唯一约束可以继续保留 |
 | 首期资产引用 | 优先支持显式 `assetId`、最近回合、序号和创意方向的确定性解析 | “刚才第三张”存在精确关系，不应使用近似向量搜索 | 保存 Run、Tool Call、任务、资产、`variant_no` 和 `variant_name` 关系 |
 | 向量资产记忆定位 | 用于根据模糊自然语言描述召回历史图片候选，返回 `assetId` 引用 | 支持“之前那张蓝头发拿剑的图”，但不能代替权限和资产真相校验 | 后续或首期独立小步增加资产语义描述、Embedding、向量检索、重排和候选确认，具体范围待确认 |
 | LLM 供应商 | 采用阿里云千问体系，首期模型为 `qwen3.8-flash` | 与现有生成供应商环境一致，但 Runtime 不绑定具体 SDK 或模型 | 具体 API 形态、超时和预算仍需真实环境验证 |
-| 多张图片的首期策略 | 待确认 | 一次任务返回多图实现简单；多创意 Prompt 需要一轮关联多个生成任务 | 影响现有唯一约束、额度、进度汇总和 Tool 关联模型 |
+| 多张图片的首期策略 | 一个 Run 可创建多个独立 `generation_task`，每个创意方向保存自己的最终 Prompt | 仅在单个 `final_prompt` 后追加“生成不同方案”不能持久化和重试每个实际 Prompt；先让 Agent LLM 产生差异化 `variants[]`，再批量提交 | 移除 `generation_tasks.creation_task_id` 唯一约束，增加 Tool Call—任务关联、批量额度和部分结果聚合 |
+| 首期 Skill 复杂度 | 先实现原子型 Skill，再扩展复合型 Skill | 先验证自然语言 Skill 对 Prompt 和单工具行为的稳定影响，降低首条链路的状态组合 | `image-create`、`poster-design` 先围绕生图工具；搜索、表单和多工具串联保留 Tool 契约并分步接入 |
+| 视觉验收 | 使用 Agent LLM 的视觉能力读取已转存资产，并按当前 Skill 的质量标准检查 | Prompt 技术检查不能代替成图检查；现有模型具备视觉能力 | 恢复阶段向模型提供受控图片内容，持久化安全验收摘要，有限重试仍受预算和迭代上限约束 |
 
 ## 4. 实施计划与进度
 
 | 小步目标 | 状态 | 完成内容或当前阻塞 | 验证方式/结果 |
 | --- | --- | --- | --- |
-| 1. 设计收敛 | 进行中 | 已明确服务边界、Skill/Tool/Runtime 关系、异步恢复和前端事件模型；数据归属、多任务关系和首期图生图仍待确认 | 本文评审通过后进入实施中 |
+| 1. 设计收敛 | 进行中 | 已明确单文件 Skill、工具白名单、多任务和视觉验收方向；数据归属、首期图生图及 `WAITING_USER` 详细协议仍待确认 | 本文评审通过后进入实施中 |
 | 2. Agent 后端骨架 | 待开始 | Agent 表、状态机、Outbox、MQ 拓扑、TS Consumer 和处理租约 | 重复投递、并发领取和崩溃恢复自动化测试 |
-| 3. 通用文生图闭环 | 待开始 | 意图识别、`image-create`、`generation.create`、异步恢复、最终消息和资产展示 | 真实环境端到端生成验收 |
-| 4. Skill 路由证明 | 待开始 | `poster-design`、用户手动选择、自动选择、不同指令和交付行为 | 路由、工具白名单和 Skill 版本测试 |
+| 3. 原子型文生图闭环 | 待开始 | 意图识别、`image-create`、批量 `text2image`、多任务异步恢复、视觉检查、最终消息和资产展示 | 真实环境端到端生成验收 |
+| 4. 原子型 Skill 路由证明 | 待开始 | `poster-design`、用户手动选择、自动选择、Skill 正文驱动不同构图与 Prompt | 路由、静态工具白名单、Skill 版本和 Prompt 差异测试 |
 | 5. 前端实时过程 | 待开始 | Agent SSE、事件重放、回合聚合和图片网格 | 断线重连、刷新恢复和终态快照验收 |
 | 6. 可靠性收敛 | 待开始 | 取消、超时、模型格式错误、图像失败、转存失败和重复完成 | 故障注入与端到端回归 |
 | 7. 资产引用与语义记忆 | 待开始 | 首期先实现显式及最近回合确定性引用；向量资产检索是否纳入首期待确认 | 序号定位、模糊描述候选、权限回查和歧义确认测试 |
@@ -181,59 +187,68 @@ TypeScript Agent Service          Agent、会话、任务、资产和 Outbox 数
 
 ### 5.3 Skill 定义
 
-建议目录：
+Skill 对齐参考规范，一个 Skill 对应一个独立 Markdown 文件：
 
 ```text
 agent-service/src/skills/definitions/
-  image-create/
-    manifest.json
-    SKILL.md
-  poster-design/
-    manifest.json
-    SKILL.md
+  image-create.md
+  poster-design.md
 ```
 
-Manifest 至少包含：
+文件开头使用 YAML frontmatter，且只允许 `name` 和 `description`：
+
+```md
+---
+name: 海报设计技能
+description: 本技能输出具有明确视觉层级和文字留白的海报视觉，适用于电影海报、活动海报和品牌主视觉，不处理高密度信息长图。
+---
+
+# 海报设计技能
+
+## 角色定位
+...
+
+## 工具使用规范
+| 工具名称 | 调用时机 | 说明 |
+| --- | --- | --- |
+| `text2image` | 信息完整且无参考图时 | 根据最终 Prompt 生成图片 |
+| `image2image` | 用户提供参考资产并要求延续时 | 根据参考资产改造图片 |
+```
+
+`description` 是 Skill 的唯一发现和路由摘要，不再增加 `triggerSummary`。正文包含角色定位、领域知识、设计方法、阶段和分支、字段缺失处理、Prompt 组织规范、参考案例、工具调用规则、追问原则、视觉验收和输出规范。Skill 中的自然语言步骤直接作为当前模型的专业执行手册；Runtime 不理解具体风格，也不按 Skill 名称编写 Prompt 拼接代码。
+
+首期采用通用 Skill Loader 而不是把自然语言编译成工作流代码。Loader 在启动时完成：
+
+```text
+读取单个 Markdown
+  → 校验 frontmatter 只有 name、description
+  → 校验名称、描述和正文
+  → 从标准“工具使用规范”表第一列提取反引号包裹的 Tool ID
+  → 校验 Tool ID 全部存在于 Tool Registry
+  → 取得对应 Function Schema，形成当前 Skill 工具白名单
+  → 计算定义哈希并结合平台注册配置形成固定版本
+```
+
+平台运行字段不写回 Skill frontmatter。启用状态、是否允许自动或手动调用、最大迭代次数和发布版本由 Agent Service 的注册配置或后续管理数据维护。运行时对象保持最小：
 
 ```ts
-interface SkillManifest {
-  id: string;
-  version: string;
+interface LoadedSkill {
   name: string;
   description: string;
-  enabled: boolean;
-  userInvocable: boolean;
-  autoInvocable: boolean;
-  triggerSummary: string;
-  inputModalities: Array<"TEXT" | "IMAGE">;
-  outputModalities: Array<"TEXT" | "IMAGE">;
-  allowedTools: string[];
-  allowedChildSkills: string[];
-  maxIterations: number;
-  definitionHash: string;
-}
-```
-
-`SKILL.md` 包含触发边界、执行步骤、工具调用规则、参数默认值、用户确认点、禁止事项、验收和输出规范。Skill 中的步骤是给模型的创作工作流；涉及权限、额度、状态、资产归属和幂等的约束由代码强制。
-
-Skill 不作为目录或原始文件包直接上传给模型。Agent 服务启动时由 Skill Loader 校验 Manifest 和正文，再编译为当前 Run 使用的固定定义：
-
-```ts
-interface CompiledSkill {
-  id: string;
   version: string;
   definitionHash: string;
-  modelInstructions: string;
+  instructions: string;
   allowedToolIds: string[];
   toolSchemas: ModelToolDefinition[];
   maxIterations: number;
-  maxUserQuestions: number;
 }
 ```
 
-`modelInstructions` 只包含模型完成任务所需的目标、适用边界、创作方法、执行步骤、默认值、工具调用时机、用户确认点和交付规范。文件路径、数据库字段、内部 API 地址、MQ 配置、幂等算法、权限实现、OSS 规则和部署信息不进入模型上下文。
+`instructions` 是当前 Skill 的完整有效正文，包括模型需要应用的设计构图思路、参考文案、Prompt 补充规则和工具调用时机。文件路径、平台注册配置、数据库字段、内部 API、MQ、幂等算法、权限实现、OSS 规则和部署信息不进入模型上下文。
 
-首期一个 Run 只加载一个已选 Skill，不把所有 Skill 正文和所有工具同时交给模型。Run 固定保存 Skill ID、版本和定义哈希；等待恢复时必须使用同一固定定义，不能因服务端 Skill 更新而在一个 Run 内切换工作规则。
+路由阶段只加载所有启用 Skill 的 `name + description`；选中后，一个 Run 只加载当前 Skill 的完整正文和静态提取出的工具，不把其他 Skill 正文或所有平台工具同时交给模型。Run 固定保存 Skill 名称、版本和定义哈希；等待恢复时必须使用同一固定定义，不能因服务端 Skill 更新而切换工作规则。
+
+首期先实现原子型 Skill：封装专业知识、个人风格或单个生图工具的 Prompt 方法。复合型 Skill 所需的搜索、表单、多阶段确认和多工具串联在原子型闭环稳定后增加；新增复合型 Skill 仍复用同一单文件格式和通用 Runtime，不引入按 Skill 名称分支的代码。
 
 ### 5.4 Runtime 与模型调用分阶段
 
@@ -269,9 +284,9 @@ interface RequestDecision {
 }
 ```
 
-前端或请求协议已经提供可信结构时不让模型重复猜测。例如显式取消操作直接进入控制逻辑，显式 Skill 优先校验。自由自然语言入口才调用请求分类。Skill Router 按“用户显式选择且校验通过 → 模型建议且 Manifest 校验通过 → 请求类型默认 Skill”确定最终 Skill；模型字段使用 `suggestedSkillId`，不赋予模型最终选择权。
+前端或请求协议已经提供可信结构时不让模型重复猜测。例如显式取消操作直接进入控制逻辑，显式 Skill 优先校验。自由自然语言入口才调用请求分类。Skill Router 按“用户显式选择且注册配置校验通过 → 模型依据 `name + description` 建议且校验通过 → 请求类型默认 Skill”确定最终 Skill；模型字段使用 `suggestedSkillId`，不赋予模型最终选择权。
 
-Skill 执行阶段不再要求模型返回自定义 `AgentAction` JSON。`TOOL_CALL` 使用千问原生 `tool_calls`；请求用户信息映射为受控 Tool `ui.requestInformation`；无 Tool Call 的文本只作为完成候选；权限或状态等确定性拒绝由 Runtime 产生。首期不依赖 `response_format` 与 `tools` 在同一模型请求中组合工作。
+Skill 执行阶段不再要求模型返回自定义 `AgentAction` JSON。`TOOL_CALL` 使用千问原生 `tool_calls`；请求用户信息映射为受控 Tool `generate_form_for_info_collection`；无 Tool Call 的文本只作为完成候选；权限或状态等确定性拒绝由 Runtime 产生。首期不依赖 `response_format` 与 `tools` 在同一模型请求中组合工作。
 
 执行循环：
 
@@ -280,7 +295,7 @@ Skill 执行阶段不再要求模型返回自定义 `AgentAction` JSON。`TOOL_C
   → 确定性预检并构造当前输入、最近对话、关联资产和记忆
   → 必要时以 Structured Output 分类请求并取得 Skill 建议
   → Runtime 校验并确定最终 Skill
-  → 加载固定版本 CompiledSkill 和允许工具
+  → 加载固定版本 LoadedSkill 的完整正文和静态工具白名单
   → 持久化安全阶段事件及计划摘要
   → Qwen 通过原生 Function Calling 提出下一 Tool Call
   → Runtime 校验名称、Skill 白名单、本地 Schema、状态和幂等
@@ -292,16 +307,30 @@ Skill 执行阶段不再要求模型返回自定义 `AgentAction` JSON。`TOOL_C
 
 ### 5.5 Tool
 
-首期候选 Tool：
+计划内 Tool：
 
 | Tool | 职责 | 备注 |
 | --- | --- | --- |
-| `generation.create` | 通过 Java 内部 API 创建现有图像生成任务 | 异步返回 Tool Call 和任务引用 |
-| `generation.getResult` | 在恢复后读取已终态且已转存的资产 | 不用于主动高频轮询 |
-| `asset.getMetadata` | 获取当前用户输入资产的安全元数据 | 不返回 OSS Key 或长期 URL |
-| `ui.requestInformation` | 请求结构化用户输入并进入 `WAITING_USER` | 首期实现；仅在 Skill 或确定性预检需要时调用 |
-| `ui.presentAssets` | 生成语义化资产展示结果 | 签名 URL 仍由 Java 产生 |
-| `memory.proposePatch` | 产生待提交的结构化记忆变更 | 首期是否实现待确认 |
+| `text2image` | 将一个或多个差异化文本方案通过 Java 内部 API 创建为生成任务 | 首期原子型主工具；一次调用可携带 `variants[]`，异步返回多个任务引用 |
+| `image2image` | 使用一个或多个当前用户资产作为参考创建改图任务 | 是否进入首期闭环仍待确认；模型只提供 `assetId` 引用，Java 回查权限 |
+| `creation_agent_search` | 搜索外部信息或创作参考 | 先保留 Tool ID、用途和安全边界，搜索供应商、结果协议和引用细节后续设计 |
+| `generate_form_for_info_collection` | 展示文本、单选或多选表单并等待用户提交 | 不支持附件；`WAITING_USER` 的表单、确认、超时、取消和恢复协议后续讨论 |
+
+生成多张差异化候选时，由 Runtime System Prompt、当前 Skill 的数量与多样性规则共同要求 Agent LLM 先形成多个实际生产 Prompt，而不是只在一个 Prompt 末尾写“生成四个不同方案”。调用示意：
+
+```ts
+interface TextToImageArguments {
+  variants: Array<{
+    variantName: string;
+    prompt: string;
+    negativePrompt?: string;
+  }>;
+  aspectRatio: string;
+  model?: string;
+}
+```
+
+每个 `variants[]` 项创建独立 `generation_task` 并保存自己的 `final_prompt`。这样每个方向都可单独追踪、重试和展示；批量 Tool Call 本身使用一个稳定业务幂等键，每个子任务再派生稳定子幂等键。
 
 Tool 统一返回结构化成功或错误，不向模型暴露内部异常正文。自动重试必须按 Tool 声明的 `NONE`、`SAFE_IDEMPOTENT`、`STATUS_CHECK_FIRST` 或 `MANUAL_RETRY` 策略执行；生成请求超时不得无条件重提。
 
@@ -324,7 +353,7 @@ Java 内部 Tool API Contract
 
 Tool 输入 Schema 应由一个运行时 Schema 单一生成 TypeScript 类型、本地校验和模型 Function Schema，避免多份定义漂移。即使模型声称严格遵循参数 Schema，Runtime 仍必须重新解析、拒绝未知字段并校验范围。Tool 输出同样使用稳定、安全的小型 JSON，不向模型返回 OSS Key、签名 URL、供应商原始响应、数据库实体或异常堆栈。
 
-`generation.create` 是异步 Tool。成功创建现有生成任务后，Runtime 持久化 Tool Call 和必要的模型执行轨迹，将 Run 切换为 `WAITING_TOOL` 并结束当前消费。生成终态事件恢复 Run 后，Runtime 读取安全结果并以对应 Tool Result 继续模型循环，不在一次 Qwen 请求或进程内 Promise 中等待图片生成。
+`text2image` 和 `image2image` 是异步 Tool。成功批量创建现有生成任务后，Runtime 持久化 Tool Call、各变体关系和必要的模型执行轨迹，将 Run 切换为 `WAITING_TOOL` 并结束当前消费。关联任务全部终态或达到允许的部分结果收敛条件后恢复 Run。Runtime 读取已转存资产，以受控多模态输入交给具备视觉能力的 Agent LLM，按当前 Skill 的质量标准检查结果，再决定完成、给出调整建议或在预算和迭代上限内重试。
 
 ### 5.6 端到端链路
 
@@ -335,14 +364,14 @@ Tool 输入 Schema 应由一个运行时 Schema 单一生成 TypeScript 类型�
 4. TS Consumer 通过 Run ID 和版本条件领取。
 5. TS 持久化并推送 UNDERSTANDING、INTENT_IDENTIFIED 等事件。
 6. 用户显式选择 Skill 时优先校验并使用，否则自动路由，最后回落默认 Skill。
-7. Runtime 加载 Skill 正文，只向模型暴露 Manifest 允许的 Tool。
-8. 模型产生 generation.create 调用，Runtime 校验后通过 Java Tool API 提交。
-9. Java 在现有事务中创建 generation_task、额度记录和生成 Outbox。
+7. Runtime 加载当前 Skill 完整正文，只向模型暴露从标准工具表静态提取且校验通过的 Tool。
+8. 模型应用 Skill 的设计方法和 Prompt 规范，产生包含一个或多个差异化 `variants[]` 的 `text2image` 或 `image2image` Tool Call。
+9. Runtime 校验后通过 Java Tool API 批量提交；Java 创建多个 generation_task、额度记录和生成 Outbox。
 10. Agent Run 进入 WAITING_TOOL，Agent MQ 消息 ACK。
 11. 现有生成和转存消费者完成供应商调用、OSS 转存及 image_assets 落库。
 12. Java 在生成任务终态事务中创建 Agent Resume Outbox。
-13. TS 收到恢复消息，读取已保存资产并完成 Skill 的确定性验收。
-14. 模型生成最终用户回复。
+13. TS 收到恢复消息，读取已保存资产并完成技术验收，再把受控图片内容交给具备视觉能力的 Agent LLM 按 Skill 标准检查。
+14. 视觉检查通过后模型生成最终用户回复；未通过时仅在预算和迭代上限内按具体问题重试或给出调整建议。
 15. Java 原子写入最终 ASSISTANT 消息、Run 终态和最终事件。
 16. 前端通过 SSE 增量更新，并在刷新时通过聚合查询还原完整 Agent 回合。
 ```
@@ -370,30 +399,19 @@ AgentTurn
 
 一个 `creation_task` 表示一次用户创作请求，一个 `agent_run` 表示完成该请求的一次 Agent 执行，一个 `generation_task` 表示一次实际图像生成任务，一个 `image_asset` 表示已保存结果。
 
-一次生成任务返回四张变体：
+首期确定支持四个独立创意方向。Agent LLM 应在调用生图 Tool 前生成四个有实际差异的最终 Prompt；不能只向同一 `final_prompt` 追加“生成四种方案”，因为供应商最终采用的各方案 Prompt、单项状态和重试边界必须可持久化：
 
 ```text
 creation_task
   └─ agent_run
-       └─ generation_task（一个 Prompt，requested_image_count = 4）
-            ├─ image_asset
-            ├─ image_asset
-            ├─ image_asset
-            └─ image_asset
+       └─ agent_tool_call：text2image(variants[])
+            ├─ generation_task：夏日活力 → image_asset
+            ├─ generation_task：潮酷霓虹 → image_asset
+            ├─ generation_task：冰爽解暑 → image_asset
+            └─ generation_task：复古经典 → image_asset
 ```
 
-四个独立创意方向：
-
-```text
-creation_task
-  └─ agent_run
-       ├─ generation_task：夏日活力
-       ├─ generation_task：潮酷霓虹
-       ├─ generation_task：冰爽解暑
-       └─ generation_task：复古经典
-```
-
-前者实现简单但共享一个 Prompt；后者支持独立 Prompt、重试和进度，但需要解除当前 `generation_tasks.creation_task_id` 唯一约束，并增加 Agent Tool Call 与多个生成任务的关联。
+实现时移除 `generation_tasks.creation_task_id` 唯一约束，保留普通模式“一轮一个任务”的服务规则，并通过 `agent_tool_call_generation_tasks` 保存 Tool Call、任务、`variant_no` 和 `variant_name` 的关系。批量创建需要一次性校验总额度和全部参数；批内单任务允许独立执行，Run 在全部终态或达到明确的部分结果收敛条件后恢复，聚合成功、失败和重试状态。
 
 ### 5.9 记忆演进
 
@@ -467,7 +485,7 @@ QUEUED → RUNNING → WAITING_TOOL → RUNNING → SUCCEEDED / FAILED / CANCELL
                  → WAITING_USER → QUEUED 或 RUNNING
 ```
 
-首期实现 `WAITING_USER`。只有 Skill 工作流返回受允许的 `ASK_USER` 动作，或 Runtime/Tool 的确定性预检无法在无用户选择的情况下继续时才进入；没有触发条件的 Skill 不使用该状态。
+保留 `WAITING_USER` 状态。只有 Skill 工作流调用 `generate_form_for_info_collection`，或 Runtime/Tool 的确定性预检无法在无用户选择的情况下继续时才能进入；没有触发条件的原子型 Skill 不使用该状态。表单确认、普通方案确认、超时、取消和恢复请求格式留待专项讨论。
 
 ### 6.2 `agent_run_events`
 
@@ -654,7 +672,7 @@ toolCallId（按原因可选）
 
 | 方法 | 候选路径 | 职责 |
 | --- | --- | --- |
-| `POST` | `/internal/agent-tools/generation-tasks` | 校验权限、额度和参数并创建生成任务 |
+| `POST` | `/internal/agent-tools/generation-tasks:batchCreate` | 校验权限、总额度、各变体参数和幂等键，批量创建多个生成任务 |
 | `GET` | `/internal/agent-tools/generation-tasks/{taskId}` | 读取终态和安全资产结果 |
 | `POST` | `/internal/agent-runs/{runId}/events` | 持久化 Agent 用户可见事件 |
 | `POST` | `/internal/agent-runs/{runId}/completions` | 原子写最终消息和 Run 终态 |
@@ -675,7 +693,7 @@ toolCallId（按原因可选）
 - Run 使用 `status + run_version` 条件领取，旧版本和重复 MQ 消息安全 ACK。
 - Agent 创建和启动 Outbox 必须同事务；生成任务终态和 Resume Outbox 必须同事务。
 - Agent 消费者不得在等待图像生成或用户输入期间持有 MQ Delivery。
-- `generation.create` 必须使用稳定幂等键；网络超时不代表供应商未接收，不得无条件重复提交。
+- `text2image`、`image2image` 批量调用必须使用稳定业务幂等键，并为每个变体派生稳定子幂等键；网络超时不代表服务端未接收，不得无条件重复提交整批任务。
 - `RUNNING` 处理租约到期后的恢复规则待确认；必须区分模型调用前、Tool 副作用前后和结果未知状态。
 - 最终 ASSISTANT 消息和 Run 终态必须幂等，重复恢复不得创建第二条最终消息。
 - Agent SSE 事件持久化并使用单调 `sequence_no`；断线重连按 `Last-Event-ID` 或聚合查询恢复。
@@ -709,7 +727,7 @@ ASSET_TRANSFER_FAILED
 RUN_CANCELLED
 ```
 
-Skill 的语义验收不能替代代码能够确定的技术验收。首期若没有视觉模型，只承诺任务、数量、归属、尺寸和资产保存等技术验收，不宣称自动识别或修复视觉缺陷。
+Skill 的视觉验收和代码能够确定的技术验收必须同时保留。Runtime 先检查任务、数量、归属、尺寸和资产保存，再由具备视觉能力的 Agent LLM 读取受控图片内容，按当前 Skill 的构图、主体、文字、材质和风格标准输出结构化检查结论。视觉判断具有概率性；自动重试必须指出具体失败项，并受最大迭代次数、额度和预算约束，不得宣称未经评测的识别准确率。
 
 ## 9. 测试与验收
 
@@ -720,7 +738,9 @@ Skill 的语义验收不能替代代码能够确定的技术验收。首期若�
 - Skill 禁用、输入不匹配、工具越权和参数非法。
 - Run 状态机、版本条件领取和非法状态转换。
 - Agent MQ、Resume MQ 重复投递。
-- Tool Call 幂等及相同调用不重复创建图像任务。
+- 批量 Tool Call、变体子幂等及相同调用不重复创建任何图像任务。
+- 一个 Run 的多个生成任务独立成功、失败、重试和部分结果聚合。
+- 视觉检查输入、结构化结论、有限重试和达到上限后的安全收敛。
 - 图像成功、部分成功、失败、转存失败和结果未知。
 - Agent Consumer 在 `RUNNING`、`WAITING_TOOL` 等阶段停止后的恢复。
 - 最终消息、完成事件和资产关联不重复。
@@ -755,6 +775,8 @@ Skill 链路：
 
 - Java、TS、RabbitMQ、MySQL、供应商、OSS 和前端链路完整运行。
 - 普通文生图和至少一个垂类 Skill 的行为差异可观察且可测试。
+- 一个 Run 能可靠创建、恢复和聚合多个独立 Prompt 的生成任务，并展示部分成功或失败状态。
+- Agent LLM 能读取最终资产并按当前 Skill 的质量标准给出结构化视觉检查结果，有限重试不会突破预算和迭代上限。
 - 用户能实时看到意图、Skill、生成和保存阶段，但看不到原始思维链。
 - 图片进入现有资产库并可从 Agent 回合稳定恢复展示。
 - 重复 MQ 和页面刷新不会产生重复任务、消息或资产。
@@ -767,18 +789,16 @@ Skill 链路：
 - 增加向量候选重排、置信差判断和候选图片确认交互；向量结果始终回查 MySQL 权限与状态。
 - 在结构化权威值、资产谱系与向量召回之间建立来源、版本、冲突和过期规则。
 - 扩展图生图、局部重绘、超分、抠图、扩图和元素替换 Tool。
-- 增加视觉质检 Tool 和有评测基准的自动修复闭环。
-- 支持一轮多个不同 Prompt 的生成任务、独立重试和部分结果展示。
+- 增加专项视觉检测和修复 Tool，并建立有评测基准的自动修复闭环；首期先使用 Agent LLM 的通用视觉能力进行 Skill 级检查。
 - 增加更多内部 Skill，再评估在线发布、用户自定义和 Skill 审核体系。
 - 扩展视频、音频等多模态能力；新增能力仍通过稳定 Tool Contract 和 Skill 接入。
 
 ### 10.1 进入实施前待确认
 
-1. 首期只支持 `TEXT_TO_IMAGE`，还是同时承诺现有参考图链路的 `IMAGE_TO_IMAGE`。
-2. 首期一个 Run 只创建一个 `generation_task` 并由其返回多图，还是立即支持一轮多个生成任务。
-3. 是否现在移除 `generation_tasks.creation_task_id` 唯一约束。
-4. Agent 表由 TS 直接读写其专属表，还是全部经 Java 内部 API；迁移仍建议统一由 Flyway 管理。
-5. 首期是否将模糊历史图片的向量语义检索纳入范围；显式资产和最近回合确定性引用已经纳入。
-6. `qwen3.8-flash` 使用 Chat Completions 还是 Responses API，以及超时、预算上限、结构化输出和 Function Calling 的真实环境兼容性；模型及两类能力的职责已经确定。
-7. Agent 用户可见事件采用 TS 调 Java API 持久化并分发，还是由 TS 直写后增加可靠通知链路。
-8. `WAITING_USER` 的首期表单协议、超时、取消和恢复请求格式。
+1. 首期原子型闭环只支持 `TEXT_TO_IMAGE`，还是同时承诺现有参考图链路的 `IMAGE_TO_IMAGE`。
+2. Agent 表由 TS 直接读写其专属表，还是全部经 Java 内部 API；迁移仍建议统一由 Flyway 管理。
+3. 首期是否将模糊历史图片的向量语义检索纳入范围；显式资产和最近回合确定性引用已经纳入。
+4. `qwen3.8-flash` 使用 Chat Completions 还是 Responses API，以及超时、预算上限、结构化输出、Function Calling 和多模态视觉输入的真实环境兼容性。
+5. Agent 用户可见事件采用 TS 调 Java API 持久化并分发，还是由 TS 直写后增加可靠通知链路。
+6. `WAITING_USER` 的表单、普通方案确认、超时、取消和恢复请求格式；该项后续专项讨论。
+7. `creation_agent_search` 的供应商、结果协议、来源引用和超时策略；当前只确定保留该 Tool，不在本轮展开实现细节。
