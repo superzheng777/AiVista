@@ -102,14 +102,19 @@
 | 普通文生图 | 使用默认内部 `image-create` Skill | 统一垂类和通用创作的执行机制，避免 Runtime 业务分支膨胀 | 图片创作都经 Skill Runtime，聊天/查询/控制除外 |
 | Skill 形态 | `manifest.json + SKILL.md`，随代码版本化发布 | 贴合自然语言 Skill 与工具约束的目标，首期无需在线 DSL 或管理后台 | Run 固定保存 Skill ID、版本和定义哈希 |
 | 工具权限 | Manifest 声明，Runtime 强制白名单 | 自然语言禁止规则不能提供可靠权限隔离 | 未授权工具调用必须在执行前拒绝 |
-| Runtime 形态 | 有限状态、有限动作、Tool Registry 和模型—工具循环 | 控制面可测试，创作经验仍可由 Skill 扩展 | 不按 Skill ID 编写大型 `if/else` 流程 |
+| Runtime 形态 | 有限状态、Tool Registry 和模型—工具循环 | 控制面可测试，创作经验仍可由 Skill 扩展 | 不按 Skill ID 编写大型 `if/else` 流程 |
+| 首期 Agent LLM | 使用千问 `qwen3.8-flash`，默认关闭思考模式 | 该模型支持 Function Calling 和 JSON Schema；首期任务重点是可靠编排而非复杂推理 | 通过 `AgentModelProvider` 隔离供应商协议，Run 保存模型及运行参数快照 |
+| 模型能力分工 | 请求理解使用 Structured Output；Skill 执行使用原生 Function Calling；最终回复禁止 Tool Calling | 避免用自由文本或自定义 JSON 模拟工具协议，也不依赖同轮混用 Structured Output 与 Tools | Runtime 分阶段调用模型，并分别校验分类结果、Tool Call 和最终回复 |
+| Skill 传入模型 | 只向模型传当前 Skill 编译后的工作指令，不上传整个 Skill 包或 Runtime 内部配置 | 模型需要创作方法和调用时机，不需要数据库、MQ、权限和部署细节 | 新增 Skill Loader/Compiler，Run 固定 Skill ID、版本和定义哈希 |
+| Tool 协议 | 模型侧 Function Schema、Agent 内部 Tool Contract、Java Tool API Contract 分层解耦 | 防止业务代码绑定千问响应对象，并避免模型控制可信身份字段 | Provider Adapter 解析 Tool Call，Runtime 二次校验并注入可信上下文 |
+| 并行工具调用 | 首期关闭 `parallel_tool_calls` | 当前工具存在前后依赖，多任务、部分失败和并行恢复语义尚未建立 | 单轮最多接受一个 Tool Call；后续多生成任务能力设计完成后再开放 |
 | 异步等待 | 提交生成后持久化为 `WAITING_TOOL` 并 ACK；生成终态事件重新唤醒 | 避免持有 MQ Delivery、进程内 Promise 或主动高频轮询 | Java 需在生成终态事务中创建 Agent Resume Outbox |
 | 用户等待 | 首期实现 `WAITING_USER`，仅在 Skill 工作流或系统确定性预检实际要求用户输入时进入 | Runtime 具备暂停恢复能力，但不让模型无依据追问 | 持久化等待原因和表单，用户提交后由 Resume Outbox 唤醒 |
 | Agent 前端过程 | 展示持久化结构化事件，不展示原始思维链 | 同时满足可解释进度、隐私、安全和可恢复要求 | 新增 Agent 事件协议与聚合查询 |
 | 会话消息语义 | 每轮一条最终 ASSISTANT 消息，阶段信息独立存储 | 避免将进度噪声带入后续模型上下文 | 现有每轮每角色唯一约束可以继续保留 |
 | 首期资产引用 | 优先支持显式 `assetId`、最近回合、序号和创意方向的确定性解析 | “刚才第三张”存在精确关系，不应使用近似向量搜索 | 保存 Run、Tool Call、任务、资产、`variant_no` 和 `variant_name` 关系 |
 | 向量资产记忆定位 | 用于根据模糊自然语言描述召回历史图片候选，返回 `assetId` 引用 | 支持“之前那张蓝头发拿剑的图”，但不能代替权限和资产真相校验 | 后续或首期独立小步增加资产语义描述、Embedding、向量检索、重排和候选确认，具体范围待确认 |
-| LLM 供应商 | 采用阿里云体系，具体模型和运行参数待验证后确认 | 与现有生成供应商环境一致，但 Runtime 不绑定具体 SDK 或模型 | 通过 `AgentModelProvider` 适配，Run 保存实际供应商与模型快照 |
+| LLM 供应商 | 采用阿里云千问体系，首期模型为 `qwen3.8-flash` | 与现有生成供应商环境一致，但 Runtime 不绑定具体 SDK 或模型 | 具体 API 形态、超时和预算仍需真实环境验证 |
 | 多张图片的首期策略 | 待确认 | 一次任务返回多图实现简单；多创意 Prompt 需要一轮关联多个生成任务 | 影响现有唯一约束、额度、进度汇总和 Tool 关联模型 |
 
 ## 4. 实施计划与进度
@@ -211,30 +216,79 @@ interface SkillManifest {
 
 `SKILL.md` 包含触发边界、执行步骤、工具调用规则、参数默认值、用户确认点、禁止事项、验收和输出规范。Skill 中的步骤是给模型的创作工作流；涉及权限、额度、状态、资产归属和幂等的约束由代码强制。
 
-### 5.4 Runtime
-
-Runtime 不按垂类 Skill 编写大型分支，只识别有限模型动作：
+Skill 不作为目录或原始文件包直接上传给模型。Agent 服务启动时由 Skill Loader 校验 Manifest 和正文，再编译为当前 Run 使用的固定定义：
 
 ```ts
-type AgentAction =
-  | { type: "TOOL_CALL"; tool: string; callId: string; arguments: unknown }
-  | { type: "ASK_USER"; form: FormRequest }
-  | { type: "FINAL"; result: AgentFinalResult }
-  | { type: "REJECT"; code: string; message: string };
+interface CompiledSkill {
+  id: string;
+  version: string;
+  definitionHash: string;
+  modelInstructions: string;
+  allowedToolIds: string[];
+  toolSchemas: ModelToolDefinition[];
+  maxIterations: number;
+  maxUserQuestions: number;
+}
 ```
+
+`modelInstructions` 只包含模型完成任务所需的目标、适用边界、创作方法、执行步骤、默认值、工具调用时机、用户确认点和交付规范。文件路径、数据库字段、内部 API 地址、MQ 配置、幂等算法、权限实现、OSS 规则和部署信息不进入模型上下文。
+
+首期一个 Run 只加载一个已选 Skill，不把所有 Skill 正文和所有工具同时交给模型。Run 固定保存 Skill ID、版本和定义哈希；等待恢复时必须使用同一固定定义，不能因服务端 Skill 更新而在一个 Run 内切换工作规则。
+
+### 5.4 Runtime 与模型调用分阶段
+
+Runtime 不按垂类 Skill 编写大型分支。首期将模型调用分为三个职责不同的阶段：
+
+```text
+阶段 A：请求理解与路由
+  Qwen Structured Output + strict JSON Schema
+  → RequestDecision
+
+阶段 B：当前 Skill 执行
+  Qwen 原生 Function Calling
+  → tool_calls 或无 Tool Call 的完成候选
+
+阶段 C：最终回复
+  tool_choice = none
+  → 面向用户的自然语言最终回复
+```
+
+`RequestDecision` 用于把自由文本归一化为请求类型、目标媒介、生成操作、场景、缺失信息和 Skill 建议。它不直接决定权限、额度、资产归属、Run 状态或 Tool 执行：
+
+```ts
+interface RequestDecision {
+  requestKind: "CHAT" | "CREATE" | "EDIT" | "QUERY" | "CONTROL" | "UNSUPPORTED";
+  targetModality: "IMAGE" | "TEXT" | "NONE";
+  operation: "TEXT_TO_IMAGE" | "IMAGE_TO_IMAGE" | "NONE";
+  scenario: "GENERAL_IMAGE" | "POSTER" | "OTHER";
+  suggestedSkillId: string | null;
+  confidence: "HIGH" | "MEDIUM" | "LOW";
+  needsUserInput: boolean;
+  missingFields: string[];
+  userVisibleSummary: string;
+}
+```
+
+前端或请求协议已经提供可信结构时不让模型重复猜测。例如显式取消操作直接进入控制逻辑，显式 Skill 优先校验。自由自然语言入口才调用请求分类。Skill Router 按“用户显式选择且校验通过 → 模型建议且 Manifest 校验通过 → 请求类型默认 Skill”确定最终 Skill；模型字段使用 `suggestedSkillId`，不赋予模型最终选择权。
+
+Skill 执行阶段不再要求模型返回自定义 `AgentAction` JSON。`TOOL_CALL` 使用千问原生 `tool_calls`；请求用户信息映射为受控 Tool `ui.requestInformation`；无 Tool Call 的文本只作为完成候选；权限或状态等确定性拒绝由 Runtime 产生。首期不依赖 `response_format` 与 `tools` 在同一模型请求中组合工作。
 
 执行循环：
 
 ```text
 读取并领取 Run
-  → 构造当前输入、最近对话、关联资产和相关记忆
-  → 分类请求并选择 Skill
-  → 加载固定版本 Skill 和允许工具
-  → LLM 返回下一结构化动作
-  → Runtime 校验动作、工具白名单和参数
-  → 执行 Tool 并记录结果
-  → 同步结果继续循环，异步结果进入等待，最终结果完成 Run
+  → 确定性预检并构造当前输入、最近对话、关联资产和记忆
+  → 必要时以 Structured Output 分类请求并取得 Skill 建议
+  → Runtime 校验并确定最终 Skill
+  → 加载固定版本 CompiledSkill 和允许工具
+  → 持久化安全阶段事件及计划摘要
+  → Qwen 通过原生 Function Calling 提出下一 Tool Call
+  → Runtime 校验名称、Skill 白名单、本地 Schema、状态和幂等
+  → 注入可信上下文并执行 Tool
+  → 同步结果继续循环；异步结果进入等待；最终阶段禁止工具并完成 Run
 ```
+
+首期调用 `qwen3.8-flash` 时默认设置 `enable_thinking=false` 和 `parallel_tool_calls=false`。不持久化、记录或展示 `reasoning_content`。如后续特定 Skill 需要思考模式，必须单独评测延迟、成本、协议限制和收益后启用。
 
 ### 5.5 Tool
 
@@ -250,6 +304,27 @@ type AgentAction =
 | `memory.proposePatch` | 产生待提交的结构化记忆变更 | 首期是否实现待确认 |
 
 Tool 统一返回结构化成功或错误，不向模型暴露内部异常正文。自动重试必须按 Tool 声明的 `NONE`、`SAFE_IDEMPOTENT`、`STATUS_CHECK_FIRST` 或 `MANUAL_RETRY` 策略执行；生成请求超时不得无条件重提。
+
+Qwen Function Calling 是模型提出 Tool 申请的结构化协议，不等同于 `response_format=json_schema`。模型侧调用至少包含供应商 `call_id`、函数名和 JSON 参数字符串；Provider Adapter 将其解析为内部 Tool Contract，Runtime 仍须执行本地 Schema 与业务校验。
+
+Tool 协议分为三层：
+
+```text
+Qwen Function Schema / tool_calls
+  → AgentModelProvider Adapter
+Agent 内部 Tool Contract
+  → Tool Registry 校验、状态检查和可信字段注入
+Java 内部 Tool API Contract
+  → 权限、额度、幂等和业务副作用
+```
+
+模型只能提供 Prompt、比例、图片数量和输入资产引用等业务意图参数。`userId`、`sessionId`、`creationTaskId`、`agentRunId`、业务 Tool Call ID、幂等键、服务身份、OSS Key 和内部地址必须由 Runtime 从可信 Run Context 注入，不能出现在模型可控参数中。
+
+供应商 `call_id` 只用于将 assistant Tool Call 与后续 Tool Result 对应；业务侧另行保存稳定的逻辑 Tool Call ID 和幂等键。重试或崩溃恢复不得因供应商重新生成 `call_id` 而重复创建生成任务。
+
+Tool 输入 Schema 应由一个运行时 Schema 单一生成 TypeScript 类型、本地校验和模型 Function Schema，避免多份定义漂移。即使模型声称严格遵循参数 Schema，Runtime 仍必须重新解析、拒绝未知字段并校验范围。Tool 输出同样使用稳定、安全的小型 JSON，不向模型返回 OSS Key、签名 URL、供应商原始响应、数据库实体或异常堆栈。
+
+`generation.create` 是异步 Tool。成功创建现有生成任务后，Runtime 持久化 Tool Call 和必要的模型执行轨迹，将 Run 切换为 `WAITING_TOOL` 并结束当前消费。生成终态事件恢复 Run 后，Runtime 读取安全结果并以对应 Tool Result 继续模型循环，不在一次 Qwen 请求或进程内 Promise 中等待图片生成。
 
 ### 5.6 端到端链路
 
@@ -554,7 +629,8 @@ toolCallId（按原因可选）
 
 - Agent MQ 开关、Exchange、Queue、Routing Key、prefetch 和并发数。
 - Agent Run 执行租约、最大迭代次数、模型超时和安全重试次数。
-- 阿里云 LLM 的具体模型标识、结构化输出能力、密钥配置方式、超时和预算上限。
+- `qwen3.8-flash` 的 API 形态、密钥配置方式、超时、预算上限和真实环境行为；模型已经确定，运行参数仍需验证。
+- 模型调用策略默认 `enable_thinking=false`、`parallel_tool_calls=false`；Structured Output 阶段不传 Tools，Function Calling 阶段不依赖 `response_format`。
 - Java 内部 Tool API 基址和服务间认证。
 - Skill 定义目录、启动校验和启用列表。
 - SSE 事件保留、重放上限和清理策略。
@@ -607,6 +683,8 @@ toolCallId（按原因可选）
 ### 8.2 安全
 
 - 模型只获得当前 Skill 允许工具的说明，Runtime 在调用前再次校验。
+- 模型只获得当前 Skill 编译后的工作指令，不获得 Skill 目录、内部配置或其他未激活 Skill 正文。
+- Qwen Function Arguments 和 Tool Result 均视为不可信数据；必须经过本地 Schema 校验，且不能携带或覆盖 Runtime 注入的可信身份字段。
 - Tool API 强制校验用户、会话、Run、任务和资产归属。
 - 不向模型、事件、日志和文档写入密钥、OSS Key、长期 URL、完整供应商响应或系统提示词。
 - Tool 返回、历史消息、参考文档和图片识别文本均视为不可信内容，不能改变系统权限和工具白名单。
@@ -701,6 +779,6 @@ Skill 链路：
 3. 是否现在移除 `generation_tasks.creation_task_id` 唯一约束。
 4. Agent 表由 TS 直接读写其专属表，还是全部经 Java 内部 API；迁移仍建议统一由 Flyway 管理。
 5. 首期是否将模糊历史图片的向量语义检索纳入范围；显式资产和最近回合确定性引用已经纳入。
-6. 阿里云 LLM 的具体模型、结构化输出方式、超时和预算上限。
+6. `qwen3.8-flash` 使用 Chat Completions 还是 Responses API，以及超时、预算上限、结构化输出和 Function Calling 的真实环境兼容性；模型及两类能力的职责已经确定。
 7. Agent 用户可见事件采用 TS 调 Java API 持久化并分发，还是由 TS 直写后增加可靠通知链路。
 8. `WAITING_USER` 的首期表单协议、超时、取消和恢复请求格式。
