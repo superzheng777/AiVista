@@ -109,22 +109,24 @@
 | 决策事项 | 最终结论 | 原因与取舍 | 对实现的影响 |
 | --- | --- | --- | --- |
 | Agent 服务语言与部署 | 新增独立 TypeScript Agent Service，保留 Java 主服务 | 模型、Skill 和 Tool 编排适合 TS 生态；现有可靠生成和业务资产能力无需重写 | 新增一个部署单元和 Agent MQ 消费者 |
-| Agent 与图像服务边界 | Agent 通过 Java 内部 Tool API 创建和读取生成任务 | 防止两套语言重复实现额度、权限、幂等和资产规则 | TS 不直接写 `generation_tasks`、`image_assets` |
+| Agent 与图像服务边界 | Agent 通过 Java 统一内部 Agent API 提交 Tool Call，并通过 Run Execution Snapshot 读取关联状态 | 防止两套语言重复实现额度、权限、幂等和资产规则，也避免为每类 Tool 增加跨服务接口 | TS 不直接写 `generation_tasks`、`image_assets` |
 | 普通文生图 | 使用默认内部 `image-create` Skill | 统一垂类和通用创作的执行机制，避免 Runtime 业务分支膨胀 | 图片创作都经 Skill Runtime，聊天/查询/控制除外 |
-| Skill 形态 | 单个带标准 frontmatter 的 Markdown 文件，随代码版本化发布 | 对齐参考 Skill 规范，创作知识和工作流保持为模型可直接理解的自然语言 | frontmatter 只保留 `name`、`description`；Run 固定保存 Skill 名称、版本和定义哈希 |
+| Skill 形态 | 单个带标准 frontmatter 的 Markdown 文件，随代码版本化发布 | 对齐参考 Skill 规范，创作知识和工作流保持为模型可直接理解的自然语言 | frontmatter 只保留 `name`、`description`；Run 固定保存 Skill ID 和定义哈希 |
 | Skill 路由摘要 | 直接使用 frontmatter 的 `description` | 避免与额外 `triggerSummary` 重复维护和漂移 | 路由阶段只加载启用 Skill 的 `name + description`，选中后再加载完整正文 |
 | 工具权限 | 从正文标准“工具使用规范”表静态提取 Tool ID，Runtime 强制白名单 | 保持单文件交付，同时不把自然语言指令当作可靠权限边界 | 未知工具导致 Skill 加载失败；未授权 Tool Call 在执行前拒绝 |
 | Runtime 形态 | 有限状态、Tool Registry 和模型—工具循环 | 控制面可测试，创作经验仍可由 Skill 扩展 | 不按 Skill ID 编写大型 `if/else` 流程 |
 | 首期 Agent LLM | 使用千问 `qwen3.8-flash`，默认关闭思考模式 | 该模型支持 Function Calling 和 JSON Schema；首期任务重点是可靠编排而非复杂推理 | 通过 `AgentModelProvider` 隔离供应商协议，Run 保存模型及运行参数快照 |
 | 模型能力分工 | 请求理解使用 Structured Output；Skill 执行使用原生 Function Calling；最终回复禁止 Tool Calling | 避免用自由文本或自定义 JSON 模拟工具协议，也不依赖同轮混用 Structured Output 与 Tools | Runtime 分阶段调用模型，并分别校验分类结果、Tool Call 和最终回复 |
-| Skill 传入模型 | 向模型传当前 Skill 的完整有效正文，不传其他 Skill 正文或 Runtime 内部配置 | 模型直接阅读领域知识、设计方法、参考示例、Prompt 规范和工具调用时机 | 新增通用 Skill Loader；不把自然语言编译成专属代码，Run 固定 Skill 名称、版本和定义哈希 |
+| Skill 传入模型 | 向模型传当前 Skill 的完整有效正文，不传其他 Skill 正文或 Runtime 内部配置 | 模型直接阅读领域知识、设计方法、参考示例、Prompt 规范和工具调用时机 | 新增通用 Skill Loader；不把自然语言编译成专属代码，Run 固定 Skill ID 和定义哈希 |
 | Skill 更新 | 首期采用停机排空后手工更新，不建设历史版本库 | 项目内部 Skill 数量少且允许运维窗口，避免过早增加定义存储与在线兼容机制 | 服务生命周期内 Skill 不可变；发布前收敛全部非终态 Run，启动时校验定义哈希 |
 | Tool 协议 | 模型侧 Function Schema、Agent 内部 Tool Contract、Java Tool API Contract 分层解耦 | 防止业务代码绑定千问响应对象，并避免模型控制可信身份字段 | Provider Adapter 解析 Tool Call，Runtime 二次校验并注入可信上下文 |
+| Java–TS Tool 接口 | 使用统一的 MCP-like `tool-calls` 请求形态，Java Tool Registry 根据 Tool ID 分派内部 Handler | Tool 扩展不应导致跨服务接口数量增长；统一外部协议不等于统一内部事务 | `text2image`、信息收集和后续 Tool 共用一个入口，各 Handler 内部执行各自校验、状态转换和副作用 |
 | 并行工具调用 | 首期关闭模型协议的 `parallel_tool_calls`；一个 Run 最多成功提交一次 `text2image` 或 `image2image` | 避免依赖供应商并行 Tool Call 语义，并保持现有“一回合一个生成任务”关系 | 生图 Tool 使用一个最终 Prompt 和 `imageCount`；一次任务可产出多张图片 |
 | 异步等待 | 提交生成后持久化为 `WAITING_TOOL` 并 ACK；生成终态事件重新唤醒 | 避免持有 MQ Delivery、进程内 Promise 或主动高频轮询 | Java 需在生成终态事务中创建 Agent Resume Outbox |
 | 用户等待与运行中输入 | 保留 `WAITING_USER`，但只能由当前 Skill 明确要求收集必要信息且 Agent 主动调用 `generate_form_for_info_collection` 触发；其他执行阶段禁止用户自由插入消息 | 是否追问属于 Skill 创作策略，Runtime 不维护通用必填字段表；默认 `image-create` 对非必要创作信息直接自由补全 | 前端仅在等待表单时开放对应提交；普通输入保持锁定，取消走结构化控制接口 |
 | 暂停与取消 | 图像生成 Agent 首期不提供暂停与恢复；非终态 Run 可以直接取消 | 图像生成过程只有继续或取消两种有明确价值的控制语义，避免引入暂停检查点及恢复状态组合 | 取消原子递增 Run 与关联生成任务版本；在途结果通过条件提交被拒绝，不再恢复 Agent |
 | Agent 前端过程 | 展示持久化结构化事件，不展示原始思维链 | 同时满足可解释进度、隐私、安全和可恢复要求 | 新增 Agent 事件协议与聚合查询 |
+| Agent 事件写入 | 用户可见事件随 Java 业务状态转换在同一事务产生，不提供 TS 独立写事件接口 | 防止状态未落库却出现成功事件，也减少高频跨服务请求和事件去重问题 | 事件表只保存 `type + payload_json`；短暂动画由前端根据持久状态推导 |
 | 浏览器与 Agent 连接 | 浏览器只连接 Java，复用用户级 `/api/events` SSE；用户动作继续提交 Java HTTP API | 人机 Tool 是低频、事务性双向协作，HTTP + SSE 已足够；避免 TS 重复认证、连接管理和多实例路由 | SSE 增加 `agent.run.updated`；TS 通过 Java 内部 API 和 RabbitMQ 间接与客户端协作，不新增 WebSocket |
 | 会话消息语义 | USER 始终存在；成功时写 Agent 最终 ASSISTANT，失败时由 Java 写标准 ASSISTANT，进行中和取消时 ASSISTANT 为空 | 避免将意图识别、工具协议和进度噪声带入后续对话；取消是控制状态而非助手回复 | 查询 DTO 的 `assistantMessage` 改为可空；现有每轮每角色唯一约束继续保留 |
 | Runtime 消息恢复 | 首期不建 `agent_run_steps`；按 `agent_tool_calls.sequence_no` 读取已校验参数和结果，投影为成对的 Assistant Tool Call 与 Tool Result | 首期关闭并行 Tool Call，工具记录已包含恢复所需事实，单独步骤表属于过早抽象 | 当前 Run 保留有序 Tool 配对；历史 Run 默认只取用户消息、最终回复、摘要和相关资产 |
@@ -136,6 +138,7 @@
 | 异步生图结果映射 | 至少形成一张可见资产即视为 Tool 成功；零资产才视为 Tool 和 Run 失败 | 部分成功仍有可交付价值，不应因部分图片失败丢弃已有结果 | `PARTIALLY_SUCCEEDED` 返回成功资产和失败数量后继续最终回复；零资产时 Java 直接写标准失败消息并原子收敛 Run，不再调用 Agent LLM |
 | Run 并发与卡死恢复 | 首期不使用租约；以 `status + run_version` 条件更新控制并发，以 `execution_deadline_at` 识别卡死的 `RUNNING` | 单实例不需要 Worker 所有权、心跳与续租；版本足以拒绝恢复后的旧执行结果 | 超时恢复原子执行 `RUNNING → QUEUED`、递增版本并写 `RETRY` Outbox；所有迟到写入校验预期状态与版本 |
 | 内部命令幂等 | 不建设通用 `commandId` 或独立模型调用状态机 | 首期各副作用已有自然唯一键，内部响应丢失可先读取执行快照确认 | Run 创建、Tool、生成任务和最终消息分别使用现有请求幂等键、`call_id`、业务幂等键和唯一约束 |
+| 内部查询与终态接口 | 恢复统一读取 Run Execution Snapshot；成功与失败统一提交 Finalization | 避免同一事实存在多条查询路径，也避免按终态类型复制状态转换接口 | 删除独立 Tool/Generation 查询和独立 completion/failure 接口 |
 | 首期 Skill 复杂度 | 先实现原子型 Skill，再扩展复合型 Skill | 先验证自然语言 Skill 对 Prompt 和单工具行为的稳定影响，降低首条链路的状态组合 | `image-create`、`poster-design` 先围绕生图工具；搜索、表单和多工具串联保留 Tool 契约并分步接入 |
 | 视觉验收 | 使用 Agent LLM 的视觉能力读取已转存资产，并按当前 Skill 的质量标准检查 | Prompt 技术检查不能代替成图检查；现有模型具备视觉能力 | 恢复阶段向模型提供受控图片内容并持久化安全验收摘要；首期发现问题时给出调整建议，不在同一 Run 自动重新生图 |
 
@@ -249,16 +252,15 @@ description: 本技能输出具有明确视觉层级和文字留白的海报视�
   → 从标准“工具使用规范”表第一列提取反引号包裹的 Tool ID
   → 校验 Tool ID 全部存在于 Tool Registry
   → 取得对应 Function Schema，形成当前 Skill 工具白名单
-  → 计算定义哈希并结合平台注册配置形成固定版本
+  → 计算定义哈希
 ```
 
-平台运行字段不写回 Skill frontmatter。启用状态、是否允许自动或手动调用、最大迭代次数和发布版本由 Agent Service 的注册配置或后续管理数据维护。运行时对象保持最小：
+平台运行字段不写回 Skill frontmatter。启用状态、是否允许自动或手动调用和最大迭代次数由 Agent Service 的注册配置维护。运行时对象保持最小：
 
 ```ts
 interface LoadedSkill {
   name: string;
   description: string;
-  version: string;
   definitionHash: string;
   instructions: string;
   allowedToolIds: string[];
@@ -269,7 +271,7 @@ interface LoadedSkill {
 
 `instructions` 是当前 Skill 的完整有效正文，包括模型需要应用的设计构图思路、参考文案、Prompt 补充规则和工具调用时机。文件路径、平台注册配置、数据库字段、内部 API、MQ、幂等算法、权限实现、OSS 规则和部署信息不进入模型上下文。
 
-路由阶段只加载所有启用 Skill 的 `name + description`；选中后，一个 Run 只加载当前 Skill 的完整正文和静态提取出的工具，不把其他 Skill 正文或所有平台工具同时交给模型。Run 保存 Skill 名称、版本和定义哈希用于审计与启动校验。首期通过“服务生命周期内不可变、更新前排空全部非终态 Run”的发布约束保证等待恢复时仍使用同一定义，不建设在线历史版本读取机制。
+路由阶段只加载所有启用 Skill 的 `name + description`；选中后，一个 Run 只加载当前 Skill 的完整正文和静态提取出的工具，不把其他 Skill 正文或所有平台工具同时交给模型。Run 保存稳定 Skill ID 和定义哈希用于审计与启动校验。首期通过“服务生命周期内不可变、更新前排空全部非终态 Run”的发布约束保证等待恢复时仍使用同一定义，不建设在线历史版本读取机制。
 
 首期先实现原子型 Skill：封装专业知识、个人风格或单个生图工具的 Prompt 方法。复合型 Skill 所需的搜索、表单、多阶段确认和多工具串联在原子型闭环稳定后增加；新增复合型 Skill 仍复用同一单文件格式和通用 Runtime，不引入按 Skill 名称分支的代码。
 
@@ -359,7 +361,7 @@ interface TextToImageArguments {
 }
 ```
 
-一次生图 Tool Call 最多成功创建一个 `generation_task`，并沿用现有 `generation_tasks.creation_task_id` 唯一约束；任务保存唯一 `final_prompt`，生成结果继续通过 `image_assets.source_index` 区分。Tool Call 使用稳定业务幂等键；模型第一次提出的参数若被 Runtime 在副作用发生前拒绝，可以修正后再次提出调用，但一个 Run 不得成功创建第二个生成任务。
+一次生图 Tool Call 最多成功创建一个 `generation_task`，并沿用现有 `generation_tasks.creation_task_id` 唯一约束；任务保存唯一 `final_prompt`，生成结果继续通过 `image_assets.source_index` 区分。模型第一次提出的参数若被 Runtime 在副作用发生前拒绝，可以修正后再次提出调用，但一个 Run 不得成功创建第二个生成任务；同一 `call_id` 的重复提交由 Tool Call 唯一约束识别，重新计算得到新 `call_id` 时仍由 `generation_tasks.creation_task_id` 唯一约束阻止第二个生成任务。
 
 Tool 统一返回结构化成功或错误，不向模型暴露内部异常正文。自动重试必须按 Tool 声明的 `NONE`、`SAFE_IDEMPOTENT`、`STATUS_CHECK_FIRST` 或 `MANUAL_RETRY` 策略执行；生成请求超时不得无条件重提。
 
@@ -372,7 +374,7 @@ Qwen Function Schema / tool_calls
   → AgentModelProvider Adapter
 Agent 内部 Tool Contract
   → Tool Registry 校验、状态检查和可信字段注入
-Java 内部 Tool API Contract
+Java 统一内部 Agent API Contract
   → 权限、额度、幂等和业务副作用
 ```
 
@@ -518,19 +520,13 @@ input_message_id
 status
 run_version
 execution_deadline_at
-request_kind
-target_modality
-operation
-scenario
+execution_attempt_count
+decision_json
 active_skill_id
-active_skill_version
 active_skill_hash
 model
 iteration_count
-waiting_reason
-waiting_tool_call_id
 failure_code
-failure_message
 started_at
 completed_at
 created_at
@@ -562,16 +558,16 @@ QUEUED / WAITING_TOOL / WAITING_USER → CANCELLED
 | 无 | 创建 Run | `QUEUED` | `creation_task`、USER 消息、Run、初始事件、执行 Outbox |
 | `QUEUED` | Consumer 领取 | `RUNNING` | 条件更新版本并设置 `execution_deadline_at` |
 | `RUNNING` | 启动客户端表单 Tool | `WAITING_USER` | 有序 Tool Call、安全表单、等待事件与通知 Outbox |
-| `WAITING_USER` | 用户提交表单 | `QUEUED` | Tool Result、清空等待引用、Resume Outbox 与通知事件 |
+| `WAITING_USER` | 用户提交表单 | `QUEUED` | Tool Result、Resume Outbox 与通知事件 |
 | `RUNNING` | 启动生图 Tool | `WAITING_TOOL` | 有序 Tool Call、生成任务、额度、生成 Outbox 与等待事件 |
-| `WAITING_TOOL` | 至少一张资产成功 | `QUEUED` | Tool Result、清空等待引用、Resume Outbox 与通知事件 |
+| `WAITING_TOOL` | 至少一张资产成功 | `QUEUED` | Tool Result、Resume Outbox 与通知事件 |
 | `WAITING_TOOL` | 零资产失败 | `FAILED` | Tool 失败、标准 ASSISTANT、失败事件与终态时间 |
 | `RUNNING` | 最终回复成功 | `SUCCEEDED` | 最终 ASSISTANT、完成事件与终态时间 |
 | `RUNNING` | 模型或迭代确定性失败 | `FAILED` | 稳定错误码、标准 ASSISTANT、失败事件与终态时间 |
 | 任意非终态 | 用户取消 | `CANCELLED` | 未完成 Tool 与关联非终态生成任务取消、取消事件；不写 ASSISTANT |
 | `RUNNING` | 执行截止时间已过 | `QUEUED` 或 `FAILED` | 未超恢复上限时递增尝试并写 `RETRY` Outbox；超过上限时写标准 ASSISTANT 与失败事件 |
 
-Java 创建 Agent Run、启动客户端表单、启动生图、提交表单、完成异步 Tool、完成 Run、失败和取消均按上表提供面向业务的原子方法。TS 不获得分别写 Run、Tool、消息和 Outbox 的底层接口。
+Java 创建 Agent Run、处理统一 Tool Call、提交表单、完成异步 Tool、终结 Run 和取消均按上表执行原子业务转换。TS 不获得分别写 Run、Tool、消息、事件和 Outbox 的底层接口；统一 Tool Handler 只在 Java 内部区分具体业务事务。
 
 ### 6.2 `agent_run_events`
 
@@ -579,29 +575,23 @@ Java 创建 Agent Run、启动客户端表单、启动生图、提交表单、�
 id
 agent_run_id
 sequence_no
-event_type
-stage
-title
-detail
+type
 payload_json
 created_at
 UNIQUE (agent_run_id, sequence_no)
 ```
 
-候选阶段：
+事件只记录已经在 Java 事务中落地的事实，不提供 TS 独立写事件接口。前端根据 `type` 映射标题、图标和基础说明，确有业务差异的安全摘要放入 `payload_json`，不在表中重复保存 `event_type / stage / title / detail`。短暂的加载动画由前端根据 Run 状态推导。候选类型：
 
 ```text
 QUEUED
 UNDERSTANDING
 INTENT_IDENTIFIED
-SKILL_ROUTING
 SKILL_SELECTED
-PLAN_READY
-PROMPT_PREPARING
-PRECHECKING
+USER_INPUT_REQUIRED
+USER_INPUT_RECEIVED
 GENERATION_SUBMITTED
 GENERATION_RUNNING
-GENERATION_PROGRESS
 ASSET_SAVING
 RESULT_PREPARING
 COMPLETED
@@ -618,10 +608,8 @@ sequence_no
 call_id
 tool_name
 status
-idempotency_key
 input_json
 output_json
-result_idempotency_key
 expires_at
 linked_generation_task_id
 failure_code
@@ -631,20 +619,20 @@ created_at
 updated_at
 UNIQUE (agent_run_id, call_id)
 UNIQUE (agent_run_id, sequence_no)
-UNIQUE (idempotency_key)
+INDEX (agent_run_id, status, sequence_no)
 ```
 
 首期关闭并行 Tool Call，不创建独立 `agent_run_steps`。`sequence_no` 表示当前 Run 内 Tool Call 的稳定顺序；Context Builder 依次读取 `tool_name + input_json` 组装 Assistant Tool Call，在 Tool 成功或失败且存在安全 `output_json` 后组装对应 Tool Result。`agent_tool_calls.id` 是平台内部主键，`call_id` 是模型供应商协议中用于配对 Assistant Tool Call 与 Tool Result 的 ID，两者不得混用。
 
-产生 Tool Call 的模型结果必须先由 Java 以当前状态和 `expectedRunVersion` 校验并可靠创建 `agent_tool_calls`，之后才能发生外部 Tool 副作用。对于异步生图和客户端表单，Java 使用面向业务的原子接口，在同一事务中创建 Tool Call、更新 Run 等待状态，并分别创建生成任务与执行 Outbox，或保存安全表单与通知事件，不拆成通用“保存模型步骤”和“执行 Tool”两次往返。提交响应超时时，TS 先读取执行快照：已存在 Tool Call 时复用；已关联生成任务时复用已有任务；确无已保存结果时才允许重新调用模型。每个阶段最多额外重算一次，超过后由 Java 使用标准失败消息收敛 Run。
+产生 Tool Call 的模型结果必须先由 Java 以当前状态和 `expectedRunVersion` 校验并可靠创建 `agent_tool_calls`，之后才能发生外部 Tool 副作用。Java 对外只提供统一的 MCP-like Tool Call 接口，以 `call_id + tool_name + arguments` 表达调用，再由 Tool Registry 按 Tool ID 分派内部 Handler；不同 Handler 在各自事务中创建生成任务与执行 Outbox，或保存安全表单与通知事件。提交响应超时时，TS 只读取 Run Execution Snapshot：已存在 Tool Call 时复用；已关联生成任务时复用已有任务；确无已保存结果时才允许重新调用模型。每个阶段最多额外重算一次，超过后由 Java 使用标准失败消息收敛 Run。
 
 `system` 不逐次持久化，由 Context Builder 使用当前 Runtime 规则、当前部署的固定 Skill 正文和工具 Schema 重建。若后续 Runtime system 规则允许不停机更新，再单独增加模板版本策略；首期与 Skill 一样受停机排空发布约束。
 
-`linked_generation_task_id` 仅供成功创建唯一图像任务的 `text2image` 或 `image2image` Tool Call 使用，其他 Tool 为 `NULL`。数据库与 Java 服务继续通过 `generation_tasks.creation_task_id` 唯一约束保证一个创作回合最多一个生成任务；稳定幂等键保证网络结果未知或恢复重试时不会创建第二个任务。
+`linked_generation_task_id` 仅供成功创建唯一图像任务的 `text2image` 或 `image2image` Tool Call 使用，其他 Tool 为 `NULL`。数据库与 Java 服务继续通过 `generation_tasks.creation_task_id` 唯一约束保证一个创作回合最多一个生成任务；`UNIQUE (agent_run_id, call_id)` 识别同一次模型 Tool Call 的重复提交。首期不再为 Tool Call 维护额外通用幂等键。
 
-`generate_form_for_info_collection` 不建立独立输入请求表。它与其他工具一样使用 `agent_tool_calls`：`input_json` 保存 Runtime 和 Java 校验后的安全表单 Schema，`output_json` 保存按该 Schema 校验后的唯一有效提交，`expires_at` 控制等待期限，`result_idempotency_key` 保证客户端重复提交不会重复生成 Tool Result 或唤醒 Agent。候选 Tool 状态统一为 `CREATED / WAITING / SUCCEEDED / FAILED / CANCELLED / EXPIRED`；Tool Registry 声明执行模式为 `SYNC / ASYNC_TASK / CLIENT_INPUT`，Java 据此校验 `WAITING_USER` 只允许指向 `CLIENT_INPUT` Tool。
+`generate_form_for_info_collection` 不建立独立输入请求表。它与其他工具一样使用 `agent_tool_calls`：`input_json` 保存 Runtime 和 Java 校验后的安全表单 Schema，`output_json` 保存按该 Schema 校验后的唯一有效提交，`expires_at` 控制等待期限；客户端重复提交继续复用现有通用 `idempotency_records`，不在 Tool Call 再保存一份结果幂等键。候选 Tool 状态为 `WAITING / SUCCEEDED / FAILED / CANCELLED / EXPIRED`；创建 Tool Call 与进入等待在同一事务完成，不暴露短暂的 `CREATED`。Tool Registry 声明执行模式为 `SYNC / ASYNC_TASK / CLIENT_INPUT`，Java 据此校验状态转换。
 
-表单提交时，Java 在同一事务完成 Tool Call 条件更新并保存安全 `output_json`、Run 从 `WAITING_USER` 转回 `QUEUED`、递增 `run_version`、写 Resume Outbox 和用户可见通知事件。前端 `activeForm` 是 Java 根据 `agent_runs.waiting_tool_call_id` 和 `agent_tool_calls.input_json` 生成的安全 DTO，不对应独立持久化表。
+表单提交时，Java 在同一事务完成当前唯一 `WAITING` Tool Call 的条件更新并保存安全 `output_json`、Run 从 `WAITING_USER` 转回 `QUEUED`、递增 `run_version`、写 Resume Outbox 和用户可见通知事件。前端 `activeForm` 是 Java 根据当前 Run 唯一 `WAITING` 的客户端 Tool Call 生成的安全 DTO，不对应独立持久化表。首期不在 `agent_runs` 重复保存 `waiting_reason` 或 `waiting_tool_call_id`。
 
 ### 6.4 资产语义资料与派生关系
 
@@ -740,7 +728,7 @@ toolCallId（按原因可选）
 - Agent Run 单次同步执行截止时间、卡死恢复扫描间隔、最大迭代次数、模型超时和安全重算次数。
 - `qwen3.8-flash` 的 API 形态、密钥配置方式、超时、预算上限和真实环境行为；模型已经确定，运行参数仍需验证。
 - 模型调用策略默认 `enable_thinking=false`、`parallel_tool_calls=false`；Structured Output 阶段不传 Tools，Function Calling 阶段不依赖 `response_format`。
-- Java 内部 Tool API 基址和服务间认证。
+- Java 统一内部 Agent API 基址和服务间认证。
 - Skill 定义目录、启动校验和启用列表。
 - Agent 执行事件保留和清理策略，以及用户级 SSE 连续事件的前端合并刷新窗口；首期不把 SSE 回放作为正确性前提。
 
@@ -762,23 +750,34 @@ toolCallId（按原因可选）
 
 表单提交请求必须同时携带当前 `runVersion`、`toolCallId` 和幂等键。Java 从对应 `agent_tool_calls.input_json` 读取已持久化的安全表单 Schema 重新校验，不能把提交内容当作普通 USER 消息，也不能接受不属于当前 `WAITING_USER` Tool Call 的自由字段。表单 Schema 在 Tool Call 建立后不可变，因此首期不另设 `formVersion`；取消同样以 Run 版本条件更新解决并发竞争。
 
-### 7.2 Java 内部 Tool API
+### 7.2 Java 内部 Agent API
 
 | 方法 | 候选路径 | 职责 |
 | --- | --- | --- |
-| `POST` | `/internal/agent-runs/{runId}/claims` | 按 `QUEUED + expectedRunVersion` 原子领取并递增版本、设置 `executionDeadlineAt`；只有成功领取者可以继续模型调用或新 Tool 副作用 |
-| `GET` | `/internal/agent-runs/{runId}/execution-snapshot` | 返回恢复所需的 Run、有序 Tool Call、关联任务和等待资料，不返回内部异常或临时签名 URL |
-| `POST` | `/internal/agent-runs/{runId}/generation-tool-calls` | 原子校验并创建有序生图 Tool Call、唯一生成任务、额度和生成 Outbox，同时将 Run 转为 `WAITING_TOOL` |
-| `GET` | `/internal/agent-tools/generation-tasks/{taskId}` | 读取终态和安全资产结果 |
-| `GET` | `/internal/agent-tool-calls/by-idempotency-key/{key}` | 内部 API 超时或结果未知时查询既有 Tool Call 和业务副作用，禁止盲目重试 |
-| `POST` | `/internal/agent-runs/{runId}/client-input-tool-calls` | 原子创建有序客户端 Tool Call、安全表单、`WAITING_USER`、用户可见事件和通知 Outbox |
-| `POST` | `/internal/agent-runs/{runId}/events` | 持久化 Agent 用户可见事件 |
-| `POST` | `/internal/agent-runs/{runId}/completions` | 原子写最终消息和 Run 终态 |
-| `POST` | `/internal/agent-runs/{runId}/failures` | 以稳定错误码收敛失败 Run |
+| `POST` | `/internal/agent-runs/{runId}/claims` | 按 `QUEUED + expectedRunVersion` 原子领取、递增版本、设置 `executionDeadlineAt` 并直接返回执行快照 |
+| `GET` | `/internal/agent-runs/{runId}/execution-snapshot` | 作为唯一恢复查询，返回 Run、固定决策与 Skill、有序 Tool Call、关联生成任务、等待资料和安全资产，不返回内部异常或临时签名 URL |
+| `POST` | `/internal/agent-runs/{runId}/decision` | 按当前状态与版本原子保存安全 `decision_json`、固定 Skill ID/Hash，并产生意图与 Skill 事件 |
+| `POST` | `/internal/agent-runs/{runId}/tool-calls` | 接收统一的 `callId + name + arguments`，由 Java Tool Registry 分派 Handler，并在 Handler 事务中创建 Tool Call、更新 Run 及产生必要业务副作用与事件 |
+| `POST` | `/internal/agent-runs/{runId}/finalization` | 统一提交 `SUCCEEDED` 或 `FAILED`；成功写 Agent 最终消息，失败仅接受稳定错误码并由 Java 生成标准消息，同时写终态事件 |
+
+统一 Tool Call 请求采用 MCP-like 形态，但不引入 MCP Transport、Session 或 Server：
+
+```json
+{
+  "expectedRunVersion": 5,
+  "callId": "call_abc123",
+  "name": "text2image",
+  "arguments": {}
+}
+```
+
+Java Tool Registry 根据 `name` 找到内部 Handler。`text2image` Handler 原子创建 Tool Call、唯一生成任务、额度和生成 Outbox，并将 Run 转为 `WAITING_TOOL`；`generate_form_for_info_collection` Handler 原子创建 Tool Call、安全表单和通知事件，并将 Run 转为 `WAITING_USER`。统一协议不抹平内部业务差异，也不允许模型提供用户、Run、幂等键、OSS Key 等可信字段。
+
+内部接口不再提供独立 Generation Task 查询、Tool Call 幂等键查询或 TS 任意事件写入。TS 遇到任何提交结果未知都统一读取 Execution Snapshot；Java 在领取、固定决策、Tool Handler、异步 Tool 完成、取消和终态事务中生成事实事件。短暂进度动画不持久化。
 
 内部 API 必须使用服务身份认证，且仍校验 Run 与业务对象的关联；不能仅因调用方位于内网就信任其传入的用户 ID、资产 ID 或任务 ID。
 
-Agent Service 调用用户输入请求接口成功后才能结束当前消费并 ACK；接口超时属于结果未知，必须以稳定幂等键和 Run/Tool Call 状态查询确认，不得重复建立第二个活动表单。Java 只有在相关业务状态和事件事务提交后才通过用户级 SSE 发通知，Agent Service 不直接持有浏览器连接。
+Agent Service 调用统一 Tool Call 接口成功后才能结束当前消费并 ACK；接口超时属于结果未知，必须读取 Run Execution Snapshot，根据 `call_id`、Tool 状态和关联业务对象确认，不得重复建立第二个活动表单或生成任务。Java 只有在相关业务状态和事件事务提交后才通过用户级 SSE 发通知，Agent Service 不直接持有浏览器连接。
 
 ### 7.3 响应与错误
 
@@ -795,7 +794,7 @@ Agent Service 调用用户输入请求接口成功后才能结束当前消费并
 - 模型返回的 Tool Call 必须先由 Java 原子创建有序 `agent_tool_calls` 并完成对应业务状态转换，TS 才能继续外部 Tool 执行或结束当前消费。提交响应超时时先读执行快照；已保存结果直接复用，确无结果时最多额外重算一次。首期不建设通用 `commandId`、独立模型调用表或模型调用状态机。
 - Agent 创建和启动 Outbox 必须同事务；生成任务终态和 Resume Outbox 必须同事务。
 - Agent 消费者不得在等待图像生成或用户输入期间持有 MQ Delivery。
-- `text2image`、`image2image` 必须使用稳定业务幂等键；网络超时不代表服务端未接收，Runtime 必须先按 Run、Creation Task 或幂等键查询已有任务，不得无条件重复提交。一个 Run 最多成功创建一个生成任务。
+- Tool Call 以 `UNIQUE (agent_run_id, call_id)` 识别同一次模型调用的重复提交；生图副作用继续以 `generation_tasks.creation_task_id` 唯一约束保证一个 Run 最多创建一个生成任务。内部请求超时后只读取 Execution Snapshot，不能更换 `call_id` 后盲目重提 Tool。
 - 取消事务将非终态 Run、未完成 Tool Call 和已关联的非终态生成任务条件更新为 `CANCELLED` 并递增版本；旧消费者、供应商返回和转存结果必须以预期状态与版本条件提交，更新失败后不得继续创建后续 Outbox、Tool Result、资产或最终消息。
 - 取消不保证立即停止已经发出的供应商请求、下载或 OSS 上传；取消后的迟到结果不再进入 Agent 上下文，已经产生但未形成可见资产的内容保留最小定位信息并由后台人工清理。
 - `RUNNING` 超过 `execution_deadline_at` 后由 Java 恢复任务以状态和预期版本条件原子转回 `QUEUED`、递增版本并写 `RETRY` Outbox；模型和同步执行必须有明确超时，恢复前后都以执行快照判断 Tool 副作用是否已发生。
@@ -843,9 +842,12 @@ Skill 的视觉验收和代码能够确定的技术验收必须同时保留。Ru
 - 用户显式 Skill 优先级、硬条件过滤、模型基于 `name + description` 的自动匹配、非法建议拒绝和默认 Skill 回落。
 - Skill 路由先于信息完整性判断；垂类 Skill 和默认 `image-create` 分别按自身规则决定默认补全、自由发挥和信息收集。
 - Skill 禁用、输入不匹配、工具越权和参数非法。
+- 所有 Tool 通过统一 `tool-calls` 契约提交，Java Tool Registry 能正确分派不同 Handler；新增 Tool 不新增跨服务端点。
+- Skill 决策、Tool、异步完成、取消和终态事件只随对应 Java 业务事务产生，TS 不能独立写出与状态不一致的持久事件。
 - Run 状态机、版本条件领取和非法状态转换。
 - Agent MQ、Resume MQ 重复投递。
 - 生图 Tool 参数在副作用前被拒绝后允许修正，但一个 Run 最多成功创建一个图像任务；重复调用和结果未知恢复不创建第二个任务。
+- Tool Call 接口响应丢失后只读取 Execution Snapshot，并能凭 `call_id`、Tool 状态和关联业务对象恢复，不依赖独立 Tool 或 Generation 查询接口。
 - 一个生成任务一次返回一至多张图片，所有图片共享唯一最终 Prompt，并通过 `source_index` 稳定展示和引用。
 - `PARTIALLY_SUCCEEDED` 且至少存在一张可见资产时 Tool 和 Run 可以成功，并向最终回复提供成功资产与失败数量；零资产失败由 Java 原子写标准失败消息并收敛 Run，不再调用 Agent LLM。
 - 视觉检查输入、结构化结论、问题建议，以及检查不通过时不创建第二个生成任务。
