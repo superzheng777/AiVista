@@ -25,6 +25,8 @@ class AgentExecutionSnapshotServiceTests {
         creation.setId(151L);
         creation.setSessionId(101L);
         creation.setMode("AGENT");
+        creation.setRequestedAspectRatio("3:4");
+        creation.setRequestedImageCount(3);
         creation.setStatus("RUNNING");
         creation.setRevision(0L);
         ConversationMessage user = new ConversationMessage();
@@ -52,6 +54,8 @@ class AgentExecutionSnapshotServiceTests {
         assertThat(snapshot.inputAssets().get(0).contentType()).isEqualTo("image/jpeg");
         assertThat(snapshot.inputAssets().get(1).objectKey()).isEqualTo("users/7/tasks/20/0/display.webp");
         assertThat(snapshot.inputAssets().get(1).contentType()).isEqualTo("image/webp");
+        assertThat(snapshot.constraints().aspectRatio()).isEqualTo("3:4");
+        assertThat(snapshot.constraints().imageCount()).isEqualTo(3);
     }
 
     private static ConversationMessage history(String role, String content, int sequence) {

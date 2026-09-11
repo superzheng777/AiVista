@@ -23,10 +23,13 @@ final class GenerationRequestFingerprint {
         return digest(canonical);
     }
 
-    static String sha256Agent(long userId, String sessionIdentity, String prompt, List<Long> inputAssetIds) {
+    static String sha256Agent(long userId, String sessionIdentity, String prompt, List<Long> inputAssetIds,
+            String aspectRatio, int imageCount) {
         return digest(field("userId", Long.toString(userId))
                 + field("session", sessionIdentity)
                 + field("prompt", prompt)
+                + field("aspectRatio", aspectRatio)
+                + field("imageCount", Integer.toString(imageCount))
                 + field("inputAssetIds", inputAssetIds.stream().map(String::valueOf)
                         .collect(java.util.stream.Collectors.joining(","))));
     }

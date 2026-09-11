@@ -27,12 +27,13 @@ export type AgentRealtimeEvent = {
   streamId: string;
   sequence: number;
   eventType: "RUN_STARTED" | "TEXT_STARTED" | "TEXT_DELTA" | "TEXT_FINISHED"
-    | "SKILL_SELECTED" | "TOOL_STARTED" | "TOOL_PROGRESS" | "TOOL_FINISHED"
-    | "RUN_FINISHED" | "RUN_FAILED";
+    | "NARRATION" | "SKILL_SELECTED" | "TOOL_STARTED" | "TOOL_PROGRESS" | "TOOL_FINISHED"
+    | "RUN_FINISHED" | "RUN_FAILED" | "RUN_CANCELLED";
   payload: Record<string, unknown>;
 };
 
 export type AgentLiveRun = { streamId: string; revision: number; sequence: number; text: string;
+  skills: string[];
   tools: Array<{ toolCallId: string; toolName: string; state: "RUNNING" | "SUCCEEDED" | "FAILED" }> };
 
 export const TASK_EVENT_NAME = "generation.task.updated";
@@ -76,20 +77,27 @@ export function isAgentRealtimeEvent(value: unknown): value is AgentRealtimeEven
 }
 
 const AGENT_EVENT_TYPES: ReadonlySet<string> = new Set(["RUN_STARTED", "TEXT_STARTED", "TEXT_DELTA",
-  "TEXT_FINISHED", "SKILL_SELECTED", "TOOL_STARTED", "TOOL_PROGRESS", "TOOL_FINISHED",
-  "RUN_FINISHED", "RUN_FAILED"]);
+  "TEXT_FINISHED", "NARRATION", "SKILL_SELECTED", "TOOL_STARTED", "TOOL_PROGRESS", "TOOL_FINISHED",
+  "RUN_FINISHED", "RUN_FAILED", "RUN_CANCELLED"]);
 
 export function applyAgentRealtimeEvent(current: AgentLiveRun | undefined,
     event: AgentRealtimeEvent): AgentLiveRun {
   if (current && event.revision < current.revision) return current;
   if (current && event.streamId === current.streamId && event.sequence <= current.sequence) return current;
   const next = !current || event.streamId !== current.streamId
-    ? { streamId: event.streamId, revision: event.revision, sequence: 0, text: "", tools: [] }
-    : { ...current, tools: [...current.tools] };
+    ? { streamId: event.streamId, revision: event.revision, sequence: 0, text: "", skills: [], tools: [] }
+    : { ...current, skills: [...current.skills], tools: [...current.tools] };
   next.sequence = event.sequence;
-  if (event.eventType === "RUN_STARTED") return { ...next, text: "", tools: [] };
+  if (event.eventType === "RUN_STARTED") return { ...next, text: "", skills: [], tools: [] };
   if (event.eventType === "TEXT_DELTA" && typeof event.payload.delta === "string") {
     next.text += event.payload.delta;
+  }
+  if (event.eventType === "NARRATION" && typeof event.payload.text === "string") {
+    next.text += event.payload.text;
+  }
+  if (event.eventType === "SKILL_SELECTED" && typeof event.payload.skillName === "string"
+      && !next.skills.includes(event.payload.skillName)) {
+    next.skills.push(event.payload.skillName);
   }
   if (event.eventType === "TOOL_STARTED" && toolPayload(event.payload)) {
     next.tools = [...next.tools.filter((tool) => tool.toolCallId !== event.payload.toolCallId),

@@ -11,7 +11,14 @@ import org.apache.ibatis.annotations.Update;
 public interface CreationTaskMapper extends BaseMapper<CreationTask> {
 
     @Select("""
-            SELECT id, user_id, session_id, mode, status, failure_code,
+            SELECT COUNT(*) > 0
+            FROM creation_tasks
+            WHERE session_id = #{sessionId} AND status = 'RUNNING'
+            """)
+    boolean existsRunningBySessionId(@Param("sessionId") long sessionId);
+
+    @Select("""
+            SELECT id, user_id, session_id, mode, requested_aspect_ratio, requested_image_count, status, failure_code,
                    revision, completed_at, created_at, updated_at
             FROM creation_tasks
             WHERE id = #{creationTaskId}
@@ -20,7 +27,7 @@ public interface CreationTaskMapper extends BaseMapper<CreationTask> {
     CreationTask selectSnapshotById(@Param("creationTaskId") long creationTaskId);
 
     @Select("""
-            SELECT id, user_id, session_id, mode, status, failure_code,
+            SELECT id, user_id, session_id, mode, requested_aspect_ratio, requested_image_count, status, failure_code,
                    revision, completed_at, created_at, updated_at
             FROM creation_tasks
             WHERE id = #{creationTaskId}
@@ -29,7 +36,7 @@ public interface CreationTaskMapper extends BaseMapper<CreationTask> {
     CreationTask selectByIdForUpdate(@Param("creationTaskId") long creationTaskId);
 
     @Select("""
-            SELECT id, user_id, session_id, mode, status, failure_code,
+            SELECT id, user_id, session_id, mode, requested_aspect_ratio, requested_image_count, status, failure_code,
                    revision, completed_at, created_at, updated_at
             FROM creation_tasks
             WHERE session_id = #{sessionId}

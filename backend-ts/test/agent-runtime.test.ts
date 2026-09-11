@@ -78,25 +78,31 @@ describe("Agent runtime", () => {
       prompt: "修改参考图片",
       maxTurns: 20,
       authorizedInputAssetIds: ["101", "202"],
+      generationConstraints: { aspectRatio: "3:4", imageCount: 3 },
     });
 
     expect(systemPrompt).toContain("图片 1：Asset ID 101");
     expect(systemPrompt).toContain("图片 2：Asset ID 202");
     expect(systemPrompt).toContain("inputAssetIds 只能从上述 ID 中选择");
+    expect(systemPrompt).toContain("固定为 3:4");
+    expect(systemPrompt).toContain("本轮最终目标为 3 张");
   });
 
   it("feeds the formal generation Tool Result into the next Pi turn", async () => {
     const { binding, faux } = await createFauxBinding();
     faux.setResponses([
       fauxAssistantMessage(fauxToolCall("text_to_image", {
+        userFacingPlan: "我会采用清爽明亮的夏日配色和竖版构图，突出饮品主体。",
         prompt: "夏日饮品海报",
         aspectRatio: "3:4",
+        imageCount: 1,
       }), { stopReason: "toolUse" }),
       fauxAssistantMessage("海报已经生成。"),
     ]);
     const requests: GenerationToolRequest[] = [];
     const events: AgentRuntimeEvent[] = [];
     const tools = createGenerationTools({
+      constraints: { aspectRatio: "AUTO", imageCount: 0 },
       authorizedInputAssetIds: new Set(),
       executor: {
         async execute(_toolCallId, request) {
@@ -129,6 +135,51 @@ describe("Agent runtime", () => {
     });
   });
 
+  it("feeds an actionable failed Tool Result back so the model can correct the next call", async () => {
+    const { binding, faux } = await createFauxBinding();
+    let correctionContext = "";
+    faux.setResponses([
+      fauxAssistantMessage(fauxToolCall("image_to_image", {
+        userFacingPlan: "我会保留参考图构图，将整体色调调整为温暖的橙色。",
+        prompt: "改成暖橙色",
+        aspectRatio: "3:4",
+        imageCount: 1,
+        inputAssetIds: ["999"],
+      }), { stopReason: "toolUse" }),
+      (context) => {
+        correctionContext = JSON.stringify(context.messages);
+        return fauxAssistantMessage(fauxToolCall("image_to_image", {
+          userFacingPlan: "我会使用已授权的参考图，继续完成暖橙色方向的调整。",
+          prompt: "改成暖橙色",
+          aspectRatio: "3:4",
+          imageCount: 1,
+          inputAssetIds: ["101"],
+        }), { stopReason: "toolUse" });
+      },
+      fauxAssistantMessage("已使用获授权的参考图重新生成。"),
+    ]);
+    const requests: GenerationToolRequest[] = [];
+    const tools = createGenerationTools({
+      constraints: { aspectRatio: "AUTO", imageCount: 0 },
+      authorizedInputAssetIds: new Set(["101"]),
+      executor: {
+        async execute(_toolCallId, request) {
+          requests.push(request);
+          return { outcome: "SUCCEEDED", taskId: "9002", imageAssetIds: ["7002"] };
+        },
+      },
+    });
+
+    const result = await runAgentPrompt({ binding, prompt: "修改参考图", maxTurns: 20,
+      tools, authorizedInputAssetIds: ["101"] });
+
+    expect(correctionContext).toContain("INPUT_ASSET_NOT_AUTHORIZED");
+    expect(correctionContext).toContain("本轮允许的图片资产 ID：101");
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.inputAssetIds).toEqual(["101"]);
+    expect(result).toEqual({ text: "已使用获授权的参考图重新生成。", turns: 3 });
+  });
+
   it("aborts without completing a turn beyond the twentieth", async () => {
     const { binding, faux } = await createFauxBinding();
     faux.setResponses(Array.from({ length: 20 }, () =>
@@ -157,6 +208,40 @@ describe("Agent runtime", () => {
     })).rejects.toMatchObject({ name: "AgentTurnLimitError", maxTurns: 20 });
     expect(calls).toBe(20);
     expect(turns).toEqual(Array.from({ length: 20 }, (_, index) => index + 1));
+  });
+
+  it("awaits Pi cancellation and propagates the Tool AbortSignal", async () => {
+    const { binding, faux } = await createFauxBinding();
+    faux.setResponses([fauxAssistantMessage(fauxToolCall("wait_for_cancel", {}), { stopReason: "toolUse" })]);
+    const controller = new AbortController();
+    let toolStarted!: () => void;
+    const started = new Promise<void>((resolve) => { toolStarted = resolve; });
+    let toolSignalAborted = false;
+    let settled = 0;
+    const tool = defineTool({
+      name: "wait_for_cancel",
+      label: "Wait for cancel",
+      description: "Wait until the runtime cancellation test aborts this Tool.",
+      parameters: Type.Object({}, { additionalProperties: false }),
+      async execute(_toolCallId, _params, signal) {
+        toolStarted();
+        await new Promise<void>((_resolve, reject) => signal!.addEventListener("abort", () => {
+          toolSignalAborted = true;
+          reject(new DOMException("cancelled", "AbortError"));
+        }, { once: true }));
+        return { content: [{ type: "text" as const, text: "unreachable" }], details: {} };
+      },
+    });
+
+    const run = runAgentPrompt({ binding, prompt: "等待取消", maxTurns: 20, tools: [tool],
+      signal: controller.signal,
+      onEvent: (event) => { if (event.type === "agent_settled") settled += 1; } });
+    await started;
+    controller.abort();
+
+    await expect(run).rejects.toMatchObject({ name: "AbortError" });
+    expect(toolSignalAborted).toBe(true);
+    expect(settled).toBe(1);
   });
 });
 

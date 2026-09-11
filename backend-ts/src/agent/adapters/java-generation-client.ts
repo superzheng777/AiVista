@@ -29,6 +29,10 @@ const agentExecutionSchema = z.object({
     width: z.number().int().positive(),
     height: z.number().int().positive(),
   })).max(3),
+  constraints: z.object({
+    aspectRatio: z.enum(["AUTO", "1:1", "4:3", "3:4", "16:9", "9:16"]),
+    imageCount: z.number().int().min(0).max(6),
+  }),
 });
 
 const errorSchema = z.object({

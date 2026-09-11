@@ -22,6 +22,12 @@ describe("GenerationCompletionCoordinatorService", () => {
     const waiting = coordinator.wait("301", abort.signal);
     abort.abort();
     await expect(waiting).rejects.toMatchObject({ name: "AbortError" });
+
+    coordinator.complete(result("301"));
+    const secondAbort = new AbortController();
+    const secondWait = coordinator.wait("301", secondAbort.signal);
+    secondAbort.abort();
+    await expect(secondWait).rejects.toMatchObject({ name: "AbortError" });
   });
 });
 

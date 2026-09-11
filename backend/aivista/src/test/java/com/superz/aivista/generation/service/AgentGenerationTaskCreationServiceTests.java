@@ -20,6 +20,7 @@ import com.superz.aivista.generation.entity.CreationTask;
 import com.superz.aivista.generation.entity.GenerationTask;
 import com.superz.aivista.generation.mapper.CreationTaskMapper;
 import com.superz.aivista.generation.mapper.CreationTaskInputAssetMapper;
+import com.superz.aivista.generation.mapper.GenerationTaskMapper;
 import com.superz.aivista.user.mapper.UserMapper;
 import java.time.Clock;
 import java.time.Instant;
@@ -36,6 +37,7 @@ class AgentGenerationTaskCreationServiceTests {
     private final CreationTaskMapper creations = mock(CreationTaskMapper.class);
     private final UserMapper users = mock(UserMapper.class);
     private final CreationTaskInputAssetMapper creationInputAssets = mock(CreationTaskInputAssetMapper.class);
+    private final GenerationTaskMapper generationTasks = mock(GenerationTaskMapper.class);
     private final IdempotencyRecordMapper idempotency = mock(IdempotencyRecordMapper.class);
     private final GenerationTaskProvisioningService provisioning = mock(GenerationTaskProvisioningService.class);
     private AgentGenerationTaskCreationService service;
@@ -44,7 +46,7 @@ class AgentGenerationTaskCreationServiceTests {
     void setUp() {
         var properties = new GenerationTaskProperties(
                 "bailian/qwen-image-2.0", 4, 12, 1000, 500, 1, 6, Map.of("3:4", "1536*2048"));
-        service = new AgentGenerationTaskCreationService(creations, users, creationInputAssets, idempotency,
+        service = new AgentGenerationTaskCreationService(creations, users, creationInputAssets, generationTasks, idempotency,
                 new GenerationTaskSpecificationValidator(properties), provisioning,
                 Clock.fixed(NOW, ZoneOffset.UTC), new ObjectMapper());
     }
@@ -108,6 +110,47 @@ class AgentGenerationTaskCreationServiceTests {
     }
 
     @Test
+    void enforcesCreationLevelAspectRatioAndTotalImageCount() {
+        CreationTask creation = agentCreation();
+        creation.setRequestedAspectRatio("3:4");
+        creation.setRequestedImageCount(3);
+        when(creations.selectSnapshotById(151L)).thenReturn(creation);
+        when(users.selectIdForUpdate(7L)).thenReturn(7L);
+        when(creations.selectByIdForUpdate(151L)).thenReturn(creation);
+        when(creationInputAssets.selectAssetIdsByCreationTaskId(151L)).thenReturn(List.of());
+
+        assertThatThrownBy(() -> service.create(151L, KEY, new CreateAgentGenerationTaskRequest(
+                "TEXT_TO_IMAGE", "海报", null, "1:1", true, 1, List.of())))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.VALIDATION_ERROR));
+
+        when(generationTasks.sumEffectiveRequestedImagesByCreationTaskId(151L)).thenReturn(2);
+        assertThatThrownBy(() -> service.create(151L, KEY, new CreateAgentGenerationTaskRequest(
+                "TEXT_TO_IMAGE", "海报", null, "3:4", true, 2, List.of())))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.VALIDATION_ERROR));
+        verify(provisioning, never()).create(anyLong(), anyLong(), anyLong(), any(), any());
+    }
+
+    @Test
+    void rejectsCreatingANewTaskAfterTheAgentWasCancelled() {
+        CreationTask creation = agentCreation();
+        creation.setStatus("CANCELLED");
+        creation.setRevision(1L);
+        when(creations.selectSnapshotById(151L)).thenReturn(creation);
+        when(users.selectIdForUpdate(7L)).thenReturn(7L);
+        when(creations.selectByIdForUpdate(151L)).thenReturn(creation);
+
+        assertThatThrownBy(() -> service.create(151L, KEY, new CreateAgentGenerationTaskRequest(
+                "TEXT_TO_IMAGE", "海报", null, "3:4", true, 1, List.of())))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getErrorCode())
+                                .isEqualTo(ErrorCode.AGENT_CREATION_NOT_RUNNING));
+        verify(provisioning, never()).create(anyLong(), anyLong(), anyLong(), any(), any());
+        verify(idempotency, never()).selectByOwnerScopeAndKeyForUpdate(anyLong(), any(), any());
+    }
+
+    @Test
     void returnsPersistedResponseForAnIdenticalRetry() {
         CreationTask creation = agentCreation();
         when(creations.selectSnapshotById(151L)).thenReturn(creation);
@@ -136,6 +179,10 @@ class AgentGenerationTaskCreationServiceTests {
         creation.setUserId(7L);
         creation.setSessionId(101L);
         creation.setMode("AGENT");
+        creation.setRequestedAspectRatio("AUTO");
+        creation.setRequestedImageCount(0);
+        creation.setStatus("RUNNING");
+        creation.setRevision(0L);
         return creation;
     }
 }

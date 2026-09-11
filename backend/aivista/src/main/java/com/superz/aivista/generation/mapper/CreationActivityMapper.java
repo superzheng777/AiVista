@@ -45,4 +45,12 @@ public interface CreationActivityMapper extends BaseMapper<CreationActivity> {
     int completeRunning(@Param("id") long id, @Param("state") String state,
             @Param("content") String content, @Param("generationTaskId") Long generationTaskId,
             @Param("completedAt") Instant completedAt);
+
+    @Update("""
+            UPDATE creation_activities
+            SET state = 'CANCELLED', content = CONCAT(content, '（已停止）'), completed_at = #{completedAt}
+            WHERE creation_task_id = #{creationTaskId} AND state = 'RUNNING'
+            """)
+    int cancelRunningByCreationTaskId(@Param("creationTaskId") long creationTaskId,
+            @Param("completedAt") Instant completedAt);
 }

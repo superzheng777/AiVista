@@ -20,13 +20,20 @@ public class AgentRuntimeWebSocketHandler extends TextWebSocketHandler {
 
     private final GenerationWorkerApiProperties properties;
     private final AgentRealtimeProjectionService projection;
+    private final AgentRuntimeCommandGateway commands;
     private final JsonMapper json;
 
     public AgentRuntimeWebSocketHandler(GenerationWorkerApiProperties properties,
-            AgentRealtimeProjectionService projection, JsonMapper json) {
+            AgentRealtimeProjectionService projection, AgentRuntimeCommandGateway commands, JsonMapper json) {
         this.properties = properties;
         this.projection = projection;
+        this.commands = commands;
         this.json = json;
+    }
+
+    @Override
+    public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
+        commands.unregister(session);
     }
 
     @Override
@@ -47,7 +54,9 @@ public class AgentRuntimeWebSocketHandler extends TextWebSocketHandler {
             return;
         }
         if ("PING".equals(frame.type())) {
-            session.sendMessage(new TextMessage("{\"type\":\"PONG\"}"));
+            synchronized (session) {
+                session.sendMessage(new TextMessage("{\"type\":\"PONG\"}"));
+            }
             return;
         }
         if (!"EVENT".equals(frame.type()) || frame.event() == null) {
@@ -70,6 +79,9 @@ public class AgentRuntimeWebSocketHandler extends TextWebSocketHandler {
             return;
         }
         session.getAttributes().put(AUTHENTICATED, true);
-        session.sendMessage(new TextMessage("{\"type\":\"READY\",\"contractVersion\":1}"));
+        commands.register(session);
+        synchronized (session) {
+            session.sendMessage(new TextMessage("{\"type\":\"READY\",\"contractVersion\":1}"));
+        }
     }
 }

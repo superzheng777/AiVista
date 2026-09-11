@@ -6,6 +6,10 @@ import com.superz.aivista.common.response.ApiResponse;
 import com.superz.aivista.common.response.ResponseUtils;
 import com.superz.aivista.generation.dto.CreateAgentCreationRequest;
 import com.superz.aivista.generation.dto.CreateAgentCreationResponse;
+import com.superz.aivista.generation.dto.CancelAgentCreationResponse;
+import com.superz.aivista.generation.service.AgentCancellationService;
+import com.superz.aivista.generation.service.AgentRealtimeProjectionService;
+import com.superz.aivista.generation.service.AgentRuntimeCommandGateway;
 import com.superz.aivista.generation.service.AgentCreationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -14,6 +18,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -28,9 +33,28 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 @RequestMapping("/agent-creations")
 public class AgentCreationController {
     private final AgentCreationService service;
+    private final AgentCancellationService cancellation;
+    private final AgentRealtimeProjectionService realtime;
+    private final AgentRuntimeCommandGateway runtimeCommands;
 
-    public AgentCreationController(AgentCreationService service) {
+    public AgentCreationController(AgentCreationService service, AgentCancellationService cancellation,
+            AgentRealtimeProjectionService realtime, AgentRuntimeCommandGateway runtimeCommands) {
         this.service = service;
+        this.cancellation = cancellation;
+        this.realtime = realtime;
+        this.runtimeCommands = runtimeCommands;
+    }
+
+    @Operation(summary = "取消正在执行的 Agent 创作")
+    @PostMapping("/{creationTaskId}/cancel")
+    public ApiResponse<CancelAgentCreationResponse> cancel(Authentication authentication,
+            @PathVariable long creationTaskId) {
+        var result = cancellation.cancel(currentUserId(authentication), creationTaskId);
+        if (result.transitioned()) {
+            realtime.publishTerminal(creationTaskId, result.executionRevision());
+            runtimeCommands.cancel(creationTaskId, result.response().revision());
+        }
+        return ResponseUtils.success(result.response());
     }
 
     @Operation(summary = "创建 Agent 创作轮次")

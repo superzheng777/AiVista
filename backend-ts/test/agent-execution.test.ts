@@ -19,7 +19,7 @@ describe("AgentExecutionService", () => {
     const completion = { complete: vi.fn(async () => { calls.push("java"); }) };
     const service = new AgentExecutionService(config(), state as never, java as never, completion as never,
       { load: vi.fn().mockResolvedValue([]) } as never,
-      { get: vi.fn().mockResolvedValue({}) } as never, {} as never, { publish: vi.fn() } as never,
+      { get: vi.fn().mockResolvedValue({}) } as never, {} as never, realtime() as never,
       { submit: vi.fn() } as never);
 
     await expect(service.execute(command())).resolves.toBe(true);
@@ -33,7 +33,7 @@ describe("AgentExecutionService", () => {
     const state = { prepare: vi.fn() };
     const service = new AgentExecutionService(config(), state as never,
       { getAgentExecution: vi.fn().mockResolvedValue({ ...snapshot(), status: "CANCELLED" }) } as never,
-      {} as never, {} as never, {} as never, {} as never, {} as never, {} as never);
+      {} as never, {} as never, {} as never, {} as never, realtime() as never, {} as never);
 
     await expect(service.execute(command())).resolves.toBe(true);
     expect(state.prepare).not.toHaveBeenCalled();
@@ -45,7 +45,7 @@ describe("AgentExecutionService", () => {
     const service = new AgentExecutionService(config(),
       { prepare: vi.fn().mockResolvedValue({ kind: "INTERRUPTED" }) } as never,
       { getAgentExecution: vi.fn().mockResolvedValue(snapshot()) } as never,
-      completion as never, {} as never, {} as never, {} as never, {} as never, {} as never);
+      completion as never, {} as never, {} as never, {} as never, realtime() as never, {} as never);
 
     await expect(service.execute(command())).resolves.toBe(true);
     expect(completion.complete).toHaveBeenCalledWith(expect.objectContaining({
@@ -65,7 +65,7 @@ describe("AgentExecutionService", () => {
       { getAgentExecution: vi.fn().mockResolvedValue(snapshot()) } as never,
       { complete: vi.fn(async () => { calls.push("COMPLETION"); }) } as never,
       { load: vi.fn().mockResolvedValue([]) } as never,
-      { get: vi.fn().mockResolvedValue({}) } as never, {} as never, { publish: vi.fn() } as never,
+      { get: vi.fn().mockResolvedValue({}) } as never, {} as never, realtime() as never,
       activity as never);
 
     const execution = service.execute(command());
@@ -79,9 +79,40 @@ describe("AgentExecutionService", () => {
 
     expect(calls).toEqual(["RUNNING", "COMPLETED", "LEDGER", "COMPLETION"]);
   });
+
+  it("aborts the active Pi session and does not submit a completion after Java cancels", async () => {
+    let control!: (value: { type: "CANCEL"; creationTaskId: string; revision: number }) => void;
+    runtime.runAgentPrompt.mockImplementation(async (options) => {
+      if (!options) return { text: "", turns: 0 };
+      await new Promise<void>((resolve) => options.signal.addEventListener("abort", () => resolve(), { once: true }));
+      throw new Error("aborted");
+    });
+    const state = { prepare: vi.fn().mockResolvedValue({ kind: "START" }),
+      markInterrupted: vi.fn().mockResolvedValue(undefined) };
+    const completion = { complete: vi.fn() };
+    const realtimeClient = { publish: vi.fn(), waitUntilReady: vi.fn().mockResolvedValue(undefined),
+      subscribeControl: vi.fn((listener) => { control = listener; }) };
+    const service = new AgentExecutionService(config(), state as never,
+      { getAgentExecution: vi.fn().mockResolvedValue(snapshot()) } as never, completion as never,
+      { load: vi.fn().mockResolvedValue([]) } as never,
+      { get: vi.fn().mockResolvedValue({}) } as never, {} as never, realtimeClient as never,
+      { submit: vi.fn() } as never);
+
+    const execution = service.execute(command());
+    await vi.waitFor(() => expect(runtime.runAgentPrompt).toHaveBeenCalledTimes(1));
+    const settledExecution = execution.then((value) => value);
+    control({ type: "CANCEL", creationTaskId: "151", revision: 1 });
+
+    await expect(settledExecution).resolves.toBe(true);
+    expect(state.markInterrupted).toHaveBeenCalledWith(151n, expect.any(Date));
+    expect(completion.complete).not.toHaveBeenCalled();
+  });
 });
 
 function command() { return { eventId: 11n, creationTaskId: 151n, revision: 0 }; }
 function snapshot() { return { contractVersion: 1, creationTaskId: "151", revision: 0, status: "RUNNING",
-  sessionId: "101", prompt: "生成一张海报", history: [], inputAssets: [] }; }
-function config() { return { get: vi.fn().mockReturnValue(20) } as never; }
+  sessionId: "101", prompt: "生成一张海报", history: [], inputAssets: [],
+  constraints: { aspectRatio: "AUTO", imageCount: 0 } }; }
+function config() { return { get: vi.fn((key: string) => key === "AIVISTA_AGENT_LOOP_TIMEOUT_MS" ? 60_000 : 20) } as never; }
+function realtime() { return { publish: vi.fn(), waitUntilReady: vi.fn().mockResolvedValue(undefined),
+  subscribeControl: vi.fn() }; }

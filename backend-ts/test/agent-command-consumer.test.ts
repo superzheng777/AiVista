@@ -10,7 +10,8 @@ describe("AgentCommandConsumerService", () => {
   it("creates an isolated prefetch-one Agent consumer pool", async () => {
     const channels = [channel(), channel()];
     let index = 0;
-    const connection = { createChannel: vi.fn(async () => channels[index++]!), close: vi.fn(async () => undefined) };
+    const connection = { createChannel: vi.fn(async () => channels[index++]!), close: vi.fn(async () => undefined),
+      on: vi.fn() };
     mocks.connect.mockResolvedValue(connection);
     const consumer = new AgentCommandConsumerService({ get: (key: string) => config[key] } as never,
       { consume: vi.fn() } as never);
@@ -18,6 +19,8 @@ describe("AgentCommandConsumerService", () => {
     await consumer.onModuleInit();
 
     expect(connection.createChannel).toHaveBeenCalledTimes(2);
+    expect(connection.on).toHaveBeenCalledWith("error", expect.any(Function));
+    expect(connection.on).toHaveBeenCalledWith("close", expect.any(Function));
     for (const value of channels) expect(value.prefetch).toHaveBeenCalledWith(1);
     expect(channels[0]!.consume).toHaveBeenCalledWith("agent.creation.execute", expect.any(Function), { noAck: false });
     await consumer.onModuleDestroy();

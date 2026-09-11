@@ -21,13 +21,21 @@ export class AgentActivityCollector {
   private readonly stable = new Map<string, AgentActivityItem>();
   private narrationSequence = 0;
   private readonly skillCalls = new Map<string, string>();
+  private hasTurnNarration = false;
 
   constructor(private readonly now: () => Date = () => new Date()) {}
 
   accept(event: AgentRuntimeEvent): AgentActivityItem[] {
+    if (event.type === "turn_start") {
+      this.hasTurnNarration = false;
+      return [];
+    }
     if (event.type === "text_end") {
       const text = event.text.trim();
-      if (text) this.pendingText.push(limitCodePoints(text, 1_000));
+      if (text) {
+        this.hasTurnNarration = true;
+        this.pendingText.push(limitCodePoints(text, 1_000));
+      }
       return [];
     }
     if (event.type === "tool_start") {
@@ -38,6 +46,14 @@ export class AgentActivityCollector {
       }
       const occurredAt = this.now().toISOString();
       const emitted = this.flushNarration(occurredAt);
+      if (!this.hasTurnNarration) {
+        const plan = userFacingPlan(event.args);
+        if (plan) {
+          this.hasTurnNarration = true;
+          this.pendingText.push(limitCodePoints(plan, 1_000));
+          emitted.push(...this.flushNarration(occurredAt));
+        }
+      }
       const activity: AgentActivityItem = {
         activityKey: `tool:${event.toolCallId}`,
         type: "TOOL",
@@ -115,6 +131,12 @@ export class AgentActivityCollector {
   }
 }
 
+function userFacingPlan(args: unknown): string | null {
+  if (!args || typeof args !== "object") return null;
+  const value = Reflect.get(args, "userFacingPlan");
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
 function toolLabel(toolName: string): string {
   if (toolName === "text_to_image") return "文生图";
   if (toolName === "image_to_image") return "图生图";
@@ -130,7 +152,7 @@ export function selectedSkillName(toolName: string, args: unknown): string | nul
 }
 
 function skillLabel(skillName: string): string {
-  return skillName === "poster-design" ? "海报设计 Skill" : "创作 Skill";
+  return skillName === "poster-design" ? "海报设计能力" : "创作能力";
 }
 
 function outcomeDetails(result: unknown): { outcome?: string; taskId: string | null } {

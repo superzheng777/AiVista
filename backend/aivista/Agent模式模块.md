@@ -6,7 +6,7 @@
 >
 > 基线：Java Core + TypeScript AI Runtime + Pi-Agent + RabbitMQ + MySQL + OSS
 >
-> 实施进度：Pi Runtime、正式生成 Tool、Agent 创建与派发、独立 Agent Consumer、OSS 图片装配、最小 Agent Ledger、稳定 Activity 提前投影与最终兜底、首个海报 Skill、Pi 结果幂等提交，以及 Java–TS WebSocket→浏览器 SSE 实时投影均已实现。自动化测试与真实本地端到端联调均已通过；下一步在确认在途图片任务语义后实现用户取消。
+> 实施进度：Pi Runtime、正式生成 Tool、Agent 创建与派发、独立 Agent Consumer、OSS 图片装配、最小 Agent Ledger、稳定 Activity 提前投影与最终兜底、首个海报 Skill、Pi 结果幂等提交，以及 Java–TS WebSocket→浏览器 SSE 实时投影均已实现。用户取消的 Java 权威事务、实时控制、Pi/Tool 中止、过期写回保护、断线收敛和前端停止入口也已实现并通过真实联调；前端 Composer 已开放 Agent 模式创建入口，且不向 Agent 泄漏普通图片参数。
 >
 > 真实 Provider 兼容性：已验证 `qwen3.8-flash` 文本流与单次 `agent_settled`、Tool Result 后续 Turn，以及 256×256 WebP `ImageContent`。2×2 极小测试图会被模型拒绝，不作为生产兼容性结论。
 
@@ -68,7 +68,7 @@ Java <---internal WebSocket---> TS
 
 普通入口中的任务持久化已经抽取为 `GenerationTaskProvisioningService`：它统一负责并发与额度校验、Generation Task、任务输入资产以及执行/状态 Outbox。普通模式仍负责 Session、Creation、消息和请求幂等；后续 Agent 内部入口直接复用 Provisioning Service，不会复制任务创建规则或再创建一层普通 Creation。
 
-浏览器 Agent 入口现已实现为 `POST /agent-creations`。它与普通入口共同复用 `CreationTaskStartService`，在单个 Java 事务中创建或锁定 Session、写 Creation 与 USER Message、保存本轮授权图片，并写入通用 `outbox_events`。Agent 不预建空 ASSISTANT Message；最终回复由 Agent Completion 写入。创建幂等继续复用项目级 `idempotency_records`，不在 `creation_tasks` 重复保存一份请求 ID 或指纹。
+浏览器 Agent 入口现已实现为 `POST /agent-creations`。它与普通入口共同复用 `CreationTaskStartService`，在单个 Java 事务中创建或锁定 Session、写 Creation 与 USER Message、保存本轮授权图片，并写入通用 `outbox_events`。已有 Session 在锁行后检查是否存在 `RUNNING` Creation；若存在则返回 `40908`，保证同一会话的对话顺序不会被两个并行 Loop 打乱。不同会话仍可并行，并继续受用户级图片生成并发额度约束。Agent 不预建空 ASSISTANT Message；最终回复由 Agent Completion 写入。创建幂等继续复用项目级 `idempotency_records`，不在 `creation_tasks` 重复保存一份请求 ID 或指纹。
 
 `AGENT_EXECUTE` 与 `GENERATION_TASK_EXECUTE` 共用一个 Direct Exchange 和一个 Outbox Dispatcher，但分别绑定独立 Quorum Queue；命令分别使用 `{ eventId, creationTaskId, revision }` 与 `{ eventId, taskId, taskVersion }` 最小契约。最终投递失败时，Agent Creation 收敛为 `AGENT_QUEUE_DELIVERY_FAILED`，不会误用 Generation 的额度返还逻辑。
 
@@ -90,7 +90,7 @@ Agent Completion 已实现为幂等内部 HTTP：TS 先把确定性完成结果�
 - 中文系统提示词位于 `backend-ts/.pi/SYSTEM.md`，不硬编码在 Runtime；它覆盖默认 Coding Agent 人设，只声明图像创作助手角色、可用能力、不可伪造生成结果和不可泄露内部信息。是否调用 Tool 由模型的标准 Function Calling 输出决定，不另造规划状态机。
 - `DefaultResourceLoader` 使用明确的 `backend-ts` cwd，关闭无关默认资源，只通过显式项目路径从 `backend-ts/.pi/skills` 加载 Skill，并启用受信任内联 Extension。
 - active tools 白名单固定为受限 `read`、`text_to_image` 和 `image_to_image`；不启用 bash、edit、write、grep、find、ls。受限 `read` 只能读取规范化后仍位于 `.pi/skills` 根目录内的文件。
-- 使用 `SessionManager.inMemory(explicitCwd)`；每个 Creation 在 `try/finally` 中取消订阅并 `await dispose()`，共享的 ModelRuntime 与静态 ResourceLoader 不随 Creation 重建。
+- 使用 `SessionManager.inMemory(explicitCwd)`；每个 Creation 在 `try/finally` 中取消订阅并 `dispose()`；用户取消时先等待异步 `session.abort()` 完成。共享的 ModelRuntime 与静态 ResourceLoader 不随 Creation 重建。
 - `agent_settled` 是一次 Prompt 在 retry、compaction 和队列处理后真正稳定结束的信号。
 - Thinking 不发给浏览器、不写 Activity、不进入业务日志。
 
@@ -102,11 +102,12 @@ Skill 是提示词与步骤指导，不是权限来源。Skill 引用的 Tool �
 
 - `generation_sessions` 表示用户可持续对话的逻辑 Session；`creation_tasks` 表示其中一次用户提问及其完整 Loop。
 - TS 每次执行 Creation 时新建 in-memory `AgentSession`，从 Java 安全快照重建所需上下文，`agent_settled` 后立即 `dispose()`；不长期驻留，也不把 Pi JSONL 当业务数据库。
-- 上下文只包含：较早历史的滚动摘要、最近最多 6 个 Creation 的用户文本与最终回答，以及必要的生成结果摘要。默认不注入 Activity、Thinking、Trace、原始 Tool 参数或历史图片字节。
+- 一期上下文只包含当前消息之前、受数量与字符预算约束的用户文本和最终回答。默认不注入 Activity、Thinking、Trace、原始 Tool 参数、历史图片字节或尚未实现的滚动摘要。
 - 一期直接读取当前消息之前最近 12 条 `USER/ASSISTANT` 纯文本，并在总计 12,000 Unicode code point 内按原角色预装进本轮 `SessionManager.inMemory`；图片不会隐式进入历史，仍由当前请求的显式 Asset ID 决定。暂不创建摘要字段；只有真实上下文压力证明需要后，才引入异步滚动摘要。
-- 历史图片默认只保留 Asset ID、提示词、宽高比和简短摘要。只有当前请求显式引用、前端“继续创作”携带引用、用户明确说“上一张/刚才那张/这张”，或当前 Loop 的 Tool Result 需要时，才读取真实 WebP 并注入多模态内容。
+- 历史文本中的图片描述只作为文本语境，不把历史图片 Asset ID、摘要、Base64 或完整二进制自动注入当前 Loop；真实图片输入只来自当前请求明确提交且通过授权校验的 `inputAssetIds`。
+- 当前请求中的授权图片按顺序同时注入为 Pi `ImageContent`，并在每次短生命周期 Session 的追加系统上下文中绑定为“图片序号 → Asset ID”。模型调用 `image_to_image` 时只能原样选择这些 ID；该清单不进入用户消息或最终回复。若模型传入越权 ID，Tool Result 会返回拒绝原因和本轮允许值，供下一 Turn 修正，Harness 与 Java仍会再次执行权威授权校验。
 - 被选中的图片由 TS 按 Asset ID鉴权后从 OSS读取 `display.webp`，校验 MIME 与大小，再构造成 Pi `{ type: "image", data, mimeType: "image/webp" }`；Pi 的 OpenAI Provider Adapter 将其转换为 `data:image/webp;base64,...`。最多三张图片，按图片块在前、用户文本在后的顺序组成一次 user content，不持久化 Data URI或 OSS签名 URL。
-- 对“上一张”等明确指代，Harness 解析为当前用户最近一次成功生成的 Asset ID；不存在明确指代时，不猜测历史图片，按文本问答或新生成处理。
+- 用户说“上一张”“刚才那张”但前端没有显式提交对应 Asset ID 时，Harness 不猜测图片，也不从数据库隐式补图；模型应提示用户选择对应资产后再执行图生图，避免误改。
 - 稳定记忆在 `before_agent_start` 中一次性注入系统上下文。`context` Hook 只保留给每次模型调用前确实会变化的信息，避免每 Turn 重复拼接和漂移。
 
 Pi 提供 SessionManager、Compaction 和事件 Hook，但不提供适合本项目业务语义的开箱即用长期记忆。上述 MySQL 快照与上下文构建器是 AiVista 的外部记忆适配层；一期不引入 MongoDB、向量数据库或独立长期记忆表。
@@ -126,7 +127,7 @@ Pi 提供 SessionManager、Compaction 和事件 Hook，但不提供适合本项�
 - `text_to_image(prompt, negativePrompt?, aspectRatio)`
 - `image_to_image(prompt, negativePrompt?, aspectRatio, inputAssetIds)`
 
-`promptExtend=true`、`imageCount=1` 由实现固定。`inputAssetIds` 最多三张且只能引用当前请求授权资产。前端不提供 Agent negativePrompt 输入，模型可按需填写。
+`promptExtend=true` 由 Tool 固定；`aspectRatio` 与 `imageCount(1～6)` 是模型必须在 Tool Call 中填写的参数。浏览器 Agent 创建契约接受 Creation 级画幅与目标数量约束：`requested_aspect_ratio='AUTO'`、`requested_image_count=0` 表示模型决定，具体值表示用户硬约束。Java 将约束持久化并放入执行快照，TS 以受信任系统上下文注入 Pi。模型可以一次 Tool 生成同方向多张变体，也可以用多个 Tool 表达不同方向；Harness 与 Java共同校验固定比例以及所有非失败任务的请求数量总和。`inputAssetIds` 最多三张且只能引用当前请求授权资产，negativePrompt 仍由模型按需填写。
 
 Tool 使用 Pi 官方 `defineTool` 和 TypeBox。TypeBox 负责结构校验；`tool_call`/`execute()` 边界中的 Harness 只负责无法交给模型裁量的硬约束：active Tool 白名单、20 Turn预算、字段语义、Asset 授权、取消和截止时间，再由 Java校验用户、额度、并发与幂等。Harness 不判断“应该何时生图”。成功、可纠正参数错误、业务失败和规范化后的基础设施失败都必须形成 Pi 官方形态的 `{ content, details }` Tool Result；`content` 进入下一 Turn供模型判断，`details` 只供 Runtime/UI，不进入模型上下文。正常流程不自造 `terminate` 字段。
 
@@ -184,7 +185,7 @@ Java 的 `AgentRealtimeProjectionService` 已实现这一所有权边界：只�
 
 TS 使用一个进程级 `JavaAgentRealtimeClient`：从 Java Base URL 推导 `ws/wss` 地址，不把 Token 放进 URL；收到 `READY` 前或断线期间直接丢弃瞬时事件，连接恢复采用 0.5～15 秒指数退避，15 秒发送一次应用层 `PING`。`AgentExecutionService` 将同一份 Runtime 观察同时送入 Activity Collector 与 Event Normalizer，再由该客户端发送；没有第二套 Pi 事件解释逻辑。
 
-浏览器沿用唯一 `/events` SSE，通过 `agent.creation.event` 接收 Envelope。前端以 `creationTaskId` 投影实时 Run，以 `streamId + sequence` 去重和拒绝倒序事件，逐段追加文字并更新 Tool 生命周期；UI 不展示原始参数或结果。每次 SSE 建连/重连时清空瞬时投影并重新读取 REST 快照，防止旧流与已持久化最终结果叠加。
+浏览器沿用唯一 `/events` SSE，通过 `agent.creation.event` 接收 Envelope。前端以 `creationTaskId` 投影实时 Run，以 `streamId + sequence` 去重和拒绝倒序事件，逐段追加文字并更新 Tool 生命周期；UI 不展示原始参数或结果。同一 `toolCallId` 已出现持久 Activity 时，以持久记录替换瞬时投影，避免完成瞬间重复闪烁。每次 SSE 建连/重连时清空瞬时投影并重新读取 REST 快照，防止旧流与已持久化最终结果叠加。
 
 `RUN_FINISHED/RUN_FAILED` 不由 TS 发送。`AgentCompletionService` 的事务成功返回 Controller 后，Java 从已提交的 Creation 重新读取终态，由 Projection Service 沿同一 stream 发出终态事件并释放 stream 状态；浏览器收到后清除临时文字并重新读取该会话快照。纯文字回答与含图片回答因此使用同一收尾路径。
 
@@ -196,7 +197,7 @@ TS 在 `agent_settled` 后归纳剩余最终投影：
 
 - `NARRATION`：Tool 前后完成的阶段说明。
 - `SKILL`：实际激活的 Skill。
-- `TOOL`：真正执行且影响结果的 Tool；已纠正的临时参数错误不单独保留，最终不可恢复失败保留安全摘要。
+- `TOOL`：每次真实 Tool 尝试的开始和最终结果；失败尝试保留安全的失败摘要，后续纠正重试作为新的 Tool Activity，不保存原始参数或 Provider 原始结果。
 - 最后一条非空 Assistant 文本写入 `conversation_messages`，不重复作为 NARRATION。
 - Generation 状态和图片由 `generation_tasks` 与 `image_assets` 表达，Activity 不复制完整参数或结果。
 
@@ -210,7 +211,7 @@ TS 在 `agent_settled` 后归纳剩余最终投影：
 
 ### creation_tasks
 
-新增 `status`（`RUNNING/SUCCEEDED/FAILED/CANCELLED`）、`failure_code`、`revision`、`completed_at`。创建请求幂等复用现有 `idempotency_records`，不在 Creation 重复增加 `client_request_id` 或请求指纹；不增加 `agent_status`、`agent_status_changed_at`、`agent_version` 或当前 Runtime phase。普通 Creation 在 Generation Completion 的同一事务内同步终态；Agent Creation 只由 Agent Completion 收尾。
+新增 `status`（`RUNNING/SUCCEEDED/FAILED/CANCELLED`）、`failure_code`、`revision`、`completed_at`，以及两个非空 Creation 级约束：`requested_aspect_ratio` 默认 `AUTO`，`requested_image_count` 默认 `0`。创建请求幂等指纹包含这两个约束；不在 Creation 重复增加 `client_request_id` 或请求指纹，也不增加 `agent_status`、`agent_status_changed_at`、`agent_version` 或当前 Runtime phase。普通 Creation 在 Generation Completion 的同一事务内同步终态；Agent Creation 只由 Agent Completion 收尾。
 
 ### creation_activities
 
@@ -237,8 +238,9 @@ Ledger 不是业务查询来源。单实例 TS 启动时发现遗留 `RUNNING`�
 
 ### 内部提交契约
 
-- `POST /internal/generation-worker/agent-creations/{creationTaskId}/activities`：请求包含 `contractVersion`、`creationTaskId`、`revision` 和 Activities；每项包含稳定 `activityKey`、`type`、`state`、安全 `content`、可空 `toolName`、可空 `generationTaskId`、`startedAt`、`completedAt`。`activityKey` 本身已足够提供幂等性，不再增加冗余 `submissionId`。TS 不提交 `sequenceNo`，Java锁定 Creation 后只为首次插入项按顺序分配；同一 key 只允许不存在→RUNNING/COMPLETED、RUNNING→COMPLETED/FAILED，并校验 Generation Task 确属当前 Creation。
-- `POST /internal/generation-worker/agent-creations/{creationTaskId}/completion`：请求包含 `contractVersion`、确定性的 `completionId=agent-{creationTaskId}`、`outcome(SUCCEEDED/FAILED/CANCELLED)`、可空 `failureCode`、可空最终消息和稳定 `activities`。Java在同一事务中幂等写 Activity、最终消息并更新 Creation 终态与 revision；已经终态的相同请求返回权威快照，冲突终态拒绝。
+- `POST /internal/generation-worker/agent-creations/{creationTaskId}/activities`：请求包含 `contractVersion`、`creationTaskId`、`revision` 和 Activities；每项包含稳定 `activityKey`、`type`、`state`、安全 `content`、可空 `toolName`、可空 `generationTaskId`、`startedAt`、`completedAt`。`activityKey` 本身已足够提供幂等性，不再增加冗余 `submissionId`。TS 不提交 `sequenceNo`，Java锁定 Creation 后只为首次插入项按顺序分配；同一 key 只允许不存在→RUNNING/COMPLETED、RUNNING→COMPLETED/FAILED，用户取消时 Java 可将 RUNNING 收敛为 CANCELLED，并校验 Generation Task 确属当前 Creation。
+- `POST /internal/generation-worker/agent-creations/{creationTaskId}/completion`：请求包含 `contractVersion`、确定性的 `completionId=agent-{creationTaskId}`、`outcome(SUCCEEDED/FAILED)`、可空 `failureCode`、可空最终消息和稳定 `activities`。Java在同一事务中幂等写 Activity、最终消息并更新 Creation 终态与 revision；已经终态的相同请求返回权威快照，冲突终态拒绝。`CANCELLED` 只由用户 API 提交，不由 TS伪造 Completion。
+- `POST /agent-creations/{creationTaskId}/cancel`：只允许所属用户取消 `RUNNING` Agent Creation；同一取消幂等返回当前快照。Java锁行更新 `CANCELLED`、`completed_at` 和递增 revision，事务提交后广播 `RUN_CANCELLED` 并尽力发送 Runtime `CANCEL` 控制帧。
 - 不新增 Completion 表或 Agent SSE Outbox。Activity 与终态先提交数据库再尽力广播 SSE；广播丢失由 REST 快照恢复。Generation 结果仍走独立 Generation Completion，不混入 Agent Completion。
 
 ### 时间边界
@@ -259,8 +261,8 @@ Ledger 不是业务查询来源。单实例 TS 启动时发现遗留 `RUNNING`�
 - TS 在外部副作用前保存检查点，结果先写 Ledger 再提交 Java。
 - HTTP 结果未知时使用相同幂等键重试。
 - 单实例下 RabbitMQ unacked 消息与进程内运行 Map 已足够表达执行所有权；Agent 不建立租约、续租任务或租约扫描器。
-- 用户取消由 Java提交 Creation `CANCELLED` 并递增 revision，再经 WebSocket 通知 TS；TS 调用并等待 `session.abort()`，Tool 的 `AbortSignal` 负责释放等待器。WebSocket 重连时 Java补发当前运行 Map 中已取消的 Creation；后续 Activity、Generation 创建和 Agent Completion HTTP 也必须拒绝已取消 Creation。无需为取消增加周期快照轮询，`agent_settled` 负责最终收尾。
-- Generation 已派发后不强制假装取消 Provider。Worker 仍可完成图片和资产提交，但已取消的 Agent 不把该图片写入最终回答；孤立资产按既有清理规则处理。
+- 用户取消由 Java在同一事务中提交 Creation `CANCELLED`、递增 revision，并把尚为 `RUNNING` 的 Activity 收敛为 `CANCELLED`，再经 WebSocket 通知 TS；TS 为每个活动 Creation 持有一个 `AbortController`，调用并等待 Pi `session.abort()`，同一信号传给 Tool 以释放等待器。若 WebSocket 断线，重连 `READY` 时 TS 对活动 Map 读取一次 Java权威快照，发现终态或 revision 不一致即中止，不做三秒轮询。后续 Activity、Generation 创建和 Agent Completion 均受 Creation 状态/revision 保护。
+- Generation Task 一旦创建，就不假装撤销已经进入 MQ、Provider、下载或 OSS 的执行。它继续按普通任务规则完成：成功时扣除已经预占的额度并形成归属该用户的持久资产，基础设施失败按既有规则退款。取消的 Agent 不再生成最终回答；成功图片仍可在该 Creation 的任务历史和资产库中查看，不定义“孤立资产”或额外清理规则。
 - 模型空闲超时、Generation 截止、Tool 等待截止和 Agent 总硬上限分别配置。Tool 正常等待图片不增加 Turn，也不能被模型空闲超时误杀。
 
 ## 11. 分步实施
@@ -272,11 +274,11 @@ Ledger 不是业务查询来源。单实例 TS 启动时发现遗留 `RUNNING`�
 5. 接入 Pi 0.83.0、in-memory Session、上下文构建器、两个 Tool 和 Harness。
 6. 接入内部 WebSocket 与 Java SSE 瞬时投影；不保存或重放逐段文字，断线后以 REST 权威快照对账。已完成。
 7. 建立 `poster-design` 内置 Skill 骨架、受限 `read` 与 Skill Activity 投影；已完成，具体创作内容由产品继续完善。
-8. 用本地 Java、TS、前端及现有 MySQL、RabbitMQ、百炼、OSS 做端到端回归，不引入 Docker。已验证纯文本 Agent、海报 Skill→正式文生图 Tool→Generation Worker→OSS→最终 Completion，以及 TS→Java WebSocket→浏览器 SSE 全链路。
+8. 用本地 Java、TS、前端及现有 MySQL、RabbitMQ、百炼、OSS 做端到端回归，不引入 Docker。已验证纯文本 Agent、海报 Skill→正式文生图/图生图 Tool→Generation Worker→OSS→最终 Completion，以及 TS→Java WebSocket→浏览器 SSE 全链路。
 
 ## 12. 验收
 
-- 普通和 Agent 文生图、图生图复用同一 Generation Worker。
+- 普通和 Agent 文生图、图生图复用同一 Generation Worker；Agent 文生图与显式授权图片的图生图均已通过真实 E2E。
 - Provider 到 OSS 中间没有 Java中转或第二条 MQ 命令。
 - Tool 等到真实终态后把结果交回 Pi，模型继续下一 Turn。
 - Generation 完成由同进程 Coordinator 唤醒 Tool，不依赖轮询或 Java→TS 完成通知。
@@ -288,3 +290,9 @@ Ledger 不是业务查询来源。单实例 TS 启动时发现遗留 `RUNNING`�
 - 重投不重复调用百炼、创建资产或扣额度。
 - TS 重启后遗留 RUNNING Agent 收敛为中断失败，不自动重跑 Pi Loop。
 - Java、TS、前端自动化测试通过；真实本地联调已验证无 Tool 的最终回答、Skill/Tool/图片资产持久化、OSS WebP 可读，以及实时 SSE 事件顺序。
+### 用户可见创作说明
+
+- 每个发生生成 Tool 调用的 Pi Turn 都必须形成一段用户可见的创作说明，不保存或展示模型隐藏思维链。
+- 模型正常输出文本时，直接使用 Pi `message_update` 流式展示；模型直接返回 Tool Call 时，Harness 从生成 Tool 必填的 `userFacingPlan` 参数投影 `NARRATION` 实时事件。
+- `userFacingPlan` 只用于创作过程展示，不进入 Java 生成任务请求，也不发送给图片 Provider。并行调用多个生成 Tool 时只展示并持久化第一段总体说明。
+- 完整说明按一条 `NARRATION` Activity 幂等落库；文本增量不逐 Token 落库。

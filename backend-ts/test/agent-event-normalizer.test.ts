@@ -81,4 +81,21 @@ describe("AgentEventNormalizer", () => {
       result: { content: [{ type: "text", text: "skill" }] }, isError: false });
     expect(events).toEqual([{ eventType: "SKILL_SELECTED", payload: { skillName: "poster-design" } }]);
   });
+
+  it("uses the model-authored Tool plan when a turn has no text narration", () => {
+    const events: AgentRealtimeEvent[] = [];
+    const normalizer = new AgentEventNormalizer({ emit: (event) => events.push(event) });
+    normalizer.accept({ type: "tool_start", toolCallId: "call-1", toolName: "text_to_image",
+      args: { userFacingPlan: "我会把视觉核心放在被温柔接住的小生命上，并生成四版竖版构图。" } });
+    normalizer.accept({ type: "tool_start", toolCallId: "call-2", toolName: "text_to_image",
+      args: { userFacingPlan: "这段总体方案不应重复显示。" } });
+
+    expect(events).toEqual([
+      { eventType: "NARRATION", payload: {
+        text: "我会把视觉核心放在被温柔接住的小生命上，并生成四版竖版构图。",
+      } },
+      { eventType: "TOOL_STARTED", payload: { toolCallId: "call-1", toolName: "text_to_image" } },
+      { eventType: "TOOL_STARTED", payload: { toolCallId: "call-2", toolName: "text_to_image" } },
+    ]);
+  });
 });

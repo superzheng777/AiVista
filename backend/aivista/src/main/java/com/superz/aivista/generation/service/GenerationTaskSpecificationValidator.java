@@ -44,6 +44,22 @@ public class GenerationTaskSpecificationValidator {
         return prompt;
     }
 
+    public String validateAgentAspectRatio(String aspectRatio) {
+        String normalized = aspectRatio == null || aspectRatio.isBlank() ? "AUTO" : aspectRatio.trim();
+        if (!"AUTO".equals(normalized) && !properties.aspectRatios().containsKey(normalized)) {
+            throw invalid("aspectRatio：不受当前模型支持");
+        }
+        return normalized;
+    }
+
+    public int validateAgentImageCount(Integer imageCount) {
+        int normalized = imageCount == null ? 0 : imageCount;
+        if (normalized < 0 || normalized > properties.maxImageCount()) {
+            throw invalid("imageCount：必须为0（自动）或当前模型允许的图片数量");
+        }
+        return normalized;
+    }
+
     public static List<Long> normalizeInputAssetIds(List<String> values) {
         if (values == null || values.isEmpty()) return List.of();
         if (values.size() > 3) throw invalid("inputAssetIds：最多只能选择3张参考图片");

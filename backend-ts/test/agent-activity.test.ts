@@ -48,6 +48,20 @@ describe("AgentActivityCollector", () => {
     expect(collector.accept({ type: "tool_end", toolCallId: "read-1", toolName: "read",
       result: { content: [{ type: "text", text: "skill body" }] }, isError: false }))
       .toEqual([expect.objectContaining({ activityKey: "skill:poster-design", type: "SKILL",
-        state: "COMPLETED", content: "已启用海报设计 Skill。" })]);
+        state: "COMPLETED", content: "已启用海报设计能力。" })]);
+  });
+
+  it("persists one model-authored Tool plan when the model emits no text", () => {
+    const collector = new AgentActivityCollector(() => new Date("2026-09-09T01:00:00Z"));
+    const first = collector.accept({ type: "tool_start", toolCallId: "call-1", toolName: "text_to_image",
+      args: { userFacingPlan: "我会围绕温柔救助的情感核心，生成四版不同构图的竖版海报。" } });
+    const second = collector.accept({ type: "tool_start", toolCallId: "call-2", toolName: "text_to_image",
+      args: { userFacingPlan: "不重复的第二段。" } });
+
+    expect(first).toEqual([
+      expect.objectContaining({ type: "NARRATION", content: "我会围绕温柔救助的情感核心，生成四版不同构图的竖版海报。" }),
+      expect.objectContaining({ type: "TOOL", state: "RUNNING" }),
+    ]);
+    expect(second).toEqual([expect.objectContaining({ type: "TOOL", state: "RUNNING" })]);
   });
 });

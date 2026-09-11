@@ -15,6 +15,13 @@ public interface GenerationTaskMapper extends BaseMapper<GenerationTask> {
     Long selectCreationTaskId(@Param("taskId") long taskId);
 
     @Select("""
+            SELECT COALESCE(SUM(requested_image_count), 0)
+            FROM generation_tasks
+            WHERE creation_task_id = #{creationTaskId} AND status <> 'FAILED'
+            """)
+    int sumEffectiveRequestedImagesByCreationTaskId(@Param("creationTaskId") long creationTaskId);
+
+    @Select("""
             SELECT id, user_id, session_id, creation_task_id, model, status, task_version,
                    attempt_count, final_prompt, final_negative_prompt,
                    width, height, prompt_extend, requested_image_count, completed_image_count, quota_refunded_at,

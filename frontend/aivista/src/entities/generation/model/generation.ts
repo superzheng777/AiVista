@@ -57,7 +57,7 @@ export type CreationActivity = {
   activityKey: string;
   sequenceNo: number;
   type: "NARRATION" | "SKILL" | "TOOL";
-  state: "RUNNING" | "COMPLETED" | "FAILED";
+  state: "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED";
   content: string;
   toolName: string | null;
   generationTaskId: string | null;

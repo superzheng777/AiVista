@@ -8,12 +8,15 @@ describe("generation task consumer adapter", () => {
   beforeEach(() => mocks.connect.mockReset());
   it("creates isolated prefetch-one channels for the generation consumer pool", async () => {
     const channels = [channel(), channel()]; let index = 0;
-    const connection = { createChannel: vi.fn(async () => channels[index++]!), close: vi.fn(async () => undefined) };
+    const connection = { createChannel: vi.fn(async () => channels[index++]!), close: vi.fn(async () => undefined),
+      on: vi.fn() };
     mocks.connect.mockResolvedValue(connection);
     const consumer = new GenerationTaskConsumerService({ get: (key: string) => config[key] } as never,
       { consume: vi.fn() } as never);
     await consumer.onModuleInit();
     expect(connection.createChannel).toHaveBeenCalledTimes(2);
+    expect(connection.on).toHaveBeenCalledWith("error", expect.any(Function));
+    expect(connection.on).toHaveBeenCalledWith("close", expect.any(Function));
     for (const value of channels) {
       expect(value.prefetch).toHaveBeenCalledWith(1);
     }

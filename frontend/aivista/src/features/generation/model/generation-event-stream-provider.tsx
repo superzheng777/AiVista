@@ -111,23 +111,31 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
     setPublicationRefreshVersion((current) => current + 1);
   }, []);
   const applyAgentEvent = useCallback((event: AgentRealtimeEvent) => {
-    if (event.eventType === "RUN_FINISHED" || event.eventType === "RUN_FAILED") {
-      setAgentRuns((current) => {
+    if (event.eventType === "RUN_FINISHED" || event.eventType === "RUN_FAILED"
+        || event.eventType === "RUN_CANCELLED") {
+      void Promise.all([
+        queryClient.refetchQueries({ queryKey: generationQueryKeys.sessions(), type: "active" }),
+        queryClient.refetchQueries({ queryKey: generationQueryKeys.turns(event.sessionId), type: "active" }),
+      ]).finally(() => setAgentRuns((current) => {
         if (!(event.creationTaskId in current)) return current;
         const next = { ...current };
         delete next[event.creationTaskId];
         return next;
-      });
-      void Promise.all([
-        queryClient.refetchQueries({ queryKey: generationQueryKeys.sessions(), type: "active" }),
-        queryClient.refetchQueries({ queryKey: generationQueryKeys.turns(event.sessionId), type: "active" }),
-      ]);
+      }));
       return;
     }
     setAgentRuns((current) => {
       const next = applyAgentRealtimeEvent(current[event.creationTaskId], event);
       return next === current[event.creationTaskId] ? current : { ...current, [event.creationTaskId]: next };
     });
+    if (event.eventType === "RUN_STARTED") {
+      // The transient event can arrive before the POST success handler has loaded the new Creation.
+      // Load its shell immediately so subsequent text/tool deltas have a visible turn to render into.
+      void Promise.all([
+        queryClient.refetchQueries({ queryKey: generationQueryKeys.sessions(), type: "active" }),
+        queryClient.refetchQueries({ queryKey: generationQueryKeys.turns(event.sessionId), type: "active" }),
+      ]);
+    }
   }, [queryClient]);
 
   const startBatch = useCallback((): Promise<boolean> => {
@@ -172,7 +180,7 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
 
           let serverReady = false;
           let connectionAccepted = false;
-          const streamDone = consumeSseStream(response, () => { serverReady = true; setAgentRuns({}); },
+          const streamDone = consumeSseStream(response, () => { serverReady = true; },
             applyTaskUpdate, applyPublicationUpdate,
             () => setNotificationRefreshVersion((current) => current + 1), applyAgentEvent)
             .catch(() => undefined)

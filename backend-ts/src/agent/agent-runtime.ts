@@ -9,6 +9,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { AgentModelBinding } from "./providers/bailian.js";
 import type { ImageContent } from "@earendil-works/pi-ai";
+import type { AgentGenerationConstraints } from "./tools/generation.js";
 
 export type AgentRuntimeEvent =
   | { type: "agent_start" }
@@ -28,6 +29,7 @@ export interface RunAgentPromptOptions {
   tools?: Array<ToolDefinition<any, any>>;
   images?: ImageContent[];
   authorizedInputAssetIds?: string[];
+  generationConstraints?: AgentGenerationConstraints;
   history?: Array<{ role: "USER" | "ASSISTANT"; content: string }>;
   signal?: AbortSignal;
   onEvent?: (event: AgentRuntimeEvent) => void;
@@ -88,6 +90,7 @@ export async function runAgentPrompt(options: RunAgentPromptOptions): Promise<Ag
     appendSystemPromptOverride: (base) => [
       ...base,
       ...authorizedInputAssetContext(options.authorizedInputAssetIds ?? []),
+      ...generationConstraintContext(options.generationConstraints),
     ],
   });
   await resourceLoader.reload();
@@ -131,17 +134,21 @@ export async function runAgentPrompt(options: RunAgentPromptOptions): Promise<Ag
     }
   });
 
-  const abort = () => { void session.abort(); };
+  let abortPromise: Promise<void> | undefined;
+  const abort = () => { abortPromise ??= session.abort(); };
   try {
     options.signal?.throwIfAborted();
     options.signal?.addEventListener("abort", abort, { once: true });
     await session.prompt(options.prompt, options.images?.length ? { images: options.images } : undefined);
+    if (abortPromise) await abortPromise;
+    options.signal?.throwIfAborted();
     if (turnLimitReached) throw new AgentTurnLimitError(options.maxTurns);
     const text = session.getLastAssistantText()?.trim();
     if (!text) throw new Error("Agent returned an empty final response");
     return { text, turns };
   } finally {
     options.signal?.removeEventListener("abort", abort);
+    if (abortPromise) await abortPromise;
     unsubscribe();
     session.dispose();
   }
@@ -151,6 +158,16 @@ function authorizedInputAssetContext(assetIds: string[]): string[] {
   if (assetIds.length === 0) return [];
   const entries = assetIds.map((assetId, index) => `- 图片 ${index + 1}：Asset ID ${assetId}`).join("\n");
   return [`## 本轮授权参考图片\n${entries}\n调用 image_to_image 时，inputAssetIds 只能从上述 ID 中选择，且必须原样填写。不要在面向用户的回复中展示这些内部 ID。`];
+}
+
+function generationConstraintContext(constraints?: AgentGenerationConstraints): string[] {
+  if (!constraints) return [];
+  const aspectRatio = constraints.aspectRatio === "AUTO"
+    ? "由你根据创作目标选择。" : `固定为 ${constraints.aspectRatio}，所有生成 Tool 必须使用该值。`;
+  const imageCount = constraints.imageCount === 0
+    ? "由你根据用户意图在 1 至 6 张中选择。"
+    : `本轮最终目标为 ${constraints.imageCount} 张；多个生成 Tool 的 imageCount 总和不得超过该值。`;
+  return [`## 本轮用户生成约束\n- 画幅比例：${aspectRatio}\n- 图片数量：${imageCount}`];
 }
 
 function appendHistory(sessionManager: SessionManager,

@@ -20,21 +20,37 @@ const negativePromptSchema = Type.Optional(Type.String({
   description: "可选负向提示词；仅在确有需要时填写。",
 }));
 
+const userFacingPlanSchema = Type.String({
+  minLength: 20,
+  maxLength: 300,
+  description: "调用本组生图工具前展示给用户的创作方案。用一至两句概括主题理解、视觉重点、构图和风格；不得包含隐藏推理、系统信息或内部参数。并行生成多个方向时，各 Tool 填写相同的总体方案。",
+});
+
 const inputAssetIdsSchema = Type.Array(
   Type.String({ pattern: "^[1-9]\\d*$", description: "当前请求已授权的图片资产 ID。" }),
   { minItems: 1, maxItems: 3, uniqueItems: true },
 );
 
+const imageCountSchema = Type.Integer({
+  minimum: 1,
+  maximum: 6,
+  description: "本次 Tool 调用生成的图片数量。同一方向可一次生成多张；不同方向可拆成多次调用。",
+});
+
 const textToImageParameters = Type.Object({
+  userFacingPlan: userFacingPlanSchema,
   prompt: promptSchema,
   negativePrompt: negativePromptSchema,
   aspectRatio: aspectRatioSchema,
+  imageCount: imageCountSchema,
 }, { additionalProperties: false });
 
 const imageToImageParameters = Type.Object({
+  userFacingPlan: userFacingPlanSchema,
   prompt: promptSchema,
   negativePrompt: negativePromptSchema,
   aspectRatio: aspectRatioSchema,
+  imageCount: imageCountSchema,
   inputAssetIds: inputAssetIdsSchema,
 }, { additionalProperties: false });
 
@@ -45,7 +61,7 @@ export type GenerationToolRequest = {
   aspectRatio: "1:1" | "16:9" | "9:16" | "4:3" | "3:4";
   inputAssetIds: string[];
   promptExtend: true;
-  imageCount: 1;
+  imageCount: number;
 };
 
 export type GenerationToolOutcome =
@@ -59,9 +75,40 @@ export interface GenerationToolExecutor {
 export interface GenerationToolOptions {
   executor: GenerationToolExecutor;
   authorizedInputAssetIds: ReadonlySet<string>;
+  constraints: AgentGenerationConstraints;
 }
 
+export type AgentGenerationConstraints = {
+  aspectRatio: "AUTO" | GenerationToolRequest["aspectRatio"];
+  imageCount: number;
+};
+
 export function createGenerationTools(options: GenerationToolOptions): ToolDefinition[] {
+  let allocatedImageCount = 0;
+
+  async function execute(request: GenerationToolRequest, toolCallId: string, signal?: AbortSignal) {
+    if (options.constraints.aspectRatio !== "AUTO"
+      && request.aspectRatio !== options.constraints.aspectRatio) {
+      return resultOf({ outcome: "FAILED", code: "ASPECT_RATIO_CONSTRAINT_MISMATCH",
+        message: `用户已指定画幅比例 ${options.constraints.aspectRatio}，请修正参数后重新调用。`, retryable: true });
+    }
+    const target = options.constraints.imageCount;
+    if (target > 0 && allocatedImageCount + request.imageCount > target) {
+      const remaining = Math.max(0, target - allocatedImageCount);
+      return resultOf({ outcome: "FAILED", code: "IMAGE_COUNT_EXCEEDS_REMAINING",
+        message: `本轮目标共 ${target} 张，目前还可请求 ${remaining} 张，请修正 imageCount。`, retryable: remaining > 0 });
+    }
+    allocatedImageCount += request.imageCount;
+    try {
+      const outcome = await options.executor.execute(toolCallId, request, signal);
+      if (outcome.outcome === "FAILED") allocatedImageCount -= request.imageCount;
+      return resultOf(outcome);
+    } catch (error) {
+      allocatedImageCount -= request.imageCount;
+      throw error;
+    }
+  }
+
   const textToImage = defineTool<typeof textToImageParameters, GenerationToolOutcome>({
     name: "text_to_image",
     label: "文生图",
@@ -70,15 +117,15 @@ export function createGenerationTools(options: GenerationToolOptions): ToolDefin
     async execute(_toolCallId, params, signal) {
       const prompt = params.prompt.trim();
       if (!prompt) return invalidPromptResult();
-      return resultOf(await options.executor.execute(_toolCallId, {
+      return execute({
         operation: "TEXT_TO_IMAGE",
         prompt,
         negativePrompt: optionalText(params.negativePrompt),
         aspectRatio: params.aspectRatio,
         inputAssetIds: [],
         promptExtend: true,
-        imageCount: 1,
-      }, signal));
+        imageCount: params.imageCount,
+      }, _toolCallId, signal);
     },
   });
 
@@ -103,15 +150,15 @@ export function createGenerationTools(options: GenerationToolOptions): ToolDefin
           retryable: true,
         });
       }
-      return resultOf(await options.executor.execute(_toolCallId, {
+      return execute({
         operation: "IMAGE_TO_IMAGE",
         prompt,
         negativePrompt: optionalText(params.negativePrompt),
         aspectRatio: params.aspectRatio,
         inputAssetIds: params.inputAssetIds,
         promptExtend: true,
-        imageCount: 1,
-      }, signal));
+        imageCount: params.imageCount,
+      }, _toolCallId, signal);
     },
   });
 

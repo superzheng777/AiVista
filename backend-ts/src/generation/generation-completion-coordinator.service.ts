@@ -12,6 +12,7 @@ type Waiter = {
 export class GenerationCompletionCoordinatorService {
   private readonly waiters = new Map<string, Set<Waiter>>();
   private readonly earlyResults = new Map<string, GenerationCompletionResponse>();
+  private readonly abandoned = new Set<string>();
 
   wait(taskId: string, signal?: AbortSignal): Promise<GenerationCompletionResponse> {
     const early = this.earlyResults.get(taskId);
@@ -19,10 +20,14 @@ export class GenerationCompletionCoordinatorService {
       this.earlyResults.delete(taskId);
       return Promise.resolve(early);
     }
-    if (signal?.aborted) return Promise.reject(abortError());
+    if (signal?.aborted) {
+      this.rememberAbandoned(taskId);
+      return Promise.reject(abortError());
+    }
     return new Promise((resolve, reject) => {
       const abort = () => {
         this.remove(taskId, waiter);
+        this.rememberAbandoned(taskId);
         reject(abortError());
       };
       const waiter: Waiter = {
@@ -38,6 +43,7 @@ export class GenerationCompletionCoordinatorService {
   }
 
   complete(result: GenerationCompletionResponse): void {
+    if (this.abandoned.delete(result.taskId)) return;
     const taskWaiters = this.waiters.get(result.taskId);
     if (!taskWaiters || taskWaiters.size === 0) {
       this.earlyResults.set(result.taskId, result);
@@ -51,6 +57,14 @@ export class GenerationCompletionCoordinatorService {
     for (const waiter of taskWaiters) {
       waiter.removeAbortListener();
       waiter.resolve(result);
+    }
+  }
+
+  private rememberAbandoned(taskId: string): void {
+    this.abandoned.add(taskId);
+    if (this.abandoned.size > 1_000) {
+      const oldest = this.abandoned.values().next().value as string | undefined;
+      if (oldest) this.abandoned.delete(oldest);
     }
   }
 

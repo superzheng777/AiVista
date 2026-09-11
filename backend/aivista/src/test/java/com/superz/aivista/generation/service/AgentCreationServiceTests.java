@@ -54,7 +54,7 @@ class AgentCreationServiceTests {
     @BeforeEach
     void setUp() {
         var properties = new GenerationTaskProperties("bailian/qwen-image-2.0", 4, 12,
-                1000, 500, 1, 6, Map.of("1:1", "2048*2048"));
+                1000, 500, 1, 6, Map.of("1:1", "2048*2048", "3:4", "1536*2048"));
         var start = new CreationTaskStartService(sessions, messages, creations, creationInputs);
         service = new AgentCreationService(users, assets, idempotency, outbox, start,
                 new GenerationTaskSpecificationValidator(properties), Clock.fixed(NOW, ZoneOffset.UTC),
@@ -81,7 +81,7 @@ class AgentCreationServiceTests {
         when(assets.selectUsableInputsForUpdate(USER_ID, List.of(501L))).thenReturn(List.of(image));
 
         var response = service.create(USER_ID, KEY,
-                new CreateAgentCreationRequest(null, "设计一张海报", List.of("501")));
+                new CreateAgentCreationRequest(null, "设计一张海报", List.of("501"), "3:4", 3));
 
         assertThat(response.creationTaskId()).isEqualTo("151");
         assertThat(response.status()).isEqualTo("RUNNING");
@@ -92,6 +92,8 @@ class AgentCreationServiceTests {
         verify(messages).insertSelective(message.capture());
         verify(outbox).insertSelective(event.capture());
         assertThat(creation.getValue().getMode()).isEqualTo("AGENT");
+        assertThat(creation.getValue().getRequestedAspectRatio()).isEqualTo("3:4");
+        assertThat(creation.getValue().getRequestedImageCount()).isEqualTo(3);
         assertThat(creation.getValue().getRevision()).isZero();
         assertThat(message.getValue().getRole()).isEqualTo("USER");
         assertThat(event.getValue().getEventType()).isEqualTo("AGENT_EXECUTE");
@@ -105,9 +107,25 @@ class AgentCreationServiceTests {
         when(assets.selectUsableInputsForUpdate(USER_ID, List.of(501L))).thenReturn(List.of());
 
         assertThatThrownBy(() -> service.create(USER_ID, KEY,
-                new CreateAgentCreationRequest(null, "设计一张海报", List.of("501"))))
+                new CreateAgentCreationRequest(null, "设计一张海报", List.of("501"), "AUTO", 0)))
                 .isInstanceOfSatisfying(BusinessException.class,
                         error -> assertThat(error.getErrorCode()).isEqualTo(ErrorCode.GENERATION_RESOURCE_NOT_FOUND));
+        verify(creations, never()).insertSelective(any());
+        verify(outbox, never()).insertSelective(any());
+    }
+
+    @Test
+    void rejectsAnotherCreationWhileTheRequestedSessionIsRunning() {
+        GenerationSession session = new GenerationSession();
+        session.setId(101L);
+        when(sessions.selectOwnedByIdForUpdate(101L, USER_ID)).thenReturn(session);
+        when(creations.existsRunningBySessionId(101L)).thenReturn(true);
+
+        assertThatThrownBy(() -> service.create(USER_ID, KEY,
+                new CreateAgentCreationRequest("101", "继续调整海报", List.of(), "AUTO", 0)))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        error -> assertThat(error.getErrorCode())
+                                .isEqualTo(ErrorCode.SESSION_CREATION_IN_PROGRESS));
         verify(creations, never()).insertSelective(any());
         verify(outbox, never()).insertSelective(any());
     }

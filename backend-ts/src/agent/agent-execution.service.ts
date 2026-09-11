@@ -21,7 +21,7 @@ import { JavaAgentActivityClient } from "./adapters/java-agent-activity-client.j
 /** 一条 AGENT_EXECUTE 命令的完整可靠执行边界。 */
 @Injectable()
 export class AgentExecutionService {
-  private readonly active = new Set<string>();
+  private readonly active = new Map<string, { revision: number; abort: AbortController }>();
 
   constructor(
     private readonly config: ConfigService<Environment, true>,
@@ -33,12 +33,22 @@ export class AgentExecutionService {
     private readonly generationCompletions: GenerationCompletionCoordinatorService,
     private readonly realtime: JavaAgentRealtimeClient,
     private readonly activityClient: JavaAgentActivityClient,
-  ) {}
+  ) {
+    this.realtime.subscribeControl((control) => {
+      if (control.type === "READY") {
+        void this.reconcileActive();
+        return;
+      }
+      const execution = this.active.get(control.creationTaskId);
+      if (execution && control.revision > execution.revision) execution.abort.abort("USER_CANCELLED");
+    });
+  }
 
   async execute(command: AgentExecuteMessage, signal?: AbortSignal): Promise<boolean> {
     const id = command.creationTaskId.toString();
     if (this.active.has(id)) return true;
-    this.active.add(id);
+    const cancellation = new AbortController();
+    this.active.set(id, { revision: command.revision, abort: cancellation });
     try {
       const snapshot = await this.java.getAgentExecution(id, signal);
       if (snapshot.status !== "RUNNING" || snapshot.revision !== command.revision) return true;
@@ -67,12 +77,17 @@ export class AgentExecutionService {
           toolWaitTimeoutMs: this.config.get("AIVISTA_AGENT_TOOL_WAIT_TIMEOUT_MS", { infer: true }) });
         const cwd = resolve(fileURLToPath(new URL("../../", import.meta.url)));
         const tools = [createSkillReadTool(cwd), ...createGenerationTools({ executor,
-          authorizedInputAssetIds: new Set(snapshot.inputAssets.map((asset) => asset.assetId)) })];
+          authorizedInputAssetIds: new Set(snapshot.inputAssets.map((asset) => asset.assetId)),
+          constraints: snapshot.constraints })];
         const loopTimeout = AbortSignal.timeout(this.config.get("AIVISTA_AGENT_LOOP_TIMEOUT_MS", { infer: true }));
-        const runSignal = signal ? AbortSignal.any([signal, loopTimeout]) : loopTimeout;
+        const runSignal = signal
+          ? AbortSignal.any([signal, loopTimeout, cancellation.signal])
+          : AbortSignal.any([loopTimeout, cancellation.signal]);
+        await this.realtime.waitUntilReady(runSignal);
         realtime.start();
         const result = await runAgentPrompt({ binding, prompt: snapshot.prompt, history: snapshot.history,
           images: inputImages, authorizedInputAssetIds: snapshot.inputAssets.map((asset) => asset.assetId), tools,
+          generationConstraints: snapshot.constraints,
           maxTurns: this.config.get("AIVISTA_AGENT_MAX_TURNS", { infer: true }),
           signal: runSignal, onEvent: (event) => {
             const stable = activityCollector.accept(event);
@@ -87,6 +102,11 @@ export class AgentExecutionService {
         activityCollector.discardFinalText();
         completion = success(command, result.text, activityCollector.snapshot());
       } catch (error) {
+        if (cancellation.signal.aborted) {
+          await activityWrites;
+          await this.state.markInterrupted(command.creationTaskId, new Date());
+          return true;
+        }
         if (signal?.aborted) throw error;
         await activityWrites;
         activityCollector.discardFinalText();
@@ -100,6 +120,17 @@ export class AgentExecutionService {
       return true;
     } finally {
       this.active.delete(id);
+    }
+  }
+
+  private async reconcileActive(): Promise<void> {
+    for (const [id, execution] of this.active) {
+      try {
+        const snapshot = await this.java.getAgentExecution(id);
+        if (snapshot.status !== "RUNNING" || snapshot.revision !== execution.revision) {
+          execution.abort.abort("AUTHORITATIVE_STATE_CHANGED");
+        }
+      } catch { /* The next reconnect or completion boundary will converge again. */ }
     }
   }
 }

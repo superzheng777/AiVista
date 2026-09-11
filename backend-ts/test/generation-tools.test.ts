@@ -11,21 +11,28 @@ describe("Agent generation tools", () => {
     const [textToImage, imageToImage] = createGenerationTools({
       executor: executorOf(),
       authorizedInputAssetIds: new Set(["101"]),
+      constraints: { aspectRatio: "AUTO", imageCount: 0 },
     });
 
     expect(textToImage?.name).toBe("text_to_image");
     expect(imageToImage?.name).toBe("image_to_image");
     expect(Value.Check(textToImage!.parameters, {
+      userFacingPlan: "我会采用清晰的视觉层级完成这一版海报设计并突出画面主体。",
       prompt: "海边日落",
       aspectRatio: "16:9",
+      imageCount: 2,
     })).toBe(true);
     expect(Value.Check(textToImage!.parameters, {
+      userFacingPlan: "我会采用清晰的视觉层级完成这一版海报设计并突出画面主体。",
       prompt: "海边日落",
       aspectRatio: "2:1",
+      imageCount: 2,
     })).toBe(false);
     expect(Value.Check(imageToImage!.parameters, {
+      userFacingPlan: "我会延续参考图片的核心构图并完成这一版视觉调整。",
       prompt: "改成夜景",
       aspectRatio: "1:1",
+      imageCount: 2,
       inputAssetIds: ["101", "102", "103", "104"],
     })).toBe(false);
   });
@@ -39,12 +46,14 @@ describe("Agent generation tools", () => {
     const [textToImage] = createGenerationTools({
       executor: { execute },
       authorizedInputAssetIds: new Set(),
+      constraints: { aspectRatio: "AUTO", imageCount: 0 },
     });
 
     const result = await textToImage!.execute("call-1", {
       prompt: "  极简海报  ",
       negativePrompt: "  模糊  ",
       aspectRatio: "3:4",
+      imageCount: 3,
     }, undefined, undefined, {} as never);
 
     expect(execute).toHaveBeenCalledWith("call-1", {
@@ -54,7 +63,7 @@ describe("Agent generation tools", () => {
       aspectRatio: "3:4",
       inputAssetIds: [],
       promptExtend: true,
-      imageCount: 1,
+      imageCount: 3,
     }, undefined);
     expect(result.details).toMatchObject({ outcome: "SUCCEEDED", taskId: "9001" });
   });
@@ -64,11 +73,13 @@ describe("Agent generation tools", () => {
     const [, imageToImage] = createGenerationTools({
       executor: { execute },
       authorizedInputAssetIds: new Set(["101"]),
+      constraints: { aspectRatio: "AUTO", imageCount: 0 },
     });
 
     const result = await imageToImage!.execute("call-2", {
       prompt: "改成蓝色",
       aspectRatio: "1:1",
+      imageCount: 1,
       inputAssetIds: ["999"],
     }, undefined, undefined, {} as never);
 
@@ -82,6 +93,28 @@ describe("Agent generation tools", () => {
       code: "INPUT_ASSET_NOT_AUTHORIZED",
       retryable: true,
     });
+  });
+
+  it("returns model-visible errors when a Tool call violates Creation constraints", async () => {
+    const execute = vi.fn();
+    const [textToImage] = createGenerationTools({
+      executor: { execute },
+      authorizedInputAssetIds: new Set(),
+      constraints: { aspectRatio: "3:4", imageCount: 2 },
+    });
+
+    const wrongRatio = await textToImage!.execute("call-ratio", {
+      userFacingPlan: "我会按用户要求完成指定比例的海报方案并保持视觉重点清晰。",
+      prompt: "公益海报", aspectRatio: "1:1", imageCount: 1,
+    }, undefined, undefined, {} as never);
+    expect(wrongRatio.details).toMatchObject({ code: "ASPECT_RATIO_CONSTRAINT_MISMATCH" });
+
+    const tooMany = await textToImage!.execute("call-count", {
+      userFacingPlan: "我会按用户要求完成指定数量的海报方案并保持视觉重点清晰。",
+      prompt: "公益海报", aspectRatio: "3:4", imageCount: 3,
+    }, undefined, undefined, {} as never);
+    expect(tooMany.details).toMatchObject({ code: "IMAGE_COUNT_EXCEEDS_REMAINING" });
+    expect(execute).not.toHaveBeenCalled();
   });
 });
 

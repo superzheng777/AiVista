@@ -48,6 +48,68 @@ describe("JavaAgentRealtimeClient", () => {
     expect(toWebSocketUrl("https://example.com/api/?ignored=yes#fragment"))
       .toBe("wss://example.com/api/internal/agent-runtime");
   });
+
+  it("delivers validated Java cancellation controls", () => {
+    vi.stubGlobal("WebSocket", FakeSocket);
+    const client = new JavaAgentRealtimeClient(config());
+    const controls: unknown[] = [];
+    client.subscribeControl((control) => controls.push(control));
+    client.onModuleInit();
+    const socket = FakeSocket.instances[0]!;
+    socket.readyState = 1;
+    socket.fire("open");
+    socket.fire("message", { data: '{"type":"READY","contractVersion":1}' });
+    socket.fire("message", { data: '{"type":"CANCEL","creationTaskId":"31","revision":5}' });
+
+    expect(controls).toEqual([{ type: "READY" },
+      { type: "CANCEL", creationTaskId: "31", revision: 5 }]);
+    client.onModuleDestroy();
+  });
+
+  it("waits for Java READY before allowing an Agent loop to start", async () => {
+    vi.stubGlobal("WebSocket", FakeSocket);
+    const client = new JavaAgentRealtimeClient(config());
+    client.onModuleInit();
+    const socket = FakeSocket.instances[0]!;
+    let resolved = false;
+    const waiting = client.waitUntilReady().then(() => { resolved = true; });
+
+    await Promise.resolve();
+    expect(resolved).toBe(false);
+    socket.readyState = 1;
+    socket.fire("open");
+    socket.fire("message", { data: '{"type":"READY","contractVersion":1}' });
+    await waiting;
+    expect(resolved).toBe(true);
+    client.onModuleDestroy();
+  });
+
+  it("cancels a realtime readiness wait through AbortSignal", async () => {
+    vi.stubGlobal("WebSocket", FakeSocket);
+    const client = new JavaAgentRealtimeClient(config());
+    client.onModuleInit();
+    const cancellation = new AbortController();
+    const waiting = client.waitUntilReady(cancellation.signal);
+    cancellation.abort(new Error("cancelled"));
+
+    await expect(waiting).rejects.toThrow("cancelled");
+    client.onModuleDestroy();
+  });
+
+  it("backs off after a socket error without recursively closing the failed socket", () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("WebSocket", FakeSocket);
+    const client = new JavaAgentRealtimeClient(config());
+    client.onModuleInit();
+    const socket = FakeSocket.instances[0]!;
+
+    socket.fire("error");
+
+    expect(FakeSocket.instances).toHaveLength(1);
+    vi.advanceTimersByTime(500);
+    expect(FakeSocket.instances).toHaveLength(2);
+    client.onModuleDestroy();
+  });
 });
 
 function config() {

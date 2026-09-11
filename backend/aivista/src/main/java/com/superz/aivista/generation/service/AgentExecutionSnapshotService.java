@@ -49,7 +49,9 @@ public class AgentExecutionSnapshotService {
                 .map(id -> input(byId.get(id)))
                 .toList();
         return new AgentExecutionSnapshot(1, creation.getId().toString(), creation.getRevision(),
-                creation.getStatus(), creation.getSessionId().toString(), userMessage.getContent(), history, inputs);
+                creation.getStatus(), creation.getSessionId().toString(), userMessage.getContent(), history, inputs,
+                new AgentExecutionSnapshot.GenerationConstraints(creation.getRequestedAspectRatio(),
+                        creation.getRequestedImageCount()));
     }
 
     private List<AgentExecutionSnapshot.HistoryMessage> recentHistory(long sessionId, Integer beforeSequenceNo) {

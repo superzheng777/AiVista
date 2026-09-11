@@ -4,6 +4,9 @@ import type { Environment } from "../../config/environment.js";
 import type { AgentRealtimeEvent } from "../agent-event-normalizer.js";
 
 const OPEN = 1;
+export type AgentRuntimeControl =
+  | { type: "READY" }
+  | { type: "CANCEL"; creationTaskId: string; revision: number };
 
 /** One process-level transient channel. Disconnected events are intentionally dropped, never replayed stale. */
 @Injectable()
@@ -14,6 +17,7 @@ export class JavaAgentRealtimeClient implements OnModuleInit, OnModuleDestroy {
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   private heartbeatTimer: ReturnType<typeof setInterval> | undefined;
+  private readonly controlListeners = new Set<(control: AgentRuntimeControl) => void>();
 
   constructor(private readonly config: ConfigService<Environment, true>) {}
 
@@ -35,6 +39,36 @@ export class JavaAgentRealtimeClient implements OnModuleInit, OnModuleDestroy {
     return true;
   }
 
+  subscribeControl(listener: (control: AgentRuntimeControl) => void): () => void {
+    this.controlListeners.add(listener);
+    return () => this.controlListeners.delete(listener);
+  }
+
+  async waitUntilReady(signal?: AbortSignal): Promise<void> {
+    if (this.ready && this.socket?.readyState === OPEN) return;
+    signal?.throwIfAborted();
+    await new Promise<void>((resolve, reject) => {
+      const unsubscribe = this.subscribeControl((control) => {
+        if (control.type !== "READY") return;
+        cleanup();
+        resolve();
+      });
+      const aborted = () => {
+        cleanup();
+        reject(signal?.reason ?? new Error("Agent realtime channel was aborted before READY"));
+      };
+      const cleanup = () => {
+        unsubscribe();
+        signal?.removeEventListener("abort", aborted);
+      };
+      signal?.addEventListener("abort", aborted, { once: true });
+      if (this.ready && this.socket?.readyState === OPEN) {
+        cleanup();
+        resolve();
+      }
+    });
+  }
+
   private connect(): void {
     if (this.stopped) return;
     const socket = new WebSocket(toWebSocketUrl(this.config.get("AIVISTA_JAVA_BASE_URL", { infer: true })));
@@ -47,11 +81,16 @@ export class JavaAgentRealtimeClient implements OnModuleInit, OnModuleDestroy {
     socket.addEventListener("message", (message) => {
       if (this.socket !== socket || typeof message.data !== "string") return;
       try {
-        const frame = JSON.parse(message.data) as { type?: unknown; contractVersion?: unknown };
+        const frame = JSON.parse(message.data) as Record<string, unknown>;
         if (frame.type === "READY" && frame.contractVersion === 1) {
           this.ready = true;
           this.reconnectAttempt = 0;
           this.startHeartbeat(socket);
+          this.emitControl({ type: "READY" });
+        } else if (frame.type === "CANCEL" && typeof frame.creationTaskId === "string"
+            && Number.isSafeInteger(frame.revision) && Number(frame.revision) >= 1) {
+          this.emitControl({ type: "CANCEL", creationTaskId: frame.creationTaskId,
+            revision: Number(frame.revision) });
         }
       } catch { /* Invalid server frames do not enter the runtime. */ }
     });
@@ -63,7 +102,12 @@ export class JavaAgentRealtimeClient implements OnModuleInit, OnModuleDestroy {
       this.scheduleReconnect();
     };
     socket.addEventListener("close", disconnected);
-    socket.addEventListener("error", () => socket.close());
+    // undici may dispatch another error from close(); treating error as a disconnect avoids recursive close loops.
+    socket.addEventListener("error", disconnected);
+  }
+
+  private emitControl(control: AgentRuntimeControl): void {
+    for (const listener of this.controlListeners) listener(control);
   }
 
   private startHeartbeat(socket: WebSocket): void {

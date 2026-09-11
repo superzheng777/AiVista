@@ -59,6 +59,14 @@ export class AgentExecutionStateService {
     }
   }
 
+  async markInterrupted(creationTaskId: bigint, now: Date): Promise<void> {
+    await this.database.db.updateTable("agent_worker_executions")
+      .set({ state: "INTERRUPTED", completed_at: now, updated_at: now })
+      .where("creation_task_id", "=", creationTaskId)
+      .where("state", "=", "RUNNING")
+      .executeTakeFirst();
+  }
+
   private find(creationTaskId: bigint) {
     return this.database.db.selectFrom("agent_worker_executions").selectAll()
       .where("creation_task_id", "=", creationTaskId).executeTakeFirst();

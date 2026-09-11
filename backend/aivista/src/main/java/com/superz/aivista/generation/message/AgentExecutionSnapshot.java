@@ -5,7 +5,10 @@ import java.util.List;
 /** TS 启动一个 Pi Loop 所需的最小权威快照。 */
 public record AgentExecutionSnapshot(int contractVersion, String creationTaskId, long revision,
         String status, String sessionId, String prompt, List<HistoryMessage> history,
-        List<InputAsset> inputAssets) {
+        List<InputAsset> inputAssets, GenerationConstraints constraints) {
+
+    public record GenerationConstraints(String aspectRatio, int imageCount) {
+    }
 
     public record HistoryMessage(String role, String content) {
     }

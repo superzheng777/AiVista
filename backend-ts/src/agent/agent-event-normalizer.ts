@@ -6,6 +6,7 @@ export type AgentRealtimeEvent =
   | { eventType: "TEXT_STARTED"; payload: { contentIndex: number } }
   | { eventType: "TEXT_DELTA"; payload: { contentIndex: number; delta: string } }
   | { eventType: "TEXT_FINISHED"; payload: { contentIndex: number } }
+  | { eventType: "NARRATION"; payload: { text: string } }
   | { eventType: "SKILL_SELECTED"; payload: { skillName: string } }
   | { eventType: "TOOL_STARTED"; payload: { toolCallId: string; toolName: string } }
   | { eventType: "TOOL_PROGRESS"; payload: { toolCallId: string; toolName: string } }
@@ -28,6 +29,7 @@ export class AgentEventNormalizer {
   private pending: { contentIndex: number; delta: string } | undefined;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private readonly skillCalls = new Map<string, string>();
+  private hasTurnNarration = false;
 
   constructor(private readonly options: AgentEventNormalizerOptions) {
     this.flushAfterMs = options.flushAfterMs ?? 40;
@@ -44,11 +46,15 @@ export class AgentEventNormalizer {
 
   accept(event: AgentRuntimeEvent): void {
     switch (event.type) {
+      case "turn_start":
+        this.hasTurnNarration = false;
+        return;
       case "text_start":
         this.flush();
         this.options.emit({ eventType: "TEXT_STARTED", payload: { contentIndex: event.contentIndex } });
         return;
       case "text_delta":
+        this.hasTurnNarration = true;
         this.acceptText(event.contentIndex, event.delta);
         return;
       case "text_end":
@@ -62,6 +68,13 @@ export class AgentEventNormalizer {
           if (skillName) {
             this.skillCalls.set(event.toolCallId, skillName);
             return;
+          }
+        }
+        if (!this.hasTurnNarration) {
+          const plan = userFacingPlan(event.args);
+          if (plan) {
+            this.hasTurnNarration = true;
+            this.options.emit({ eventType: "NARRATION", payload: { text: plan } });
           }
         }
         this.options.emit({ eventType: "TOOL_STARTED",
@@ -120,6 +133,12 @@ export class AgentEventNormalizer {
     }
     if (!this.timer) this.timer = setTimeout(() => this.flush(), this.flushAfterMs);
   }
+}
+
+function userFacingPlan(args: unknown): string | null {
+  if (!args || typeof args !== "object") return null;
+  const value = Reflect.get(args, "userFacingPlan");
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function splitUtf8(value: string, maxBytes: number): string[] {

@@ -17,8 +17,9 @@ import tools.jackson.databind.json.JsonMapper;
 
 class AgentRuntimeWebSocketHandlerTests {
     private final AgentRealtimeProjectionService projection = Mockito.mock(AgentRealtimeProjectionService.class);
+    private final AgentRuntimeCommandGateway commands = Mockito.mock(AgentRuntimeCommandGateway.class);
     private final AgentRuntimeWebSocketHandler handler = new AgentRuntimeWebSocketHandler(
-            new GenerationWorkerApiProperties("worker-secret"), projection, JsonMapper.builder().build());
+            new GenerationWorkerApiProperties("worker-secret"), projection, commands, JsonMapper.builder().build());
 
     @Test
     void requiresHelloThenForwardsOnlyTheNestedEvent() throws Exception {
@@ -32,6 +33,7 @@ class AgentRuntimeWebSocketHandlerTests {
 
         assertThat(session.getAttributes()).containsEntry(AgentRuntimeWebSocketHandler.AUTHENTICATED, true);
         verify(session).sendMessage(new TextMessage("{\"type\":\"READY\",\"contractVersion\":1}"));
+        verify(commands).register(session);
         verify(projection).publish(Mockito.argThat(event -> event.creationTaskId() == 31L
                 && "构图".equals(event.payload().get("delta"))));
     }

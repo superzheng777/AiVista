@@ -15,7 +15,7 @@ import org.springframework.stereotype.Service;
 @Service
 public class AgentRealtimeProjectionService {
     private static final Set<String> ALLOWED_TYPES = Set.of(
-            "RUN_STARTED", "TEXT_STARTED", "TEXT_DELTA", "TEXT_FINISHED",
+            "RUN_STARTED", "TEXT_STARTED", "TEXT_DELTA", "TEXT_FINISHED", "NARRATION",
             "SKILL_SELECTED", "TOOL_STARTED", "TOOL_PROGRESS", "TOOL_FINISHED");
 
     private final CreationTaskMapper creationTasks;
@@ -39,7 +39,8 @@ public class AgentRealtimeProjectionService {
         StreamKey key = new StreamKey(inbound.creationTaskId(), inbound.revision());
         StreamState stream = streams.computeIfAbsent(key,
                 ignored -> new StreamState(UUID.randomUUID().toString(), new AtomicLong()));
-        AgentRealtimeEvent event = new AgentRealtimeEvent(inbound.creationTaskId(), creation.getSessionId(),
+        AgentRealtimeEvent event = new AgentRealtimeEvent(String.valueOf(inbound.creationTaskId()),
+                String.valueOf(creation.getSessionId()),
                 inbound.revision(), stream.streamId(), stream.sequence().incrementAndGet(), inbound.eventType(),
                 Map.copyOf(inbound.payload()));
         connections.publishAgent(creation.getUserId(), eventIds.incrementAndGet(), event);
@@ -56,8 +57,13 @@ public class AgentRealtimeProjectionService {
         StreamKey key = new StreamKey(creationTaskId, executionRevision);
         StreamState stream = streams.computeIfAbsent(key,
                 ignored -> new StreamState(UUID.randomUUID().toString(), new AtomicLong()));
-        String eventType = "SUCCEEDED".equals(creation.getStatus()) ? "RUN_FINISHED" : "RUN_FAILED";
-        AgentRealtimeEvent event = new AgentRealtimeEvent(creationTaskId, creation.getSessionId(),
+        String eventType = switch (creation.getStatus()) {
+            case "SUCCEEDED" -> "RUN_FINISHED";
+            case "CANCELLED" -> "RUN_CANCELLED";
+            default -> "RUN_FAILED";
+        };
+        AgentRealtimeEvent event = new AgentRealtimeEvent(String.valueOf(creationTaskId),
+                String.valueOf(creation.getSessionId()),
                 creation.getRevision(), stream.streamId(), stream.sequence().incrementAndGet(), eventType,
                 Map.of("status", creation.getStatus()));
         connections.publishAgent(creation.getUserId(), eventIds.incrementAndGet(), event);

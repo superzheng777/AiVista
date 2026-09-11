@@ -51,6 +51,7 @@ describe("JavaGenerationClient", () => {
       prompt: "把这张图改成海报", history: [{ role: "USER", content: "上一轮" }],
       inputAssets: [{ assetId: "501", objectKey: "users/7/x/display.webp",
         contentType: "image/webp", fileSize: 1234, width: 800, height: 1200 }],
+      constraints: { aspectRatio: "3:4", imageCount: 3 },
     }), { status: 200, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
     const client = new JavaGenerationClient(config());
@@ -59,6 +60,7 @@ describe("JavaGenerationClient", () => {
 
     expect(result.inputAssets[0]?.contentType).toBe("image/webp");
     expect(result.history).toEqual([{ role: "USER", content: "上一轮" }]);
+    expect(result.constraints).toEqual({ aspectRatio: "3:4", imageCount: 3 });
     expect(fetchMock).toHaveBeenCalledWith(
       "http://java/api/internal/generation-worker/agent-creations/151/execution",
       expect.objectContaining({ headers: { "X-AiVista-Worker-Token": "worker-secret" } }),

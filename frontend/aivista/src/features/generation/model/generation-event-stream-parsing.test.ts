@@ -102,9 +102,24 @@ describe("Agent realtime projection", () => {
     expect(run.text).toBe("正在构图");
   });
 
+  it("把 Tool 参数兜底产生的创作说明加入实时文本", () => {
+    const event = { creationTaskId: "creation-1", sessionId: "session-1", revision: 0,
+      streamId: "stream-1", sequence: 1, eventType: "NARRATION" as const,
+      payload: { text: "我会生成四版不同构图的竖版海报。" } };
+    expect(applyAgentRealtimeEvent(undefined, event).text).toBe("我会生成四版不同构图的竖版海报。");
+  });
+
+  it("立即投影模型选择的 Skill", () => {
+    const run = applyAgentRealtimeEvent(undefined, { ...base, sequence: 2,
+      eventType: "SKILL_SELECTED", payload: { skillName: "poster-design" } });
+    expect(run.skills).toEqual(["poster-design"]);
+  });
+
   it("accepts Java-owned terminal lifecycle events", () => {
     expect(isAgentRealtimeEvent({ ...base, revision: 5, sequence: 9, eventType: "RUN_FINISHED",
       payload: { status: "SUCCEEDED" } })).toBe(true);
+    expect(isAgentRealtimeEvent({ ...base, revision: 5, sequence: 9, eventType: "RUN_CANCELLED",
+      payload: { status: "CANCELLED" } })).toBe(true);
   });
 
   it("projects safe Tool lifecycle state", () => {
@@ -150,6 +165,15 @@ describe("consumeSseStream", () => {
     expect(onReady).toHaveBeenCalledTimes(1);
     expect(onTaskUpdate).toHaveBeenCalledWith(expect.objectContaining({ taskId: "t1", status: "SUCCEEDED" }));
     expect(onPublicationUpdate).toHaveBeenCalledWith(expect.objectContaining({ imageId: "img-1", status: "APPROVED" }));
+  });
+
+  it("把 Java 以字符串 ID 输出的 Agent 增量交给前端", async () => {
+    const onAgentEvent = vi.fn();
+    await consumeSseStream(streamOf([
+      "event: agent.creation.event\ndata: {\"creationTaskId\":\"1\",\"sessionId\":\"1\",\"revision\":0,\"streamId\":\"stream-1\",\"sequence\":1,\"eventType\":\"TEXT_DELTA\",\"payload\":{\"contentIndex\":1,\"delta\":\"正在构图\"}}\n\n",
+    ]), vi.fn(), vi.fn(), vi.fn(), vi.fn(), onAgentEvent);
+    expect(onAgentEvent).toHaveBeenCalledWith(expect.objectContaining({ creationTaskId: "1",
+      eventType: "TEXT_DELTA" }));
   });
 
   it("跨 chunk 拼接多行事件,并忽略非法事件与坏 JSON", async () => {

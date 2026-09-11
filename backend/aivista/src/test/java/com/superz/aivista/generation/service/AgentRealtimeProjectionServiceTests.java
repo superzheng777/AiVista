@@ -32,7 +32,8 @@ class AgentRealtimeProjectionServiceTests {
         assertThat(events.getAllValues()).extracting(AgentRealtimeEvent::sequence).containsExactly(1L, 2L);
         assertThat(events.getAllValues()).extracting(AgentRealtimeEvent::streamId).doesNotContainNull()
                 .containsOnly(events.getAllValues().getFirst().streamId());
-        assertThat(events.getAllValues().getFirst().sessionId()).isEqualTo(9L);
+        assertThat(events.getAllValues().getFirst().creationTaskId()).isEqualTo("31");
+        assertThat(events.getAllValues().getFirst().sessionId()).isEqualTo("9");
     }
 
     @Test
@@ -74,6 +75,18 @@ class AgentRealtimeProjectionServiceTests {
         assertThat(events.getAllValues().getLast().eventType()).isEqualTo("RUN_FINISHED");
         assertThat(events.getAllValues().getLast().sequence()).isEqualTo(2L);
         assertThat(events.getAllValues().getLast().revision()).isEqualTo(5L);
+    }
+
+    @Test
+    void publishesCancellationAsADistinctTerminalEvent() {
+        when(creations.selectSnapshotById(31L)).thenReturn(creation("AGENT", "CANCELLED", 5L));
+
+        service.publishTerminal(31L, 4L);
+
+        ArgumentCaptor<AgentRealtimeEvent> event = ArgumentCaptor.forClass(AgentRealtimeEvent.class);
+        verify(connections).publishAgent(Mockito.eq(7L), anyLong(), event.capture());
+        assertThat(event.getValue().eventType()).isEqualTo("RUN_CANCELLED");
+        assertThat(event.getValue().payload()).containsEntry("status", "CANCELLED");
     }
 
     private AgentRealtimeInboundEvent event(String type, Map<String, Object> payload) {

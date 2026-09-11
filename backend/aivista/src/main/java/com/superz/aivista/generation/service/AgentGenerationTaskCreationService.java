@@ -12,6 +12,7 @@ import com.superz.aivista.generation.entity.CreationTask;
 import com.superz.aivista.generation.entity.GenerationTask;
 import com.superz.aivista.generation.mapper.CreationTaskMapper;
 import com.superz.aivista.generation.mapper.CreationTaskInputAssetMapper;
+import com.superz.aivista.generation.mapper.GenerationTaskMapper;
 import com.superz.aivista.generation.model.CreationMode;
 import com.superz.aivista.generation.model.GenerationOperation;
 import com.superz.aivista.user.mapper.UserMapper;
@@ -31,6 +32,7 @@ public class AgentGenerationTaskCreationService {
     private final CreationTaskMapper creationTaskMapper;
     private final UserMapper userMapper;
     private final CreationTaskInputAssetMapper creationInputAssets;
+    private final GenerationTaskMapper generationTasks;
     private final IdempotencyRecordMapper idempotencyRecordMapper;
     private final GenerationTaskSpecificationValidator specificationValidator;
     private final GenerationTaskProvisioningService provisioningService;
@@ -39,12 +41,14 @@ public class AgentGenerationTaskCreationService {
 
     public AgentGenerationTaskCreationService(CreationTaskMapper creationTaskMapper, UserMapper userMapper,
             CreationTaskInputAssetMapper creationInputAssets,
+            GenerationTaskMapper generationTasks,
             IdempotencyRecordMapper idempotencyRecordMapper,
             GenerationTaskSpecificationValidator specificationValidator,
             GenerationTaskProvisioningService provisioningService, Clock clock, ObjectMapper objectMapper) {
         this.creationTaskMapper = creationTaskMapper;
         this.userMapper = userMapper;
         this.creationInputAssets = creationInputAssets;
+        this.generationTasks = generationTasks;
         this.idempotencyRecordMapper = idempotencyRecordMapper;
         this.specificationValidator = specificationValidator;
         this.provisioningService = provisioningService;
@@ -71,6 +75,9 @@ public class AgentGenerationTaskCreationService {
                 || !CreationMode.AGENT.name().equals(creation.getMode())) {
             throw new BusinessException(ErrorCode.GENERATION_RESOURCE_NOT_FOUND);
         }
+        if (!"RUNNING".equals(creation.getStatus())) {
+            throw new BusinessException(ErrorCode.AGENT_CREATION_NOT_RUNNING);
+        }
 
         GenerationTaskSpecification specification = specificationValidator.validate(
                 request.prompt(), request.negativePrompt(), request.aspectRatio(), request.promptExtend(),
@@ -79,6 +86,10 @@ public class AgentGenerationTaskCreationService {
                 ? GenerationOperation.TEXT_TO_IMAGE.name() : GenerationOperation.IMAGE_TO_IMAGE.name();
         if (!expectedOperation.equals(request.operation())) {
             throw invalid("operation：必须与输入图片数量一致");
+        }
+        if (!"AUTO".equals(creation.getRequestedAspectRatio())
+                && !creation.getRequestedAspectRatio().equals(specification.aspectRatio())) {
+            throw invalid("aspectRatio：必须符合用户为本轮指定的画幅比例");
         }
         if (!creationInputAssets.selectAssetIdsByCreationTaskId(creationTaskId)
                 .containsAll(specification.inputAssetIds())) {
@@ -94,6 +105,12 @@ public class AgentGenerationTaskCreationService {
             return idempotentResponse(existing, fingerprint);
         }
         if (existing != null) idempotencyRecordMapper.deleteById(existing.getId());
+        if (creation.getRequestedImageCount() > 0) {
+            int allocated = generationTasks.sumEffectiveRequestedImagesByCreationTaskId(creationTaskId);
+            if (allocated + specification.imageCount() > creation.getRequestedImageCount()) {
+                throw invalid("imageCount：本轮生成图片总数不能超过用户指定数量");
+            }
+        }
 
         GenerationTask task = provisioningService.create(userId, creation.getSessionId(), creationTaskId,
                 specification, now);

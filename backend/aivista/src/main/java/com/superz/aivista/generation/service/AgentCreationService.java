@@ -69,7 +69,8 @@ public class AgentCreationService {
         authorizeAssets(userId, command.inputAssetIds());
 
         var started = creationStart.start(userId, command.sessionId(), command.prompt(),
-                CreationMode.AGENT.name(), command.inputAssetIds(), false, now);
+                CreationMode.AGENT.name(), command.inputAssetIds(), false,
+                command.aspectRatio(), command.imageCount(), now);
         var creation = started.creation();
         OutboxEvent execute = new OutboxEvent();
         execute.setEventType(OutboxEventType.AGENT_EXECUTE.name());
@@ -98,9 +99,12 @@ public class AgentCreationService {
         List<Long> inputAssetIds = GenerationTaskSpecificationValidator.normalizeInputAssetIds(
                 request.inputAssetIds());
         Long sessionId = CreationTaskStartService.parseSessionId(request.sessionId());
+        String aspectRatio = validator.validateAgentAspectRatio(request.aspectRatio());
+        int imageCount = validator.validateAgentImageCount(request.imageCount());
         String identity = sessionId == null ? NEW_SESSION_IDENTITY : sessionId.toString();
-        return new Command(sessionId, prompt, inputAssetIds, idempotencyKey,
-                GenerationRequestFingerprint.sha256Agent(userId, identity, prompt, inputAssetIds));
+        return new Command(sessionId, prompt, inputAssetIds, aspectRatio, imageCount, idempotencyKey,
+                GenerationRequestFingerprint.sha256Agent(userId, identity, prompt, inputAssetIds,
+                        aspectRatio, imageCount));
     }
 
     private void authorizeAssets(long userId, List<Long> inputAssetIds) {
@@ -163,6 +167,7 @@ public class AgentCreationService {
     }
 
     private record Command(Long sessionId, String prompt, List<Long> inputAssetIds,
+            String aspectRatio, int imageCount,
             String idempotencyKey, String fingerprint) {
     }
 }

@@ -19,6 +19,8 @@ public class CreationTask {
     private Long userId;
     private Long sessionId;
     private String mode;
+    private String requestedAspectRatio;
+    private Integer requestedImageCount;
     private String status;
     private String failureCode;
     private Long revision;

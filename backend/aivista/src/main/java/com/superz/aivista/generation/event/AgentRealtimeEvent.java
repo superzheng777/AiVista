@@ -4,8 +4,8 @@ import java.util.Map;
 
 /** Browser-facing transient Agent event; Java owns routing and ordering metadata. */
 public record AgentRealtimeEvent(
-        long creationTaskId,
-        long sessionId,
+        String creationTaskId,
+        String sessionId,
         long revision,
         String streamId,
         long sequence,

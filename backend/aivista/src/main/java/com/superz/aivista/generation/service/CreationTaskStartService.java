@@ -34,11 +34,23 @@ public class CreationTaskStartService {
 
     public StartedCreation start(long userId, Long sessionId, String prompt, String mode,
             List<Long> inputAssetIds, boolean createAssistantPlaceholder, Instant now) {
+        return start(userId, sessionId, prompt, mode, inputAssetIds, createAssistantPlaceholder,
+                "AUTO", 0, now);
+    }
+
+    public StartedCreation start(long userId, Long sessionId, String prompt, String mode,
+            List<Long> inputAssetIds, boolean createAssistantPlaceholder,
+            String requestedAspectRatio, int requestedImageCount, Instant now) {
         GenerationSession session = loadOrCreateSession(userId, sessionId, prompt, now);
+        if (sessionId != null && creations.existsRunningBySessionId(session.getId())) {
+            throw new BusinessException(ErrorCode.SESSION_CREATION_IN_PROGRESS);
+        }
         CreationTask creation = new CreationTask();
         creation.setUserId(userId);
         creation.setSessionId(session.getId());
         creation.setMode(mode);
+        creation.setRequestedAspectRatio(requestedAspectRatio);
+        creation.setRequestedImageCount(requestedImageCount);
         creation.setStatus(CreationTaskStatus.RUNNING.name());
         creation.setRevision(0L);
         creation.setCreatedAt(now);
