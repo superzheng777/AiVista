@@ -1,27 +1,27 @@
-# IDE 本地配置
+# IDE æœ¬åœ°é…ç½®
 .idea/
 *.iml
 
-# 本地 AI 编程工具配置
+# æœ¬åœ° AI ç¼–ç¨‹å·¥å…·é…ç½®
 .agents/
 .codex/
 
-# 操作系统生成的文件
+# æ“ä½œç³»ç»Ÿç”Ÿæˆçš„æ–‡ä»¶
 .DS_Store
 Thumbs.db
 
-# 日志文件
+# æ—¥å¿—æ–‡ä»¶
 *.log
 logs/
 .pnpm-store/
 
-# 本地环境变量与密钥（保留可提交的示例文件）
+# æœ¬åœ°çŽ¯å¢ƒå˜é‡ä¸Žå¯†é’¥ï¼ˆä¿ç•™å¯æäº¤çš„ç¤ºä¾‹æ–‡ä»¶ï¼‰
 .env
 .env.*
 !.env.example
 backend/aivista/src/main/resources/application-local.yaml
 
-# Maven Wrapper 的本地分发与依赖缓存
+# Maven Wrapper çš„æœ¬åœ°åˆ†å‘ä¸Žä¾èµ–ç¼“å­˜
 .maven-user-home/
 
-/AiVista�������.md
+/AiVista面试题库.md
