@@ -32,7 +32,7 @@ Pi 使用 `SessionManager.inMemory()`，每个 Creation 创建一个短生命周
 | 浏览器 REST 与 SSE | 唯一入口 | 不直接暴露 |
 | Pi Session、Skill、Tool Loop | 不执行 | 唯一负责 |
 | 百炼、下载、OSS | 不执行 | 唯一负责 |
-| Worker Ledger | 不写入 | 唯一写入 |
+| Agent Worker Ledger | 不写入 | 只保存 Agent Loop 的中断与最终重放结果 |
 
 “谁执行外部工作”与“谁原子提交业务事实”不同。TS 完成百炼和 OSS；Java在一个事务中提交任务终态、资产、额度、消息和 Creation，避免两个服务共同写一个业务聚合。发布审核始终属于 Java。
 
@@ -224,13 +224,13 @@ Flyway `V24__add_creation_activities.sql` 已建立最小字段：`id`、`creati
 
 ### generation_tasks
 
-一个 Creation 可关联多个 Generation Task。数据库迁移 `V21__allow_multiple_generation_tasks_per_creation.sql` 已删除 `UNIQUE(creation_task_id)`，并增加 `(creation_task_id, created_at, id)` 普通索引；普通模式的“一轮一任务”由其应用入口保证，Agent 模式不再受错误的全局基数约束。业务状态只表达 Java 可查询事实，简化为 `QUEUED/SUCCEEDED/PARTIALLY_SUCCEEDED/FAILED`；Provider、下载和转存中的阶段不重复写进 Java 业务表。
+一个 Creation 可关联多个 Generation Task。数据库迁移 `V21__allow_multiple_generation_tasks_per_creation.sql` 已删除 `UNIQUE(creation_task_id)`，并增加 `(creation_task_id, created_at, id)` 普通索引；普通模式的“一轮一任务”由其应用入口保证，Agent 模式不再受错误的全局基数约束。业务状态为 `QUEUED/GENERATING/SAVING/SUCCEEDED/PARTIALLY_SUCCEEDED/FAILED`，供普通生成和 Agent Tool 共同展示排队、生成、保存与终态。
 
-普通生成已删除 Provider 临时快照、Transfer 开始时间、独立 Transfer Outbox 和两阶段状态；Provider 与 OSS 检查点只存在于 TS Worker Ledger，Agent Tool 直接复用该单 Pipeline。
+普通生成不保存 Provider 临时快照或 OSS 检查点。TS 在极少数进程中断后重新执行非终态任务，Agent Tool 直接复用同一 Pipeline，并等待 Java提交的 Generation 终态。
 
 ### Worker Ledger
 
-Generation Ledger 保存外部调用检查点和可重放结果。Agent Ledger 已由 Flyway `V23__add_agent_worker_ledger.sql` 建立；每个 Creation 只保存 `creation_task_id` 主键、`state(RUNNING/COMPLETED/INTERRUPTED)`、`result_json`、`started_at`、`completed_at` 和 `updated_at`，不增加租约、尝试次数、当前 Turn 或通用步骤明细。
+Generation Ledger 已由 V26 删除；普通生成只使用 Java `generation_tasks` 权威状态和 TS 进程内并发集合。Agent Ledger 仍由 Flyway `V23__add_agent_worker_ledger.sql` 建立；每个 Creation 只保存 `creation_task_id` 主键、`state(RUNNING/COMPLETED/INTERRUPTED)`、`result_json`、`started_at`、`completed_at` 和 `updated_at`，不增加租约、尝试次数、当前 Turn 或通用步骤明细。
 
 Ledger 不是业务查询来源。单实例 TS 启动时发现遗留 `RUNNING`，或收到消息时发现 Ledger 为 `RUNNING` 但当前进程不存在对应执行，说明上次 Pi Loop 已中断：更新为 `INTERRUPTED` 并把 Creation 收敛为 `AGENT_RUNTIME_INTERRUPTED`，不自动重跑非确定性的完整 Loop。`COMPLETED.result_json` 可重放相同最终 HTTP 提交。Creation 删除时 Ledger 级联删除，终态成功提交后保留 7 天再清理。
 

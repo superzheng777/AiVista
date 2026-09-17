@@ -37,21 +37,14 @@ export class GenerationPipelineExecutionService {
   }
 
   private async executeOnce(message: TaskExecuteMessage, signal?: AbortSignal): Promise<boolean> {
-    const plan = await this.state.prepare(message, new Date());
+    const plan = await this.state.prepare(message);
     if (plan.kind === "ACK") return true;
-    if (plan.kind === "REPLAY") {
-      this.completionCoordinator.complete(await this.java.complete(plan.completion));
+    if (plan.kind === "TERMINAL") {
+      this.completionCoordinator.complete(await this.java.getCompletion(message.taskId));
       return true;
     }
-    const executionVersion = message.taskVersion + 1;
-    if (plan.kind === "OUTCOME_UNKNOWN") {
-      return this.commit(message, generationFailed(message.taskId, executionVersion, "PROVIDER_CALL_OUTCOME_UNKNOWN"));
-    }
-    if (plan.kind === "TRANSFER") {
-      return this.transferAndCommit(message, executionVersion, plan.task, plan.provider.providerRequestId,
-        plan.provider.snapshot);
-    }
-    if (!await this.state.markProviderCalling(message.taskId, message.taskVersion, new Date())) return false;
+    const generating = await this.java.reportPhase(message.taskId, "GENERATING", signal);
+    if (terminal(generating.status)) return true;
     let provider;
     try {
       provider = await this.generateWithRetry(plan.task, signal);
@@ -60,31 +53,31 @@ export class GenerationPipelineExecutionService {
       const code = error instanceof BailianProviderError ? providerFailureCode(error)
         : error instanceof BailianConnectionError ? "PROVIDER_CONNECTION_FAILED" : "PROVIDER_CALL_OUTCOME_UNKNOWN";
       this.logger.warn(`Generation pipeline provider failed for task ${message.taskId}: ${errorName(error)}`);
-      return this.commit(message, generationFailed(message.taskId, executionVersion, code,
+      return this.commit(generationFailed(message.taskId, generating.taskVersion + 1, code,
         error instanceof BailianProviderError ? error.requestId : null));
     }
-    await this.state.saveProvider(message.taskId, message.taskVersion,
-      { providerRequestId: provider.requestId, snapshot: provider.snapshot }, new Date());
-    return this.transferAndCommit(message, executionVersion, plan.task, provider.requestId, provider.snapshot);
+    const saving = await this.java.reportPhase(message.taskId, "SAVING", signal);
+    if (terminal(saving.status)) return true;
+    return this.transferAndCommit(message.taskId, saving.taskVersion + 1, plan.task,
+      provider.requestId, provider.snapshot);
   }
 
-  private async transferAndCommit(message: TaskExecuteMessage, executionVersion: number,
+  private async transferAndCommit(taskId: bigint, completionVersion: number,
     task: Selectable<GenerationTaskTable>, providerRequestId: string | null, snapshot: string): Promise<boolean> {
     let completion: GenerationCompletion;
     try {
       const provider = this.bailian.restore(snapshot);
       const images = await this.transfer.transfer(task, provider.imageUrls);
-      completion = generationCompleted(message.taskId, executionVersion, providerRequestId,
+      completion = generationCompleted(taskId, completionVersion, providerRequestId,
         provider.imageUrls.length, images);
     } catch (error) {
-      this.logger.warn(`Generation pipeline transfer failed for task ${message.taskId}: ${errorName(error)}`);
-      completion = generationFailed(message.taskId, executionVersion, "IMAGE_TRANSFER_FAILED", providerRequestId);
+      this.logger.warn(`Generation pipeline transfer failed for task ${taskId}: ${errorName(error)}`);
+      completion = generationFailed(taskId, completionVersion, "IMAGE_TRANSFER_FAILED", providerRequestId);
     }
-    return this.commit(message, completion);
+    return this.commit(completion);
   }
 
-  private async commit(message: TaskExecuteMessage, completion: GenerationCompletion): Promise<boolean> {
-    await this.state.saveCompletion(completion, message.taskVersion, new Date());
+  private async commit(completion: GenerationCompletion): Promise<boolean> {
     this.completionCoordinator.complete(await this.java.complete(completion));
     return true;
   }
@@ -116,3 +109,4 @@ function delay(milliseconds: number, signal?: AbortSignal) {
 }
 function isAbort(error: unknown) { return error instanceof DOMException && error.name === "AbortError"; }
 function errorName(error: unknown) { return error instanceof Error ? error.name : "UnknownError"; }
+function terminal(status: string) { return ["SUCCEEDED", "PARTIALLY_SUCCEEDED", "FAILED"].includes(status); }

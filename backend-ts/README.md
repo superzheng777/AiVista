@@ -8,8 +8,8 @@ Java 已提供 `/agent-creations`，并通过同一个 Outbox/Direct Exchange �
 
 - Java 使用事务 Outbox、Publisher Confirm 和持久 Quorum Queue 发布生成命令。
 - TS Pipeline 连续完成百炼、下载和 OSS，再通过带 `contractVersion` 与确定性 `completionId` 的幂等 HTTP 向 Java 提交一次最终结果。
-- TS 通过 `generation_worker_executions` 的条件更新取得执行权；Java 只在 completion 事务中更新任务终态、额度、图片资产与 SSE Outbox。
-- `generation_worker_executions` 是 TS 唯一写入的生成执行账本；它避免 Worker 崩溃重投时重复调用百炼。DDL 仍由 Java Flyway 统一维护。
+- Java 的 `generation_tasks` 是唯一生成状态来源：`QUEUED → GENERATING → SAVING → SUCCEEDED/PARTIALLY_SUCCEEDED/FAILED`。TS 在调用百炼前和开始持久化图片前，通过内部 HTTP 上报两个中间阶段；Java提交后尽力通过既有 SSE 投影给浏览器。
+- 普通生成不再使用 `generation_worker_executions`。RabbitMQ 重投时，TS 读取非终态任务并重新执行完整 Pipeline；极少数进程中断可能重复调用 Provider，最终 Completion 仍由 Java 幂等提交。TS 进程内使用 active task 集合阻止并发重复执行。
 - TS 只消费一个生成命令；旧 Transfer Queue、Worker Result Queue、分段消费者和运行切换开关均已删除。
 - 排队超时和资产清理由 Java 保留，因为它们会修改 Java 拥有的业务状态。
 - 发布审核属于 Java 发布领域，由 Java 完成审核调用、状态、通知与失败恢复；TS 不参与。

@@ -49,7 +49,7 @@ public class GenerationCompletionService {
         Instant now = clock.instant();
         GenerationTask task = requireTask(taskId);
         if (terminal(task.getStatus())) return response(task);
-        if (!"QUEUED".equals(task.getStatus()) || task.getTaskVersion() + 1 != command.taskVersion()) {
+        if (!active(task.getStatus()) || task.getTaskVersion() + 1 != command.taskVersion()) {
             throw new IllegalArgumentException("Generation completion does not own the current task version");
         }
         if ("FAILED".equals(command.outcome())) {
@@ -60,6 +60,16 @@ public class GenerationCompletionService {
         GenerationTask completed = requireTask(taskId);
         completeNormalCreation(completed, now);
         return response(completed);
+    }
+
+    @Transactional(readOnly = true)
+    public GenerationCompletionResponse get(long taskId) {
+        GenerationTask task = tasks.selectTaskById(taskId);
+        if (task == null) throw new IllegalArgumentException("Generation task does not exist");
+        if (!terminal(task.getStatus())) {
+            throw new IllegalStateException("Generation task has not completed");
+        }
+        return response(task);
     }
 
     private void completeNormalCreation(GenerationTask task, Instant now) {
@@ -109,7 +119,7 @@ public class GenerationCompletionService {
         String failure = "SUCCEEDED".equals(status) ? null : completed.isEmpty()
                 ? GenerationFailureCode.IMAGE_TRANSFER_FAILED.name()
                 : GenerationFailureCode.IMAGE_TRANSFER_PARTIAL_FAILURE.name();
-        if (tasks.completeQueuedPipeline(task.getId(), task.getTaskVersion(), status, completed.size(), failure,
+        if (tasks.completeActivePipeline(task.getId(), task.getTaskVersion(), status, completed.size(), failure,
                 command.providerRequestId(), now) != 1) {
             throw new IllegalStateException("Cannot complete generation task " + task.getId());
         }
@@ -125,7 +135,7 @@ public class GenerationCompletionService {
                 task.getRequestedImageCount(), now) != 1) {
             throw new IllegalStateException("Generation quota refund record is missing for task " + task.getId());
         }
-        if (tasks.failQueuedPipeline(task.getId(), task.getTaskVersion(), failure.name(), command.providerRequestId(),
+        if (tasks.failActivePipeline(task.getId(), task.getTaskVersion(), failure.name(), command.providerRequestId(),
                 refund ? now : null, now) != 1) {
             throw new IllegalStateException("Cannot fail generation task " + task.getId());
         }
@@ -175,6 +185,10 @@ public class GenerationCompletionService {
 
     private static boolean terminal(String status) {
         return "SUCCEEDED".equals(status) || "PARTIALLY_SUCCEEDED".equals(status) || "FAILED".equals(status);
+    }
+
+    private static boolean active(String status) {
+        return "QUEUED".equals(status) || "GENERATING".equals(status) || "SAVING".equals(status);
     }
 
     private static int retryCount(GenerationTask task) {

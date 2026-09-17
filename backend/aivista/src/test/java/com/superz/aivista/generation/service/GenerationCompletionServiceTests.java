@@ -32,22 +32,22 @@ class GenerationCompletionServiceTests {
 
     @Test
     void completionCommitsImagesAndDerivesTheFinalStatus() {
-        GenerationTask queued = task("QUEUED", 0);
-        GenerationTask succeeded = task("SUCCEEDED", 1);
-        when(tasks.selectByIdForUpdate(101L)).thenReturn(queued, succeeded);
+        GenerationTask saving = task("SAVING", 2);
+        GenerationTask succeeded = task("SUCCEEDED", 3);
+        when(tasks.selectByIdForUpdate(101L)).thenReturn(saving, succeeded);
         when(creations.selectByIdForUpdate(151L)).thenReturn(normalCreation());
-        when(tasks.completeQueuedPipeline(101L, 0, "SUCCEEDED", 1, null, "provider-1", NOW)).thenReturn(1);
+        when(tasks.completeActivePipeline(101L, 2, "SUCCEEDED", 1, null, "provider-1", NOW)).thenReturn(1);
         when(images.selectByOriginTaskId(101L)).thenReturn(List.of());
         var image = new GenerationCompletionCommand.CompletedImage(0, "users/7/tasks/101/0", "image/png",
                 "12345", 2048, 2048);
 
-        var response = service.complete(new GenerationCompletionCommand(1, "generation-101-1", "101", 1,
+        var response = service.complete(new GenerationCompletionCommand(1, "generation-101-3", "101", 3,
                 "COMPLETED", "provider-1", 1, null, List.of(image)));
 
         assertThat(response.status()).isEqualTo("SUCCEEDED");
         verify(images).insertSelective(org.mockito.ArgumentMatchers.argThat(asset ->
                 "users/7/tasks/101/0/original.png".equals(asset.getOriginalObjectKey())));
-        verify(tasks).completeQueuedPipeline(101L, 0, "SUCCEEDED", 1, null, "provider-1", NOW);
+        verify(tasks).completeActivePipeline(101L, 2, "SUCCEEDED", 1, null, "provider-1", NOW);
         verify(creations).completeRunning(151L, 0L, "SUCCEEDED", null, NOW);
     }
 
@@ -61,10 +61,22 @@ class GenerationCompletionServiceTests {
                 "FAILED", null, null, "PROVIDER_CONFIGURATION_ERROR", null));
 
         assertThat(response.status()).isEqualTo("SUCCEEDED");
-        verify(tasks, never()).failQueuedPipeline(org.mockito.ArgumentMatchers.anyLong(),
+        verify(tasks, never()).failActivePipeline(org.mockito.ArgumentMatchers.anyLong(),
                 org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void readsACommittedTerminalSnapshotForWorkerRedelivery() {
+        GenerationTask succeeded = task("SUCCEEDED", 3);
+        when(tasks.selectTaskById(101L)).thenReturn(succeeded);
+        when(images.selectByOriginTaskId(101L)).thenReturn(List.of());
+
+        var response = service.get(101L);
+
+        assertThat(response.status()).isEqualTo("SUCCEEDED");
+        assertThat(response.taskVersion()).isEqualTo(3);
     }
 
     private static GenerationTask task(String status, int version) {

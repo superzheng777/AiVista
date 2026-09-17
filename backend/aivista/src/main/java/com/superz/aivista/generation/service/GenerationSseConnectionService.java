@@ -52,6 +52,11 @@ public class GenerationSseConnectionService {
         publish(userId, eventId, "generation.task.updated", event);
     }
 
+    /** Best-effort projection for a phase already committed to the authoritative task row. */
+    public void publish(long userId, GenerationTaskStatusEvent event) {
+        publish(userId, null, "generation.task.updated", event);
+    }
+
     public void publish(long userId, long eventId, PublicationStatusEvent event) {
         publish(userId, eventId, "publication.updated", event);
     }
@@ -64,13 +69,13 @@ public class GenerationSseConnectionService {
         publish(userId, eventId, "agent.creation.event", event);
     }
 
-    private void publish(long userId, long eventId, String eventName, Object event) {
+    private void publish(long userId, Long eventId, String eventName, Object event) {
         for (Map.Entry<String, SseEmitter> connection : snapshot(userId)) {
             try {
-                connection.getValue().send(SseEmitter.event()
-                        .id(String.valueOf(eventId))
-                        .name(eventName)
-                        .data(event, MediaType.APPLICATION_JSON));
+                SseEmitter.SseEventBuilder builder = SseEmitter.event().name(eventName)
+                        .data(event, MediaType.APPLICATION_JSON);
+                if (eventId != null) builder.id(String.valueOf(eventId));
+                connection.getValue().send(builder);
             } catch (IOException | IllegalStateException exception) {
                 remove(userId, connection.getKey(), connection.getValue());
             }

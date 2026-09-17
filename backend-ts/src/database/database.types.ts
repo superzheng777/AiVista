@@ -8,7 +8,6 @@ export interface DatabaseSchema {
   generation_task_input_assets: GenerationTaskInputAssetTable;
   user_generation_daily_usage: UserGenerationDailyUsageTable;
   outbox_events: OutboxEventTable;
-  generation_worker_executions: GenerationWorkerExecutionTable;
   agent_worker_executions: AgentWorkerExecutionTable;
 }
 export interface GenerationTaskTable {
@@ -36,11 +35,6 @@ export interface OutboxEventTable {
   id:Generated<bigint>;event_type:string;aggregate_type:string;aggregate_id:bigint;aggregate_version:bigint;
   payload_json:string|null;status:string;retry_count:number;available_at:DbDate;locked_at:DbDate|null;
   published_at:DbDate|null;last_error:string|null;created_at:ColumnType<Date,Date|string|undefined,Date|string>;updated_at:DbDate;
-}
-export interface GenerationWorkerExecutionTable {
-  task_id: bigint; phase: string; task_version: number; state: string; result_json: string | null;
-  created_at: ColumnType<Date, Date | string | undefined, Date | string>;
-  updated_at: DbDate;
 }
 export interface AgentWorkerExecutionTable {
   creation_task_id: bigint;

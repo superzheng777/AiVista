@@ -76,7 +76,7 @@ public interface GenerationTaskMapper extends BaseMapper<GenerationTask> {
             <script>
             SELECT DISTINCT session_id
             FROM generation_tasks
-            WHERE status = 'QUEUED'
+            WHERE status IN ('QUEUED', 'GENERATING', 'SAVING')
               AND session_id IN
             <foreach collection="sessionIds" item="sessionId" open="(" separator="," close=")">#{sessionId}</foreach>
             </script>
@@ -104,7 +104,7 @@ public interface GenerationTaskMapper extends BaseMapper<GenerationTask> {
             SELECT COUNT(*)
             FROM generation_tasks
             WHERE user_id = #{userId}
-              AND status = 'QUEUED'
+              AND status IN ('QUEUED', 'GENERATING', 'SAVING')
             """)
     int countActiveByUserId(@Param("userId") long userId);
 
@@ -112,7 +112,7 @@ public interface GenerationTaskMapper extends BaseMapper<GenerationTask> {
             SELECT COUNT(*)
             FROM generation_tasks
             WHERE session_id = #{sessionId}
-              AND status = 'QUEUED'
+              AND status IN ('QUEUED', 'GENERATING', 'SAVING')
             """)
     int countActiveBySessionId(@Param("sessionId") long sessionId);
 
@@ -132,6 +132,24 @@ public interface GenerationTaskMapper extends BaseMapper<GenerationTask> {
             SELECT id, user_id, session_id, creation_task_id, model, status, task_version,
                    attempt_count, final_prompt, final_negative_prompt,
                    width, height, prompt_extend, requested_image_count, completed_image_count, quota_refunded_at,
+                   provider_request_id, failure_code, created_at, updated_at, completed_at
+            FROM generation_tasks WHERE id = #{taskId} LIMIT 1
+            """)
+    GenerationTask selectTaskById(@Param("taskId") long taskId);
+
+    @Update("""
+            UPDATE generation_tasks
+            SET status = #{nextStatus}, task_version = task_version + 1, updated_at = #{now}
+            WHERE id = #{taskId} AND status = #{currentStatus} AND task_version = #{taskVersion}
+            """)
+    int advancePhase(@Param("taskId") long taskId, @Param("currentStatus") String currentStatus,
+            @Param("taskVersion") int taskVersion, @Param("nextStatus") String nextStatus,
+            @Param("now") Instant now);
+
+    @Select("""
+            SELECT id, user_id, session_id, creation_task_id, model, status, task_version,
+                   attempt_count, final_prompt, final_negative_prompt,
+                   width, height, prompt_extend, requested_image_count, completed_image_count, quota_refunded_at,
                    provider_request_id,
                    failure_code, created_at, updated_at, completed_at
             FROM generation_tasks
@@ -145,7 +163,8 @@ public interface GenerationTaskMapper extends BaseMapper<GenerationTask> {
             UPDATE generation_tasks
             SET status = 'FAILED', failure_code = #{failureCode}, task_version = task_version + 1,
                 quota_refunded_at = #{quotaRefundedAt}, completed_at = #{completedAt}, updated_at = #{completedAt}
-            WHERE id = #{taskId} AND status = 'QUEUED' AND task_version = #{taskVersion}
+            WHERE id = #{taskId} AND status IN ('QUEUED', 'GENERATING', 'SAVING')
+              AND task_version = #{taskVersion}
             """)
     int failQueued(@Param("taskId") long taskId, @Param("taskVersion") int taskVersion,
             @Param("failureCode") String failureCode, @Param("quotaRefundedAt") Instant quotaRefundedAt,
@@ -156,9 +175,10 @@ public interface GenerationTaskMapper extends BaseMapper<GenerationTask> {
             SET status = #{status}, task_version = task_version + 1, completed_image_count = #{completedImageCount},
                 failure_code = #{failureCode}, provider_request_id = #{providerRequestId},
                 completed_at = #{now}, updated_at = #{now}
-            WHERE id = #{taskId} AND status = 'QUEUED' AND task_version = #{taskVersion}
+            WHERE id = #{taskId} AND status IN ('QUEUED', 'GENERATING', 'SAVING')
+              AND task_version = #{taskVersion}
             """)
-    int completeQueuedPipeline(@Param("taskId") long taskId, @Param("taskVersion") int taskVersion,
+    int completeActivePipeline(@Param("taskId") long taskId, @Param("taskVersion") int taskVersion,
             @Param("status") String status, @Param("completedImageCount") int completedImageCount,
             @Param("failureCode") String failureCode, @Param("providerRequestId") String providerRequestId,
             @Param("now") Instant now);
@@ -171,7 +191,7 @@ public interface GenerationTaskMapper extends BaseMapper<GenerationTask> {
                 completed_at = #{now}, updated_at = #{now}
             WHERE id = #{taskId} AND status = 'QUEUED' AND task_version = #{taskVersion}
             """)
-    int failQueuedPipeline(@Param("taskId") long taskId, @Param("taskVersion") int taskVersion,
+    int failActivePipeline(@Param("taskId") long taskId, @Param("taskVersion") int taskVersion,
             @Param("failureCode") String failureCode, @Param("providerRequestId") String providerRequestId,
             @Param("quotaRefundedAt") Instant quotaRefundedAt, @Param("now") Instant now);
 

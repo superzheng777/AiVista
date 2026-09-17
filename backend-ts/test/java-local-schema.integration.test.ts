@@ -15,7 +15,7 @@ run("Java local MySQL compatibility", () => {
     try {
       const [versions] = await connection.query<(RowDataPacket&{version:string})[]>("SELECT version FROM flyway_schema_history WHERE success=1 ORDER BY installed_rank DESC LIMIT 1");
       expect(versions[0]?.version).toBe("18");
-      const requiredTables=["generation_tasks","image_assets","generation_task_input_assets","user_generation_daily_usage","outbox_events","generation_worker_executions"];
+      const requiredTables=["generation_tasks","image_assets","generation_task_input_assets","user_generation_daily_usage","outbox_events"];
       const [tables] = await connection.query<(RowDataPacket&{TABLE_NAME:string})[]>("SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN (?)",[requiredTables]);
       expect(new Set(tables.map(r=>r.TABLE_NAME))).toEqual(new Set(requiredTables));
       const [taskColumns]=await connection.query<(RowDataPacket&{COLUMN_NAME:string})[]>("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='generation_tasks'");

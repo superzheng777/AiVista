@@ -81,7 +81,7 @@ describe("isTerminalStatus", () => {
     for (const status of ["SUCCEEDED", "PARTIALLY_SUCCEEDED", "FAILED"]) {
       expect(isTerminalStatus(status as never)).toBe(true);
     }
-    for (const status of ["QUEUED"]) {
+    for (const status of ["QUEUED", "GENERATING", "SAVING"]) {
       expect(isTerminalStatus(status as never)).toBe(false);
     }
   });

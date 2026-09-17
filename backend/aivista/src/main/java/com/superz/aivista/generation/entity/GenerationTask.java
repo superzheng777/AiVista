@@ -24,7 +24,7 @@ public class GenerationTask {
     private String operation;
     private String model;
     /**
-     * QUEUED、SUCCEEDED、PARTIALLY_SUCCEEDED 或 FAILED。
+     * QUEUED、GENERATING、SAVING、SUCCEEDED、PARTIALLY_SUCCEEDED 或 FAILED。
      * 仅允许由任务状态机按既定方向迁移。
      */
     private String status;

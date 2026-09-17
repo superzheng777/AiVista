@@ -78,7 +78,9 @@ function taskStatusText(
   const retryProgress = `${task.retryCount}/${task.maxRetryCount}`;
   if (task.status === "QUEUED" && task.retryCount > 0)
     return `模型调用失败，正在重试（${retryProgress}）`;
-  if (task.status === "QUEUED") return "正在生成图片";
+  if (task.status === "QUEUED") return "图片排队中";
+  if (task.status === "GENERATING") return "正在生成图片";
+  if (task.status === "SAVING") return "正在保存图片";
   if (task.status === "SUCCEEDED") return "生成已完成";
   if (task.status === "PARTIALLY_SUCCEEDED") return "部分图片已生成";
   if (task.status === "FAILED") return "生成失败";

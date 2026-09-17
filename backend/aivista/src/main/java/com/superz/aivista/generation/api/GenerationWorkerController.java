@@ -3,10 +3,13 @@ package com.superz.aivista.generation.api;
 import com.superz.aivista.generation.config.GenerationWorkerApiProperties;
 import com.superz.aivista.generation.message.GenerationCompletionCommand;
 import com.superz.aivista.generation.message.GenerationCompletionResponse;
+import com.superz.aivista.generation.message.GenerationPhaseCommand;
+import com.superz.aivista.generation.message.GenerationPhaseResponse;
 import com.superz.aivista.generation.dto.CreateAgentGenerationTaskRequest;
 import com.superz.aivista.generation.dto.CreateGenerationTaskResponse;
 import com.superz.aivista.generation.service.AgentGenerationTaskCreationService;
 import com.superz.aivista.generation.service.GenerationCompletionService;
+import com.superz.aivista.generation.service.GenerationPhaseService;
 import com.superz.aivista.generation.service.AgentExecutionSnapshotService;
 import com.superz.aivista.generation.message.AgentExecutionSnapshot;
 import com.superz.aivista.generation.message.AgentCompletionCommand;
@@ -20,6 +23,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -40,11 +44,13 @@ public class GenerationWorkerController {
     private final AgentCompletionService agentCompletions;
     private final AgentActivityService agentActivities;
     private final AgentRealtimeProjectionService agentRealtime;
+    private final GenerationPhaseService phases;
 
     public GenerationWorkerController(GenerationCompletionService completions,
             GenerationWorkerApiProperties properties, AgentGenerationTaskCreationService agentTasks,
             AgentExecutionSnapshotService agentSnapshots, AgentCompletionService agentCompletions,
-            AgentActivityService agentActivities, AgentRealtimeProjectionService agentRealtime) {
+            AgentActivityService agentActivities, AgentRealtimeProjectionService agentRealtime,
+            GenerationPhaseService phases) {
         this.completions = completions;
         this.properties = properties;
         this.agentTasks = agentTasks;
@@ -52,6 +58,7 @@ public class GenerationWorkerController {
         this.agentCompletions = agentCompletions;
         this.agentActivities = agentActivities;
         this.agentRealtime = agentRealtime;
+        this.phases = phases;
     }
 
     @PostMapping("/agent-creations/{creationTaskId}/activities")
@@ -88,6 +95,20 @@ public class GenerationWorkerController {
             @RequestBody GenerationCompletionCommand command) {
         authenticate(token);
         return completions.complete(command);
+    }
+
+    @GetMapping("/tasks/{taskId}/completion")
+    public GenerationCompletionResponse getCompletion(@RequestHeader(TOKEN_HEADER) String token,
+            @PathVariable long taskId) {
+        authenticate(token);
+        return completions.get(taskId);
+    }
+
+    @PutMapping("/tasks/{taskId}/phase")
+    public GenerationPhaseResponse reportPhase(@RequestHeader(TOKEN_HEADER) String token,
+            @PathVariable long taskId, @RequestBody GenerationPhaseCommand command) {
+        authenticate(token);
+        return phases.report(taskId, command.phase());
     }
 
     @PostMapping("/agent-creations/{creationTaskId}/generation-tasks")

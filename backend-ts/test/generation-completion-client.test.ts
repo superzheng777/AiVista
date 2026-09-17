@@ -34,6 +34,33 @@ describe("generation completion client", () => {
       .rejects.toThrow("token is not configured");
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it("reports a generation phase and returns the authoritative task version", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ taskId: "42",
+      status: "GENERATING", taskVersion: 1 }),
+    { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new GenerationCompletionClientService(config());
+
+    await expect(client.reportPhase(42n, "GENERATING")).resolves.toEqual({
+      taskId: "42", status: "GENERATING", taskVersion: 1,
+    });
+    expect(fetchMock).toHaveBeenCalledWith("http://java/api/internal/generation-worker/tasks/42/phase",
+      expect.objectContaining({ method: "PUT", body: JSON.stringify({ phase: "GENERATING" }) }));
+  });
+
+  it("loads a committed terminal snapshot for MQ redelivery", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ taskId: "42",
+      status: "SUCCEEDED", taskVersion: 3, assets: [] }),
+    { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await new GenerationCompletionClientService(config()).getCompletion(42n);
+
+    expect(fetchMock).toHaveBeenCalledWith("http://java/api/internal/generation-worker/tasks/42/completion",
+      expect.objectContaining({ headers: expect.objectContaining({
+        "X-AiVista-Worker-Token": "worker-secret" }) }));
+  });
 });
 
 function config(): ConfigService<Environment, true> {
