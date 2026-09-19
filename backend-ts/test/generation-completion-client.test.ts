@@ -8,19 +8,19 @@ describe("generation completion client", () => {
   afterEach(() => vi.unstubAllGlobals());
 
   it("authenticates and posts the discriminated completion contract", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ taskId: "42", status: "FAILED",
-      taskVersion: 2, assets: [] }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ generationTaskId: "42", status: "FAILED",
+      revision: 2, assets: [] }), { status: 200, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
     const client = new GenerationCompletionClientService(config());
 
     await client.complete(generationFailed(42n, 1, "PROVIDER_CONFIGURATION_ERROR"));
 
-    expect(fetchMock).toHaveBeenCalledWith("http://java/api/internal/generation-worker/completion",
-      expect.objectContaining({ method: "POST", headers: expect.objectContaining({
+    expect(fetchMock).toHaveBeenCalledWith("http://java/api/internal/generation-worker/tasks/42/completion",
+      expect.objectContaining({ method: "PUT", headers: expect.objectContaining({
         "X-AiVista-Worker-Token": "worker-secret" }) }));
     const request = fetchMock.mock.calls[0]?.[1] as RequestInit;
-    expect(JSON.parse(request.body as string)).toEqual({ contractVersion: 1, completionId: "generation-42-1",
-      taskId: "42", taskVersion: 1, outcome: "FAILED", failureCode: "PROVIDER_CONFIGURATION_ERROR",
+    expect(JSON.parse(request.body as string)).toEqual({ contractVersion: 1,
+      generationTaskId: "42", expectedRevision: 1, outcome: "FAILED", failureCode: "PROVIDER_CONFIGURATION_ERROR",
       providerRequestId: null });
   });
 
@@ -36,22 +36,22 @@ describe("generation completion client", () => {
   });
 
   it("reports a generation phase and returns the authoritative task version", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ taskId: "42",
-      status: "GENERATING", taskVersion: 1 }),
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ generationTaskId: "42",
+      status: "GENERATING", revision: 1 }),
     { status: 200, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
     const client = new GenerationCompletionClientService(config());
 
     await expect(client.reportPhase(42n, "GENERATING")).resolves.toEqual({
-      taskId: "42", status: "GENERATING", taskVersion: 1,
+      generationTaskId: "42", status: "GENERATING", revision: 1,
     });
     expect(fetchMock).toHaveBeenCalledWith("http://java/api/internal/generation-worker/tasks/42/phase",
       expect.objectContaining({ method: "PUT", body: JSON.stringify({ phase: "GENERATING" }) }));
   });
 
   it("loads a committed terminal snapshot for MQ redelivery", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ taskId: "42",
-      status: "SUCCEEDED", taskVersion: 3, assets: [] }),
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ generationTaskId: "42",
+      status: "SUCCEEDED", revision: 3, assets: [] }),
     { status: 200, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
 

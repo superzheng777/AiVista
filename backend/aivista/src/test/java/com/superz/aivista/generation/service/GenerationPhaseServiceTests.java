@@ -31,7 +31,7 @@ class GenerationPhaseServiceTests {
         var response = service.report(101L, "GENERATING");
 
         assertThat(response.status()).isEqualTo("GENERATING");
-        assertThat(response.taskVersion()).isEqualTo(1);
+        assertThat(response.revision()).isEqualTo(1);
     }
 
     @Test
@@ -53,7 +53,7 @@ class GenerationPhaseServiceTests {
         task.setUserId(7L);
         task.setSessionId(11L);
         task.setStatus(status);
-        task.setTaskVersion(version);
+        task.setRevision(version);
         task.setAttemptCount(0);
         return task;
     }

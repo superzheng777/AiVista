@@ -15,7 +15,7 @@ export class GenerationTaskListenerService {
     try {
       if (await this.execution.execute(command, signal)) { channel.ack(message); return; }
     } catch (error) {
-      this.logger.error(`Generation command failed for task ${command.taskId}: ${errorMessage(error)}`,
+      this.logger.error(`Generation command failed for task ${command.generationTaskId}: ${errorMessage(error)}`,
         error instanceof Error ? error.stack : undefined);
     }
     channel.nack(message, false, true);

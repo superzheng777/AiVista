@@ -7,30 +7,32 @@ describe("AgentExecutionStateService", () => {
     const database = fakeDatabase([undefined], insert);
     const service = new AgentExecutionStateService(database as never);
 
-    await expect(service.prepare(command(), false, now())).resolves.toEqual({ kind: "START" });
+    await expect(service.prepare(command(), now())).resolves.toEqual({ kind: "EXECUTE_AGENT" });
     expect(insert).toHaveBeenCalledOnce();
     expect(database.db.insertInto).toHaveBeenCalledWith("agent_worker_executions");
   });
 
   it("marks an orphan RUNNING loop interrupted instead of rerunning side effects", async () => {
     const updateResult = vi.fn().mockResolvedValue({ numUpdatedRows: 1n });
-    const database = fakeDatabase([{ state: "RUNNING", result_json: null }], vi.fn(), updateResult);
+    const database = fakeDatabase([{ state: "RUNNING", completion_json: null }], vi.fn(), updateResult);
     const service = new AgentExecutionStateService(database as never);
 
-    await expect(service.prepare(command(), false, now())).resolves.toEqual({ kind: "INTERRUPTED" });
+    await expect(service.prepare(command(), now())).resolves.toEqual({ kind: "FAIL_INTERRUPTED_EXECUTION" });
     expect(updateResult).toHaveBeenCalledOnce();
   });
 
   it("replays a completed submission without starting Pi again", async () => {
-    const completion = { contractVersion: 1, completionId: "agent-151" };
-    const database = fakeDatabase([{ state: "COMPLETED", result_json: JSON.stringify(completion) }]);
+    const completion = { contractVersion: 2, creationId: "151", expectedRevision: 0,
+      outcome: "SUCCEEDED", failureCode: null, finalMessage: "完成", activities: [],
+      agentContext: { schemaVersion: 1, compaction: null, messages: [] } };
+    const database = fakeDatabase([{ state: "COMPLETION_READY", completion_json: JSON.stringify(completion) }]);
     const service = new AgentExecutionStateService(database as never);
 
-    await expect(service.prepare(command(), false, now())).resolves.toEqual({ kind: "REPLAY", completion });
+    await expect(service.prepare(command(), now())).resolves.toEqual({ kind: "REPLAY_COMPLETION", completion });
   });
 });
 
-function command() { return { eventId: 11n, creationTaskId: 151n, revision: 0 }; }
+function command() { return { creationId: 151n, expectedRevision: 0 }; }
 function now() { return new Date("2026-09-09T02:00:00Z"); }
 
 function fakeDatabase(selectResults: unknown[], insertExecute = vi.fn(), updateExecute = vi.fn()) {

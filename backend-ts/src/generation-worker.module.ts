@@ -14,7 +14,6 @@ import { GenerationPipelineExecutionService } from "./generation/generation-pipe
 import { GenerationCompletionCoordinatorService } from "./generation/generation-completion-coordinator.service.js";
 import { JavaGenerationClient } from "./agent/adapters/java-generation-client.js";
 import { JavaAgentCompletionClient } from "./agent/adapters/java-agent-completion-client.js";
-import { JavaAgentActivityClient } from "./agent/adapters/java-agent-activity-client.js";
 import { AgentExecutionStateService } from "./agent/agent-execution-state.service.js";
 import { AgentImageLoaderService } from "./agent/agent-image-loader.service.js";
 import { AgentModelService } from "./agent/agent-model.service.js";
@@ -28,7 +27,7 @@ import { JavaAgentRealtimeClient } from "./agent/adapters/java-agent-realtime-cl
     GenerationTaskListenerService, GenerationImageTransferService, GenerationTaskConsumerService,
     GenerationCompletionClientService, GenerationPipelineStateService,
     GenerationPipelineExecutionService, GenerationCompletionCoordinatorService,
-    JavaGenerationClient, JavaAgentCompletionClient, JavaAgentActivityClient,
+    JavaGenerationClient, JavaAgentCompletionClient,
     AgentExecutionStateService, AgentImageLoaderService,
     AgentModelService, JavaAgentRealtimeClient, AgentExecutionService,
     AgentCommandListenerService, AgentCommandConsumerService] })

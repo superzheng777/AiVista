@@ -84,12 +84,6 @@ app:
       batch-size: 500
       max-batches: 10
       fixed-delay-ms: 3600000
-  idempotency:
-    cleanup:
-      enabled: true
-      batch-size: 1000
-      max-batches: 10
-      fixed-delay: 10m
   outbox:
     cleanup:
       enabled: true
@@ -142,7 +136,8 @@ app:
       access-key-id: ${AIVISTA_OSS_ACCESS_KEY_ID:}
       access-key-secret: ${AIVISTA_OSS_ACCESS_KEY_SECRET:}
       object-prefix: users
-      signed-url-ttl: 10m
+      signed-url-ttl: 1d
+      original-signed-url-ttl: 10m
       upload-connect-timeout: 5s
       upload-read-timeout: 30s
     asset-cleanup:

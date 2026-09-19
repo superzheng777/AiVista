@@ -83,12 +83,12 @@ class GenerationSessionQueryServiceTests {
         return session;
     }
 
-    private static GenerationTask task(long id, long sessionId, String status, int taskVersion) {
+    private static GenerationTask task(long id, long sessionId, String status, int revision) {
         GenerationTask task = new GenerationTask();
         task.setId(id);
         task.setSessionId(sessionId);
         task.setStatus(status);
-        task.setTaskVersion(taskVersion);
+        task.setRevision(revision);
         return task;
     }
 }

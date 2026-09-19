@@ -4,8 +4,8 @@ export type GenerationStreamStatus = "DISCONNECTED" | "CONNECTING" | "SYNCING" |
 
 export type GenerationTaskUpdateEvent = {
   sessionId: string;
-  taskId: string;
-  taskVersion: number;
+  generationTaskId: string;
+  revision: number;
   status: GenerationTaskStatus;
   retryCount: number;
   maxRetryCount: number;
@@ -21,12 +21,12 @@ export type PublicationStatusUpdateEvent = {
 export type GenerationSessionIndicator = "ACTIVE" | "COMPLETED" | "ATTENTION";
 
 export type AgentRealtimeEvent = {
-  creationTaskId: string;
+  creationId: string;
   sessionId: string;
   revision: number;
   streamId: string;
   sequence: number;
-  eventType: "RUN_STARTED" | "TEXT_STARTED" | "TEXT_DELTA" | "TEXT_FINISHED"
+  eventType: "RUN_STARTED" | "RUN_SNAPSHOT" | "TEXT_STARTED" | "TEXT_DELTA" | "TEXT_FINISHED"
     | "NARRATION" | "SKILL_SELECTED" | "TOOL_STARTED" | "TOOL_PROGRESS" | "TOOL_FINISHED"
     | "RUN_FINISHED" | "RUN_FAILED" | "RUN_CANCELLED";
   payload: Record<string, unknown>;
@@ -50,8 +50,8 @@ export function isTaskUpdateEvent(value: unknown): value is GenerationTaskUpdate
   if (!value || typeof value !== "object") return false;
   const event = value as Partial<GenerationTaskUpdateEvent>;
   return typeof event.sessionId === "string"
-    && typeof event.taskId === "string"
-    && typeof event.taskVersion === "number"
+    && typeof event.generationTaskId === "string"
+    && typeof event.revision === "number"
     && typeof event.status === "string"
     && typeof event.retryCount === "number"
     && typeof event.maxRetryCount === "number";
@@ -69,14 +69,14 @@ export function isPublicationStatusUpdateEvent(value: unknown): value is Publica
 export function isAgentRealtimeEvent(value: unknown): value is AgentRealtimeEvent {
   if (!value || typeof value !== "object") return false;
   const event = value as Partial<AgentRealtimeEvent>;
-  return typeof event.creationTaskId === "string" && typeof event.sessionId === "string"
+  return typeof event.creationId === "string" && typeof event.sessionId === "string"
     && Number.isSafeInteger(event.revision) && typeof event.streamId === "string" && event.streamId.length > 0
     && Number.isSafeInteger(event.sequence) && (event.sequence ?? 0) > 0
     && typeof event.eventType === "string" && AGENT_EVENT_TYPES.has(event.eventType)
     && !!event.payload && typeof event.payload === "object" && !Array.isArray(event.payload);
 }
 
-const AGENT_EVENT_TYPES: ReadonlySet<string> = new Set(["RUN_STARTED", "TEXT_STARTED", "TEXT_DELTA",
+const AGENT_EVENT_TYPES: ReadonlySet<string> = new Set(["RUN_STARTED", "RUN_SNAPSHOT", "TEXT_STARTED", "TEXT_DELTA",
   "TEXT_FINISHED", "NARRATION", "SKILL_SELECTED", "TOOL_STARTED", "TOOL_PROGRESS", "TOOL_FINISHED",
   "RUN_FINISHED", "RUN_FAILED", "RUN_CANCELLED"]);
 
@@ -89,6 +89,10 @@ export function applyAgentRealtimeEvent(current: AgentLiveRun | undefined,
     : { ...current, skills: [...current.skills], tools: [...current.tools] };
   next.sequence = event.sequence;
   if (event.eventType === "RUN_STARTED") return { ...next, text: "", skills: [], tools: [] };
+  if (event.eventType === "RUN_SNAPSHOT" && snapshotPayload(event.payload)) {
+    return { ...next, text: event.payload.text, skills: [...event.payload.skills],
+      tools: event.payload.tools.map((tool) => ({ ...tool })) };
+  }
   if (event.eventType === "TEXT_DELTA" && typeof event.payload.delta === "string") {
     next.text += event.payload.delta;
   }
@@ -113,6 +117,21 @@ export function applyAgentRealtimeEvent(current: AgentLiveRun | undefined,
 function toolPayload(payload: Record<string, unknown>): payload is Record<string, unknown>
     & { toolCallId: string; toolName: string } {
   return typeof payload.toolCallId === "string" && typeof payload.toolName === "string";
+}
+
+function snapshotPayload(payload: Record<string, unknown>): payload is Record<string, unknown> & {
+  text: string;
+  skills: string[];
+  tools: Array<{ toolCallId: string; toolName: string; state: "RUNNING" | "SUCCEEDED" | "FAILED" }>;
+} {
+  return typeof payload.text === "string"
+    && Array.isArray(payload.skills) && payload.skills.every((value) => typeof value === "string")
+    && Array.isArray(payload.tools) && payload.tools.every((value) => {
+      if (!value || typeof value !== "object") return false;
+      const tool = value as Record<string, unknown>;
+      return typeof tool.toolCallId === "string" && typeof tool.toolName === "string"
+        && ["RUNNING", "SUCCEEDED", "FAILED"].includes(String(tool.state));
+    });
 }
 
 export function isTerminalStatus(status: GenerationTaskStatus): boolean {

@@ -35,9 +35,9 @@ export function applyGenerationTaskUpdateToTurns(
   return { ...current, pages: current.pages.map((page) => ({ ...page, items: page.items.map((turn) => {
     let changed = false;
     const generations = turn.generations.map((task) => {
-      if (task.id !== event.taskId || event.taskVersion <= task.version) return task;
+        if (task.id !== event.generationTaskId || event.revision <= task.version) return task;
       changed = true;
-      return { ...task, status: event.status, version: event.taskVersion,
+        return { ...task, status: event.status, version: event.revision,
         retryCount: event.retryCount, maxRetryCount: event.maxRetryCount };
     });
     return changed ? { ...turn, generations } : turn;

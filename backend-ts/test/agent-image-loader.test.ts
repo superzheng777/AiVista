@@ -1,11 +1,14 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgentImageLoaderService } from "../src/agent/agent-image-loader.service.js";
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe("AgentImageLoaderService", () => {
   it("loads ordered private objects as Pi ImageContent", async () => {
-    const service = createService({ get: vi.fn()
-      .mockResolvedValueOnce({ content: Buffer.from([1, 2]) })
-      .mockResolvedValueOnce({ content: Buffer.from([3]) }) });
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(new Response(Buffer.from([1, 2])))
+      .mockResolvedValueOnce(new Response(Buffer.from([3]))));
+    const service = createService();
 
     const images = await service.load([
       input("501", "users/7/a/display.webp", "image/webp"),
@@ -22,13 +25,34 @@ describe("AgentImageLoaderService", () => {
     const service = new AgentImageLoaderService({ get: vi.fn() } as never);
     await expect(service.load([])).resolves.toEqual([]);
   });
+
+  it("loads one inspected historical image", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(Buffer.from([4, 5]))));
+    const service = createService();
+
+    await expect(service.loadOne(input("701", "users/7/history/display.webp", "image/webp")))
+      .resolves.toEqual({ type: "image", data: "BAU=", mimeType: "image/webp" });
+  });
+
+  it("stops waiting for OSS when the Agent is cancelled", async () => {
+    vi.stubGlobal("fetch", vi.fn((_url: string, init?: RequestInit) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+    })));
+    const service = createService();
+    const abort = new AbortController();
+
+    const loading = service.loadOne(input("701", "users/7/history/display.webp", "image/webp"), abort.signal);
+    abort.abort("USER_CANCELLED");
+
+    await expect(loading).rejects.toBe("USER_CANCELLED");
+  });
 });
 
-function createService(client: { get: ReturnType<typeof vi.fn> }) {
+function createService() {
   const config = { get: (key: string) => ({ AIVISTA_OSS_ENDPOINT: "oss.example", AIVISTA_OSS_BUCKET: "private",
     AIVISTA_OSS_ACCESS_KEY_ID: "id", AIVISTA_OSS_ACCESS_KEY_SECRET: "secret" })[key] };
   const service = new AgentImageLoaderService(config as never);
-  Object.assign(service as object, { client });
+  Object.assign(service as object, { client: { signatureUrl: (key: string) => `https://oss.example/${key}` } });
   return service;
 }
 

@@ -20,7 +20,6 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -46,13 +45,13 @@ public class AgentCreationController {
     }
 
     @Operation(summary = "取消正在执行的 Agent 创作")
-    @PostMapping("/{creationTaskId}/cancel")
+    @PostMapping("/{creationId}/cancel")
     public ApiResponse<CancelAgentCreationResponse> cancel(Authentication authentication,
-            @PathVariable long creationTaskId) {
-        var result = cancellation.cancel(currentUserId(authentication), creationTaskId);
+            @PathVariable long creationId) {
+        var result = cancellation.cancel(currentUserId(authentication), creationId);
         if (result.transitioned()) {
-            realtime.publishTerminal(creationTaskId, result.executionRevision());
-            runtimeCommands.cancel(creationTaskId, result.response().revision());
+            realtime.publishTerminal(creationId, result.executionRevision());
+            runtimeCommands.cancel(creationId, result.response().revision());
         }
         return ResponseUtils.success(result.response());
     }
@@ -60,9 +59,8 @@ public class AgentCreationController {
     @Operation(summary = "创建 Agent 创作轮次")
     @PostMapping
     public ResponseEntity<ApiResponse<CreateAgentCreationResponse>> create(Authentication authentication,
-            @RequestHeader("Idempotency-Key") String idempotencyKey,
             @RequestBody CreateAgentCreationRequest request) {
-        var response = service.create(currentUserId(authentication), idempotencyKey, request);
+        var response = service.create(currentUserId(authentication), request);
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(ResponseUtils.success(response));
     }
 

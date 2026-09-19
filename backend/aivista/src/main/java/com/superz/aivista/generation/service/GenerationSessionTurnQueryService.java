@@ -147,8 +147,8 @@ public class GenerationSessionTurnQueryService {
     }
 
     private CreationActivityResponse responseOf(CreationActivity activity) {
-        return new CreationActivityResponse(activity.getActivityKey(), activity.getSequenceNo(),
-                activity.getActivityType(), activity.getState(), activity.getContent(), activity.getToolName(),
+        return new CreationActivityResponse(activity.getSequenceNo(),
+                activity.getActivityType(), activity.getOutcome(), activity.getContent(), activity.getToolName(),
                 activity.getGenerationTaskId() == null ? null : activity.getGenerationTaskId().toString(),
                 activity.getStartedAt(), activity.getCompletedAt());
     }

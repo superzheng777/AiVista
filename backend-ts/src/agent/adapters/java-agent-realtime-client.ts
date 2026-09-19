@@ -6,7 +6,7 @@ import type { AgentRealtimeEvent } from "../agent-event-normalizer.js";
 const OPEN = 1;
 export type AgentRuntimeControl =
   | { type: "READY" }
-  | { type: "CANCEL"; creationTaskId: string; revision: number };
+  | { type: "CANCEL"; creationId: string; revision: number };
 
 /** One process-level transient channel. Disconnected events are intentionally dropped, never replayed stale. */
 @Injectable()
@@ -33,9 +33,9 @@ export class JavaAgentRealtimeClient implements OnModuleInit, OnModuleDestroy {
     this.socket?.close();
   }
 
-  publish(creationTaskId: string, revision: number, event: AgentRealtimeEvent): boolean {
+  publish(creationId: string, revision: number, event: AgentRealtimeEvent): boolean {
     if (!this.ready || this.socket?.readyState !== OPEN) return false;
-    this.socket.send(JSON.stringify({ type: "EVENT", event: { creationTaskId, revision, ...event } }));
+    this.socket.send(JSON.stringify({ type: "EVENT", event: { creationId, revision, ...event } }));
     return true;
   }
 
@@ -87,9 +87,9 @@ export class JavaAgentRealtimeClient implements OnModuleInit, OnModuleDestroy {
           this.reconnectAttempt = 0;
           this.startHeartbeat(socket);
           this.emitControl({ type: "READY" });
-        } else if (frame.type === "CANCEL" && typeof frame.creationTaskId === "string"
+        } else if (frame.type === "CANCEL" && typeof frame.creationId === "string"
             && Number.isSafeInteger(frame.revision) && Number(frame.revision) >= 1) {
-          this.emitControl({ type: "CANCEL", creationTaskId: frame.creationTaskId,
+          this.emitControl({ type: "CANCEL", creationId: frame.creationId,
             revision: Number(frame.revision) });
         }
       } catch { /* Invalid server frames do not enter the runtime. */ }

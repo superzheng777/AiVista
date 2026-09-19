@@ -35,7 +35,8 @@ describe("generation image transfer", () => {
 function createService(oss: ReturnType<typeof ossMock>) {
   const values: Record<string, unknown> = { AIVISTA_OSS_ENDPOINT: "https://oss.example", AIVISTA_OSS_BUCKET: "private",
     AIVISTA_OSS_ACCESS_KEY_ID: "id", AIVISTA_OSS_ACCESS_KEY_SECRET: "secret", AIVISTA_OSS_OBJECT_PREFIX: "users",
-    AIVISTA_OSS_SIGNED_URL_TTL_SECONDS: 600, AIVISTA_TRANSFER_SOURCE_READ_TIMEOUT_MS: 30000 };
+    AIVISTA_OSS_SIGNED_URL_TTL_SECONDS: 86400, AIVISTA_OSS_ORIGINAL_SIGNED_URL_TTL_SECONDS: 600,
+    AIVISTA_TRANSFER_SOURCE_READ_TIMEOUT_MS: 30000 };
   const service = new GenerationImageTransferService({ get: (key: string) => values[key] } as never);
   Object.assign(service as any, { client: oss }); return service;
 }

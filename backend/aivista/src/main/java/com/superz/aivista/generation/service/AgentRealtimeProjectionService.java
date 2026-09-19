@@ -4,6 +4,9 @@ import com.superz.aivista.generation.entity.CreationTask;
 import com.superz.aivista.generation.event.AgentRealtimeEvent;
 import com.superz.aivista.generation.event.AgentRealtimeInboundEvent;
 import com.superz.aivista.generation.mapper.CreationTaskMapper;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -31,20 +34,30 @@ public class AgentRealtimeProjectionService {
 
     public boolean publish(AgentRealtimeInboundEvent inbound) {
         if (!ALLOWED_TYPES.contains(inbound.eventType()) || inbound.payload() == null) return false;
-        CreationTask creation = creationTasks.selectSnapshotById(inbound.creationTaskId());
+        CreationTask creation = creationTasks.selectSnapshotById(inbound.creationId());
         if (creation == null || !"AGENT".equals(creation.getMode()) || !"RUNNING".equals(creation.getStatus())
                 || creation.getRevision() == null || creation.getRevision() != inbound.revision()) {
             return false;
         }
-        StreamKey key = new StreamKey(inbound.creationTaskId(), inbound.revision());
+        StreamKey key = new StreamKey(inbound.creationId(), inbound.revision());
         StreamState stream = streams.computeIfAbsent(key,
-                ignored -> new StreamState(UUID.randomUUID().toString(), new AtomicLong()));
-        AgentRealtimeEvent event = new AgentRealtimeEvent(String.valueOf(inbound.creationTaskId()),
+                ignored -> new StreamState(creation.getUserId(), creation.getSessionId(),
+                        inbound.creationId(), inbound.revision(), UUID.randomUUID().toString()));
+        long sequence = stream.accept(inbound.eventType(), inbound.payload());
+        AgentRealtimeEvent event = new AgentRealtimeEvent(String.valueOf(inbound.creationId()),
                 String.valueOf(creation.getSessionId()),
-                inbound.revision(), stream.streamId(), stream.sequence().incrementAndGet(), inbound.eventType(),
+                inbound.revision(), stream.streamId, sequence, inbound.eventType(),
                 Map.copyOf(inbound.payload()));
         connections.publishAgent(creation.getUserId(), eventIds.incrementAndGet(), event);
         return true;
+    }
+
+    /** Replays one safe in-memory projection after a browser SSE connection is established. */
+    public void replay(long userId) {
+        for (StreamState stream : new ArrayList<>(streams.values())) {
+            AgentRealtimeEvent snapshot = stream.snapshot(userId);
+            if (snapshot != null) connections.publishAgent(userId, eventIds.incrementAndGet(), snapshot);
+        }
     }
 
     /** Called only after the Agent completion transaction has returned successfully. */
@@ -56,7 +69,8 @@ public class AgentRealtimeProjectionService {
                     || "CANCELLED".equals(creation.getStatus()))) return;
         StreamKey key = new StreamKey(creationTaskId, executionRevision);
         StreamState stream = streams.computeIfAbsent(key,
-                ignored -> new StreamState(UUID.randomUUID().toString(), new AtomicLong()));
+                ignored -> new StreamState(creation.getUserId(), creation.getSessionId(), creationTaskId,
+                        executionRevision, UUID.randomUUID().toString()));
         String eventType = switch (creation.getStatus()) {
             case "SUCCEEDED" -> "RUN_FINISHED";
             case "CANCELLED" -> "RUN_CANCELLED";
@@ -64,7 +78,7 @@ public class AgentRealtimeProjectionService {
         };
         AgentRealtimeEvent event = new AgentRealtimeEvent(String.valueOf(creationTaskId),
                 String.valueOf(creation.getSessionId()),
-                creation.getRevision(), stream.streamId(), stream.sequence().incrementAndGet(), eventType,
+                creation.getRevision(), stream.streamId, stream.nextSequence(), eventType,
                 Map.of("status", creation.getStatus()));
         connections.publishAgent(creation.getUserId(), eventIds.incrementAndGet(), event);
         streams.remove(key, stream);
@@ -73,6 +87,70 @@ public class AgentRealtimeProjectionService {
     private record StreamKey(long creationTaskId, long revision) {
     }
 
-    private record StreamState(String streamId, AtomicLong sequence) {
+    private static final class StreamState {
+        private final long userId;
+        private final long sessionId;
+        private final long creationId;
+        private final long revision;
+        private final String streamId;
+        private final AtomicLong sequence = new AtomicLong();
+        private final StringBuilder text = new StringBuilder();
+        private final List<String> skills = new ArrayList<>();
+        private final Map<String, Map<String, Object>> tools = new LinkedHashMap<>();
+
+        private StreamState(long userId, long sessionId, long creationId, long revision, String streamId) {
+            this.userId = userId;
+            this.sessionId = sessionId;
+            this.creationId = creationId;
+            this.revision = revision;
+            this.streamId = streamId;
+        }
+
+        synchronized long accept(String eventType, Map<String, Object> payload) {
+            switch (eventType) {
+                case "RUN_STARTED" -> {
+                    text.setLength(0);
+                    skills.clear();
+                    tools.clear();
+                }
+                case "TEXT_DELTA" -> append(payload.get("delta"));
+                case "NARRATION" -> append(payload.get("text"));
+                case "SKILL_SELECTED" -> addSkill(payload.get("skillName"));
+                case "TOOL_STARTED" -> putTool(payload, "RUNNING");
+                case "TOOL_FINISHED" -> putTool(payload,
+                        "FAILED".equals(payload.get("outcome")) ? "FAILED" : "SUCCEEDED");
+                default -> { }
+            }
+            return nextSequence();
+        }
+
+        long nextSequence() {
+            return sequence.incrementAndGet();
+        }
+
+        synchronized AgentRealtimeEvent snapshot(long requestedUserId) {
+            if (userId != requestedUserId || sequence.get() == 0) return null;
+            return new AgentRealtimeEvent(Long.toString(creationId), Long.toString(sessionId), revision,
+                    streamId, sequence.get(), "RUN_SNAPSHOT", Map.of(
+                            "text", text.toString(),
+                            "skills", List.copyOf(skills),
+                            "tools", List.copyOf(tools.values())));
+        }
+
+        private void append(Object value) {
+            if (value instanceof String content) text.append(content);
+        }
+
+        private void addSkill(Object value) {
+            if (value instanceof String skill && !skills.contains(skill)) skills.add(skill);
+        }
+
+        private void putTool(Map<String, Object> payload, String state) {
+            Object callId = payload.get("toolCallId");
+            Object name = payload.get("toolName");
+            if (callId instanceof String id && name instanceof String toolName) {
+                tools.put(id, Map.of("toolCallId", id, "toolName", toolName, "state", state));
+            }
+        }
     }
 }

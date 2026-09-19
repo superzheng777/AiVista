@@ -40,7 +40,7 @@ describe("Agent generation tools", () => {
   it("normalizes fixed Agent generation parameters before execution", async () => {
     const execute = vi.fn(async (_toolCallId: string, _request: GenerationToolRequest) => ({
       outcome: "SUCCEEDED" as const,
-      taskId: "9001",
+      generationTaskId: "9001",
       imageAssetIds: ["7001"],
     }));
     const [textToImage] = createGenerationTools({
@@ -65,7 +65,7 @@ describe("Agent generation tools", () => {
       promptExtend: true,
       imageCount: 3,
     }, undefined);
-    expect(result.details).toMatchObject({ outcome: "SUCCEEDED", taskId: "9001" });
+    expect(result.details).toMatchObject({ outcome: "SUCCEEDED", generationTaskId: "9001" });
   });
 
   it("returns an actionable Tool Result without executing an unauthorized image", async () => {
@@ -121,7 +121,7 @@ describe("Agent generation tools", () => {
 function executorOf(): GenerationToolExecutor {
   return {
     async execute() {
-      return { outcome: "SUCCEEDED", taskId: "1", imageAssetIds: ["2"] };
+      return { outcome: "SUCCEEDED", generationTaskId: "1", imageAssetIds: ["2"] };
     },
   };
 }

@@ -86,23 +86,23 @@ class GenerationStatusEventDispatcherTests {
         org.assertj.core.api.Assertions.assertThat(staleEvent.getAvailableAt()).isEqualTo(NOW);
     }
 
-    private static OutboxEvent event(long id, long taskId, int taskVersion) {
+    private static OutboxEvent event(long id, long taskId, int revision) {
         OutboxEvent event = new OutboxEvent();
         event.setId(id);
         event.setAggregateType("GENERATION_TASK");
         event.setAggregateId(taskId);
-        event.setAggregateVersion((long) taskVersion);
-        event.setPayloadJson("{\"status\":\"" + (taskVersion == 0 ? "QUEUED" : "FAILED")
+        event.setAggregateVersion((long) revision);
+        event.setPayloadJson("{\"status\":\"" + (revision == 0 ? "QUEUED" : "FAILED")
                 + "\",\"modelRetryCount\":1}");
         return event;
     }
 
-    private static GenerationTask task(long id, long userId, long sessionId, int taskVersion, String status) {
+    private static GenerationTask task(long id, long userId, long sessionId, int revision, String status) {
         GenerationTask task = new GenerationTask();
         task.setId(id);
         task.setUserId(userId);
         task.setSessionId(sessionId);
-        task.setTaskVersion(taskVersion);
+        task.setRevision(revision);
         task.setStatus(status);
         return task;
     }

@@ -35,8 +35,8 @@ describe("parseSseBlock", () => {
 describe("isTaskUpdateEvent", () => {
   const valid = {
     sessionId: "s1",
-    taskId: "t1",
-    taskVersion: 3,
+    generationTaskId: "t1",
+    revision: 3,
     status: "SUCCEEDED",
     retryCount: 0,
     maxRetryCount: 2,
@@ -47,8 +47,8 @@ describe("isTaskUpdateEvent", () => {
   });
 
   it("拒绝缺失字段或非法状态", () => {
-    expect(isTaskUpdateEvent({ ...valid, taskId: undefined })).toBe(false);
-    expect(isTaskUpdateEvent({ ...valid, taskVersion: "3" })).toBe(false);
+    expect(isTaskUpdateEvent({ ...valid, generationTaskId: undefined })).toBe(false);
+    expect(isTaskUpdateEvent({ ...valid, revision: "3" })).toBe(false);
     expect(isTaskUpdateEvent(null)).toBe(false);
     expect(isTaskUpdateEvent("payload")).toBe(false);
   });
@@ -88,7 +88,7 @@ describe("isTerminalStatus", () => {
 });
 
 describe("Agent realtime projection", () => {
-  const base = { creationTaskId: "31", sessionId: "9", revision: 4, streamId: "stream-1",
+  const base = { creationId: "31", sessionId: "9", revision: 4, streamId: "stream-1",
     sequence: 1, eventType: "RUN_STARTED" as const, payload: {} };
 
   it("validates, orders and deduplicates deltas within one stream", () => {
@@ -103,7 +103,7 @@ describe("Agent realtime projection", () => {
   });
 
   it("把 Tool 参数兜底产生的创作说明加入实时文本", () => {
-    const event = { creationTaskId: "creation-1", sessionId: "session-1", revision: 0,
+    const event = { creationId: "creation-1", sessionId: "session-1", revision: 0,
       streamId: "stream-1", sequence: 1, eventType: "NARRATION" as const,
       payload: { text: "我会生成四版不同构图的竖版海报。" } };
     expect(applyAgentRealtimeEvent(undefined, event).text).toBe("我会生成四版不同构图的竖版海报。");
@@ -129,6 +129,15 @@ describe("Agent realtime projection", () => {
     run = applyAgentRealtimeEvent(run, { ...base, sequence: 3, eventType: "TOOL_FINISHED",
       payload: { toolCallId: "call-1", toolName: "text_to_image", outcome: "SUCCEEDED" } });
     expect(run.tools).toEqual([{ toolCallId: "call-1", toolName: "text_to_image", state: "SUCCEEDED" }]);
+  });
+
+  it("restores the safe live projection from a reconnect snapshot", () => {
+    const run = applyAgentRealtimeEvent(undefined, { ...base, sequence: 6, eventType: "RUN_SNAPSHOT",
+      payload: { text: "正在生成", skills: ["poster-design"], tools: [
+        { toolCallId: "call-1", toolName: "text_to_image", state: "RUNNING" },
+      ] } });
+    expect(run).toMatchObject({ sequence: 6, text: "正在生成", skills: ["poster-design"],
+      tools: [{ toolCallId: "call-1", toolName: "text_to_image", state: "RUNNING" }] });
   });
 });
 
@@ -158,21 +167,21 @@ describe("consumeSseStream", () => {
     const onPublicationUpdate = vi.fn();
     const body = [
       "event: generation.stream.ready\ndata: {}\n\n",
-      "event: generation.task.updated\ndata: {\"sessionId\":\"s1\",\"taskId\":\"t1\",\"taskVersion\":1,\"status\":\"SUCCEEDED\",\"retryCount\":0,\"maxRetryCount\":2}\n\n",
+      "event: generation.task.updated\ndata: {\"sessionId\":\"s1\",\"generationTaskId\":\"t1\",\"revision\":1,\"status\":\"SUCCEEDED\",\"retryCount\":0,\"maxRetryCount\":2}\n\n",
       "event: publication.updated\ndata: {\"imageId\":\"img-1\",\"publicationVersion\":1,\"status\":\"APPROVED\",\"publicAt\":\"2026-08-10T00:00:00Z\"}\n\n",
     ];
     await consumeSseStream(streamOf(body), onReady, onTaskUpdate, onPublicationUpdate);
     expect(onReady).toHaveBeenCalledTimes(1);
-    expect(onTaskUpdate).toHaveBeenCalledWith(expect.objectContaining({ taskId: "t1", status: "SUCCEEDED" }));
+    expect(onTaskUpdate).toHaveBeenCalledWith(expect.objectContaining({ generationTaskId: "t1", status: "SUCCEEDED" }));
     expect(onPublicationUpdate).toHaveBeenCalledWith(expect.objectContaining({ imageId: "img-1", status: "APPROVED" }));
   });
 
   it("把 Java 以字符串 ID 输出的 Agent 增量交给前端", async () => {
     const onAgentEvent = vi.fn();
     await consumeSseStream(streamOf([
-      "event: agent.creation.event\ndata: {\"creationTaskId\":\"1\",\"sessionId\":\"1\",\"revision\":0,\"streamId\":\"stream-1\",\"sequence\":1,\"eventType\":\"TEXT_DELTA\",\"payload\":{\"contentIndex\":1,\"delta\":\"正在构图\"}}\n\n",
+      "event: agent.creation.event\ndata: {\"creationId\":\"1\",\"sessionId\":\"1\",\"revision\":0,\"streamId\":\"stream-1\",\"sequence\":1,\"eventType\":\"TEXT_DELTA\",\"payload\":{\"contentIndex\":1,\"delta\":\"正在构图\"}}\n\n",
     ]), vi.fn(), vi.fn(), vi.fn(), vi.fn(), onAgentEvent);
-    expect(onAgentEvent).toHaveBeenCalledWith(expect.objectContaining({ creationTaskId: "1",
+    expect(onAgentEvent).toHaveBeenCalledWith(expect.objectContaining({ creationId: "1",
       eventType: "TEXT_DELTA" }));
   });
 

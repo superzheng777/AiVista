@@ -52,7 +52,7 @@ flowchart LR
     core --> meili[(Meilisearch)]
     core -->|"事务 Outbox"| rabbit["RabbitMQ<br/>Quorum Queues"]
     rabbit --> worker["TypeScript AI Runtime<br/>NestJS + Pi Agent"]
-    worker -->|"ledger / checkpoint"| mysql
+    worker -->|"Agent completion ledger"| mysql
     worker --> bailian["Bailian Models"]
     worker --> oss["Aliyun OSS"]
     worker -->|"幂等完成回调"| core
@@ -67,9 +67,10 @@ Java Core 持有认证、业务状态、事务、配额和资产等权威数据�
 | 问题 | 设计 | 结果 |
 | --- | --- | --- |
 | 业务事务与消息发布不一致 | 在同一数据库事务中写入任务和 Outbox，由 dispatcher 发布到 quorum queue 并处理发布确认 | 业务提交后命令可重试派发，避免依赖一次网络调用 |
-| 消息重投可能重复产生外部副作用 | 采用至少一次传递、Worker ledger、checkpoint、稳定幂等键和 Java 幂等完成接口 | 重试复用既有执行结果，业务终态只收敛一次 |
-| 实时连接可能中断或丢失瞬时事件 | Worker 经 WebSocket 推送到 Java，再由 SSE 投影到浏览器；REST 保存权威快照 | 实时体验与最终一致的页面恢复相互独立 |
+| 消息重投可能重复产生外部副作用 | 普通生成依靠任务 revision、确定性对象键与条件幂等 Completion；非确定性的 Agent Loop 额外保存可重放 Completion Ledger | 不复制普通任务状态，业务终态仍只由 Java 收敛 |
+| 实时连接可能中断或丢失瞬时事件 | Worker 经 WebSocket 推送到 Java，再由 SSE 投影到浏览器；运行中可重放 Java 内存 `RUN_SNAPSHOT`，终态由 REST 恢复 | 中间过程不写库，实时体验与最终业务事实分离 |
 | Agent 需要可控地使用业务能力 | 限定 Tool 白名单、授权输入资产、最大 Turn 数，并将取消信号贯穿执行链路 | 约束工具权限、资源范围和执行生命周期 |
+| Agent 多轮上下文需要兼顾完整性与窗口上限 | 每轮恢复 Pi 逻辑上下文，使用 Pi 原生 Compaction；历史图片仅保留 Asset ID，需要理解画面时由受控 `inspect_image` 临时恢复 | 保留 Tool Call/Result 与图片语义，又不复制产品消息表或落库图片二进制 |
 | 私有图片需要适配不同展示场景 | OSS 保存私有对象，派生缩略图、展示图和原图，并签发短期访问 URL | 浏览器只获得当前用途所需的临时访问地址 |
 
 ## 技术栈

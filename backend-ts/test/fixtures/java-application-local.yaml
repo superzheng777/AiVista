@@ -47,7 +47,8 @@ app:
       bucket: images
       access-key-id: access-id
       access-key-secret: access-secret
-      signed-url-ttl: 10m
+      signed-url-ttl: 1d
+      original-signed-url-ttl: 10m
     image-transfer:
       source-read-timeout: 30s
     asset-cleanup:

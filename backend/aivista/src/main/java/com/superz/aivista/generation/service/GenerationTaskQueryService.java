@@ -71,7 +71,7 @@ public class GenerationTaskQueryService {
                 : List.of();
         String failureCode = isTerminal(task.getStatus()) ? task.getFailureCode() : null;
         return new GenerationTaskSnapshotResponse(
-                String.valueOf(task.getId()), String.valueOf(task.getSessionId()), task.getStatus(), task.getTaskVersion(),
+                String.valueOf(task.getId()), String.valueOf(task.getSessionId()), task.getStatus(), task.getRevision(),
                 task.getAttemptCount() == null ? 0 : task.getAttemptCount(), bailianProperties.maxRetries(),
                 task.getRequestedImageCount(), task.getCompletedImageCount(), failedImageCount(task),
                 failureCode, failureMessage(failureCode), images, task.getCreatedAt(), task.getCompletedAt());

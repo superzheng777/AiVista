@@ -10,13 +10,13 @@ final class GenerationStatusOutboxEvent {
     private GenerationStatusOutboxEvent() {
     }
 
-    static OutboxEvent create(long taskId, int taskVersion, String taskStatus,
+    static OutboxEvent create(long taskId, int revision, String taskStatus,
             int modelRetryCount, Instant now) {
         OutboxEvent event = new OutboxEvent();
         event.setEventType(OutboxEventType.GENERATION_TASK_STATUS_CHANGED.name());
         event.setAggregateType("GENERATION_TASK");
         event.setAggregateId(taskId);
-        event.setAggregateVersion((long) taskVersion);
+        event.setAggregateVersion((long) revision);
         event.setPayloadJson("{\"status\":\"" + taskStatus + "\",\"modelRetryCount\":"
                 + modelRetryCount + "}");
         event.setStatus(OutboxStatus.PENDING.name());

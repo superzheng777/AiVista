@@ -4,10 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build": "pnpm clean && tsc -p tsconfig.build.json",
     "worker": "node dist/worker.js",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --pool=threads",
+    "test": "vitest run --pool=threads --maxWorkers=1 --reporter=verbose",
     "test:agent-smoke": "vitest run test/integration/pi-bailian-smoke.test.ts --pool=threads"
   },
   "dependencies": {

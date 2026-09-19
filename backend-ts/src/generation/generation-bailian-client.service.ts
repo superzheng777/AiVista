@@ -5,7 +5,7 @@ import type { Environment } from "../config/environment.js";
 import { DatabaseService } from "../database/database.service.js";
 import type { GenerationTaskTable } from "../database/database.types.js";
 import { GenerationImageUrlService } from "./generation-image-url.service.js";
-import { BailianConnectionError, BailianProviderError } from "./generation-provider-error.js";
+import { BailianProviderError, BailianTransportError } from "./generation-provider-error.js";
 
 export interface BailianProviderResult {
   requestId: string | null;
@@ -39,13 +39,20 @@ export class GenerationBailianClientService {
         n: task.requested_image_count, prompt_extend: Boolean(task.prompt_extend), watermark: false },
     };
     let response: Response;
-    let body: string;
     try {
       response = await fetch(this.endpoint, { method: "POST", headers: { "content-type": "application/json",
         authorization: `Bearer ${this.apiKey}`, "x-dashscope-wait-timeout": "30" }, body: JSON.stringify(request),
         signal: AbortSignal.timeout(this.readTimeoutMs) });
+    } catch (error) {
+      throw new BailianTransportError(error, definitelyUnsent(error));
+    }
+    let body: string;
+    try {
       body = await response.text();
-    } catch (error) { throw new BailianConnectionError(error); }
+    } catch (error) {
+      // Response headers prove that the request crossed the Provider boundary.
+      throw new BailianTransportError(error, false);
+    }
     const parsed = parseResponse(body);
     if (!response.ok) throw providerError(response.status, parsed);
     const result = resultFrom(parsed, body);
@@ -111,3 +118,21 @@ function resultFrom(response: any, snapshot: string): BailianProviderResult {
 
 function stringOrNull(value: unknown) { return typeof value === "string" && value.trim() ? value : null; }
 function integerOrNull(value: unknown) { return typeof value === "number" && Number.isInteger(value) ? value : null; }
+
+const DEFINITELY_UNSENT_CODES = new Set([
+  "ENOTFOUND", "EAI_AGAIN", "ECONNREFUSED", "UND_ERR_CONNECT_TIMEOUT",
+  "ERR_TLS_CERT_ALTNAME_INVALID", "CERT_HAS_EXPIRED", "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+  "DEPTH_ZERO_SELF_SIGNED_CERT", "SELF_SIGNED_CERT_IN_CHAIN",
+]);
+
+function definitelyUnsent(error: unknown): boolean {
+  let current = error;
+  const visited = new Set<unknown>();
+  while (typeof current === "object" && current !== null && !visited.has(current)) {
+    visited.add(current);
+    const code = Reflect.get(current, "code");
+    if (typeof code === "string" && DEFINITELY_UNSENT_CODES.has(code)) return true;
+    current = Reflect.get(current, "cause");
+  }
+  return false;
+}

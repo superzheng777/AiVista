@@ -117,16 +117,16 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
         queryClient.refetchQueries({ queryKey: generationQueryKeys.sessions(), type: "active" }),
         queryClient.refetchQueries({ queryKey: generationQueryKeys.turns(event.sessionId), type: "active" }),
       ]).finally(() => setAgentRuns((current) => {
-        if (!(event.creationTaskId in current)) return current;
+        if (!(event.creationId in current)) return current;
         const next = { ...current };
-        delete next[event.creationTaskId];
+        delete next[event.creationId];
         return next;
       }));
       return;
     }
     setAgentRuns((current) => {
-      const next = applyAgentRealtimeEvent(current[event.creationTaskId], event);
-      return next === current[event.creationTaskId] ? current : { ...current, [event.creationTaskId]: next };
+      const next = applyAgentRealtimeEvent(current[event.creationId], event);
+      return next === current[event.creationId] ? current : { ...current, [event.creationId]: next };
     });
     if (event.eventType === "RUN_STARTED") {
       // The transient event can arrive before the POST success handler has loaded the new Creation.

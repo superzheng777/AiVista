@@ -1,6 +1,7 @@
 package com.superz.aivista.generation.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -11,6 +12,10 @@ import com.superz.aivista.generation.mapper.ConversationMessageMapper;
 import com.superz.aivista.generation.mapper.CreationTaskInputAssetMapper;
 import com.superz.aivista.generation.mapper.CreationTaskMapper;
 import com.superz.aivista.generation.mapper.ImageAssetMapper;
+import com.superz.aivista.generation.mapper.AgentSessionContextMapper;
+import com.superz.aivista.common.exception.BusinessException;
+import com.superz.aivista.common.exception.ErrorCode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -21,6 +26,7 @@ class AgentExecutionSnapshotServiceTests {
         ConversationMessageMapper messages = mock(ConversationMessageMapper.class);
         CreationTaskInputAssetMapper inputs = mock(CreationTaskInputAssetMapper.class);
         ImageAssetMapper assets = mock(ImageAssetMapper.class);
+        AgentSessionContextMapper contexts = mock(AgentSessionContextMapper.class);
         CreationTask creation = new CreationTask();
         creation.setId(151L);
         creation.setSessionId(101L);
@@ -32,22 +38,22 @@ class AgentExecutionSnapshotServiceTests {
         ConversationMessage user = new ConversationMessage();
         user.setContent("把这张图改成海报");
         user.setSequenceNo(5);
-        ConversationMessage previousUser = history("USER", "上一轮请求", 3);
-        ConversationMessage previousAssistant = history("ASSISTANT", "上一轮结果", 4);
         ImageAsset generated = asset(501L, "GENERATED", "users/7/tasks/20/0", "image/png");
         ImageAsset uploaded = asset(502L, "UPLOADED", "users/7/uploads/x/original.jpg", "image/jpeg");
         when(creations.selectSnapshotById(151L)).thenReturn(creation);
         when(messages.selectUserByCreationTaskId(151L)).thenReturn(user);
-        when(messages.selectRecentBeforeSequence(101L, 5, 12))
-                .thenReturn(new java.util.ArrayList<>(List.of(previousAssistant, previousUser)));
+        when(contexts.selectContextJson(101L)).thenReturn(
+                "{\"schemaVersion\":1,\"compaction\":null,\"messages\":[{\"role\":\"user\",\"content\":\"上一轮请求\"}]}");
         when(inputs.selectAssetIdsByCreationTaskId(151L)).thenReturn(List.of(502L, 501L));
         when(assets.selectByAssetIds(List.of(502L, 501L))).thenReturn(List.of(generated, uploaded));
 
-        var snapshot = new AgentExecutionSnapshotService(creations, messages, inputs, assets).get(151L);
+        var snapshot = new AgentExecutionSnapshotService(creations, messages, inputs, assets,
+                contexts, new ObjectMapper()).get(151L);
 
         assertThat(snapshot.prompt()).isEqualTo("把这张图改成海报");
-        assertThat(snapshot.history()).extracting(item -> item.role() + ":" + item.content())
-                .containsExactly("USER:上一轮请求", "ASSISTANT:上一轮结果");
+        assertThat(snapshot.contractVersion()).isEqualTo(2);
+        assertThat(snapshot.agentContext().path("messages").get(0).path("content").asText())
+                .isEqualTo("上一轮请求");
         assertThat(snapshot.inputAssets()).extracting(asset -> asset.assetId())
                 .containsExactly("502", "501");
         assertThat(snapshot.inputAssets().get(0).objectKey()).isEqualTo("users/7/uploads/x/original.jpg");
@@ -58,12 +64,49 @@ class AgentExecutionSnapshotServiceTests {
         assertThat(snapshot.constraints().imageCount()).isEqualTo(3);
     }
 
-    private static ConversationMessage history(String role, String content, int sequence) {
-        ConversationMessage message = new ConversationMessage();
-        message.setRole(role);
-        message.setContent(content);
-        message.setSequenceNo(sequence);
-        return message;
+    @Test
+    void resolvesOnlyAnImageAuthorizedByTheCurrentRunningAgentSession() {
+        CreationTaskMapper creations = mock(CreationTaskMapper.class);
+        ConversationMessageMapper messages = mock(ConversationMessageMapper.class);
+        CreationTaskInputAssetMapper inputs = mock(CreationTaskInputAssetMapper.class);
+        ImageAssetMapper assets = mock(ImageAssetMapper.class);
+        AgentSessionContextMapper contexts = mock(AgentSessionContextMapper.class);
+        CreationTask creation = creation();
+        ImageAsset generated = asset(701L, "GENERATED", "users/7/tasks/31/0", "image/png");
+        when(creations.selectSnapshotById(151L)).thenReturn(creation);
+        when(assets.selectReadableByAgentSession(701L, 7L, 101L)).thenReturn(generated);
+
+        var result = new AgentExecutionSnapshotService(creations, messages, inputs, assets,
+                contexts, new ObjectMapper()).resolveImage(151L, 3L, 701L);
+
+        assertThat(result.assetId()).isEqualTo("701");
+        assertThat(result.objectKey()).isEqualTo("users/7/tasks/31/0/display.webp");
+        assertThat(result.contentType()).isEqualTo("image/webp");
+    }
+
+    @Test
+    void rejectsImageResolutionAfterTheAgentRevisionChanges() {
+        CreationTaskMapper creations = mock(CreationTaskMapper.class);
+        CreationTask creation = creation();
+        when(creations.selectSnapshotById(151L)).thenReturn(creation);
+        var service = new AgentExecutionSnapshotService(creations, mock(ConversationMessageMapper.class),
+                mock(CreationTaskInputAssetMapper.class), mock(ImageAssetMapper.class),
+                mock(AgentSessionContextMapper.class), new ObjectMapper());
+
+        assertThatThrownBy(() -> service.resolveImage(151L, 2L, 701L))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        error -> assertThat(error.getErrorCode()).isEqualTo(ErrorCode.AGENT_CREATION_NOT_RUNNING));
+    }
+
+    private static CreationTask creation() {
+        CreationTask creation = new CreationTask();
+        creation.setId(151L);
+        creation.setUserId(7L);
+        creation.setSessionId(101L);
+        creation.setMode("AGENT");
+        creation.setStatus("RUNNING");
+        creation.setRevision(3L);
+        return creation;
     }
 
     private static ImageAsset asset(long id, String origin, String key, String contentType) {

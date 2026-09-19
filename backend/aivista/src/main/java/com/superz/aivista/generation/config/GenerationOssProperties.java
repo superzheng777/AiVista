@@ -12,6 +12,7 @@ public record GenerationOssProperties(
         String accessKeySecret,
         String objectPrefix,
         Duration signedUrlTtl,
+        Duration originalSignedUrlTtl,
         Duration uploadConnectTimeout,
         Duration uploadReadTimeout) {
 
@@ -22,6 +23,7 @@ public record GenerationOssProperties(
         requireConfigured("app.generation.oss.access-key-secret", accessKeySecret);
         requireConfigured("app.generation.oss.object-prefix", objectPrefix);
         requirePositive("app.generation.oss.signed-url-ttl", signedUrlTtl);
+        requirePositive("app.generation.oss.original-signed-url-ttl", originalSignedUrlTtl);
         requirePositive("app.generation.oss.upload-connect-timeout", uploadConnectTimeout);
         requirePositive("app.generation.oss.upload-read-timeout", uploadReadTimeout);
     }

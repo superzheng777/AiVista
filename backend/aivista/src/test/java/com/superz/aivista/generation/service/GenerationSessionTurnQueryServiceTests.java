@@ -48,10 +48,9 @@ class GenerationSessionTurnQueryServiceTests {
         when(taskMapper.selectByCreationTaskIds(List.of(22L, 23L))).thenReturn(List.of(task2, task3, task4));
         CreationActivity activity = new CreationActivity();
         activity.setCreationTaskId(23L);
-        activity.setActivityKey("tool:call-1");
         activity.setSequenceNo(1);
         activity.setActivityType("TOOL");
-        activity.setState("COMPLETED");
+        activity.setOutcome("COMPLETED");
         activity.setContent("文生图已完成。");
         when(activityMapper.selectByCreationTaskIds(List.of(22L, 23L))).thenReturn(List.of(activity));
         when(imageMapper.selectByOriginTaskIds(List.of(302L, 303L, 304L))).thenReturn(List.of());
@@ -68,12 +67,12 @@ class GenerationSessionTurnQueryServiceTests {
         assertThat(response.items().getFirst().assistantMessage().role()).isEqualTo("ASSISTANT");
         assertThat(response.items().getLast().assistantMessage()).isNull();
         assertThat(response.items().getLast().normalGenerationRequest()).isNull();
-        assertThat(response.items()).extracting(item -> item.generations().getFirst().taskId())
+        assertThat(response.items()).extracting(item -> item.generations().getFirst().generationTaskId())
                 .containsExactly("302", "303");
-        assertThat(response.items().getLast().generations()).extracting(GenerationTaskSnapshotResponse::taskId)
+        assertThat(response.items().getLast().generations()).extracting(GenerationTaskSnapshotResponse::generationTaskId)
                 .containsExactly("303", "304");
-        assertThat(response.items().getLast().activities()).extracting(item -> item.activityKey())
-                .containsExactly("tool:call-1");
+        assertThat(response.items().getLast().activities()).extracting(item -> item.outcome())
+                .containsExactly("COMPLETED");
         verify(taskMapper).selectByCreationTaskIds(List.of(22L, 23L));
         verify(imageMapper).selectByOriginTaskIds(List.of(302L, 303L, 304L));
     }

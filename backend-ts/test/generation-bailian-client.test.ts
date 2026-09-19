@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { GenerationBailianClientService } from "../src/generation/generation-bailian-client.service.js";
-import { BailianConnectionError, BailianProviderError } from "../src/generation/generation-provider-error.js";
+import { BailianProviderError, BailianTransportError } from "../src/generation/generation-provider-error.js";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -27,9 +27,27 @@ describe("generation Bailian client", () => {
     });
   });
 
-  it("classifies fetch and response-body failures as connection failures", async () => {
+  it("does not retry an ambiguous fetch failure", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("fetch failed")));
-    await expect(createClient([], []).generate(task())).rejects.toBeInstanceOf(BailianConnectionError);
+    await expect(createClient([], []).generate(task())).rejects.toMatchObject({
+      name: "BailianTransportError", requestDefinitelyUnsent: false,
+    });
+  });
+
+  it("only marks known pre-connect failures as definitely unsent", async () => {
+    const error = new TypeError("fetch failed", { cause: Object.assign(new Error("dns"), { code: "ENOTFOUND" }) });
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(error));
+    await expect(createClient([], []).generate(task())).rejects.toMatchObject({
+      name: "BailianTransportError", requestDefinitelyUnsent: true,
+    });
+  });
+
+  it("treats a response-body failure as an unknown Provider outcome", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true, status: 200, text: vi.fn().mockRejectedValue(new Error("socket closed")),
+    }));
+    await expect(createClient([], []).generate(task())).rejects.toSatisfy((error) =>
+      error instanceof BailianTransportError && !error.requestDefinitelyUnsent);
   });
 
   it("rejects malformed success responses and mismatched image counts", async () => {
@@ -56,8 +74,9 @@ function response(status: number, body: unknown) { return new Response(JSON.stri
 function successBody() { return { request_id: "req-1", output: { choices: [{ finish_reason: "stop", message: { content: [
   { image: "https://provider/image.png" }, { text: "ignored" },
 ] } }] }, usage: { output_image_count: 1, output_width: 2048, output_height: 2048 } }; }
-function task() { return { id: 301n, user_id: 7n, session_id: 1n, creation_task_id: 1n, operation: "TEXT_TO_IMAGE",
-  model: "bailian/qwen-image-2.0", status: "QUEUED", task_version: 0, attempt_count: 0,
+function task() { return { id: 301n, user_id: 7n, session_id: 1n, creation_task_id: 1n,
+  tool_call_id: null, operation: "TEXT_TO_IMAGE",
+  model: "bailian/qwen-image-2.0", status: "QUEUED", revision: 0, attempt_count: 0,
   final_prompt: "a city", final_negative_prompt: null, width: 2048, height: 2048,
   prompt_extend: true, requested_image_count: 1, completed_image_count: 0, quota_refunded_at: null,
   provider_request_id: null, failure_code: null, created_at: new Date(), updated_at: new Date(),

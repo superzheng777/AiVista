@@ -41,18 +41,18 @@ public class GenerationQueuedTaskFailureService {
     /**
      * 仅当任务仍处于 {@code QUEUED} 时收敛失败。
      *
-     * <p>{@code expectedTaskVersion} 非空时，还会校验事件对应的任务版本，防止过期 Outbox
+     * <p>{@code expectedRevision} 非空时，还会校验事件对应的任务修订号，防止过期 Outbox
      * 事件错误地终止已发生后续状态变化的任务。</p>
      */
-    private boolean failIfStillQueued(long taskId, Integer expectedTaskVersion,
+    private boolean failIfStillQueued(long taskId, Integer expectedRevision,
             GenerationFailureCode failureCode, Instant now) {
         GenerationTask task = taskMapper.selectByIdForUpdate(taskId);
         if (task == null || !"QUEUED".equals(task.getStatus())
-                || (expectedTaskVersion != null && !expectedTaskVersion.equals(task.getTaskVersion()))) {
+                || (expectedRevision != null && !expectedRevision.equals(task.getRevision()))) {
             return false;
         }
 
-        if (taskMapper.failQueued(taskId, task.getTaskVersion(), failureCode.name(), now, now) != 1) {
+        if (taskMapper.failQueued(taskId, task.getRevision(), failureCode.name(), now, now) != 1) {
             return false;
         }
         // null意味着任务未被退回过额度
@@ -69,7 +69,7 @@ public class GenerationQueuedTaskFailureService {
             }
         }
         outboxEventMapper.insertSelective(GenerationStatusOutboxEvent.create(
-                task.getId(), task.getTaskVersion() + 1, GenerationTaskStatus.FAILED.name(),
+                task.getId(), task.getRevision() + 1, GenerationTaskStatus.FAILED.name(),
                 task.getAttemptCount() == null ? 0 : task.getAttemptCount(), now));
     }
 
@@ -80,9 +80,9 @@ public class GenerationQueuedTaskFailureService {
      * 已进入终态时，不会覆盖任务当前状态。</p>
      */
     @Transactional
-    public void failDelivery(long eventId, long taskId, int taskVersion, Instant now, String error) {
+    public void failDelivery(long eventId, long taskId, int revision, Instant now, String error) {
         if (outboxEventMapper.markFailed(eventId, error) == 1) {
-            failIfStillQueued(taskId, taskVersion, GenerationFailureCode.QUEUE_DELIVERY_FAILED, now);
+            failIfStillQueued(taskId, revision, GenerationFailureCode.QUEUE_DELIVERY_FAILED, now);
         }
     }
 }

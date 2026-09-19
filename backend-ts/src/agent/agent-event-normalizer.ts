@@ -1,5 +1,5 @@
 import type { AgentRuntimeEvent } from "./agent-runtime.js";
-import { selectedSkillName } from "./agent-activity.js";
+import { selectedSkillName, toolOutcome, userFacingPlan } from "./agent-event-utils.js";
 
 export type AgentRealtimeEvent =
   | { eventType: "RUN_STARTED"; payload: Record<string, never> }
@@ -40,12 +40,11 @@ export class AgentEventNormalizer {
     }
   }
 
-  start(): void {
-    this.options.emit({ eventType: "RUN_STARTED", payload: {} });
-  }
-
   accept(event: AgentRuntimeEvent): void {
     switch (event.type) {
+      case "agent_start":
+        this.options.emit({ eventType: "RUN_STARTED", payload: {} });
+        return;
       case "turn_start":
         this.hasTurnNarration = false;
         return;
@@ -135,12 +134,6 @@ export class AgentEventNormalizer {
   }
 }
 
-function userFacingPlan(args: unknown): string | null {
-  if (!args || typeof args !== "object") return null;
-  const value = Reflect.get(args, "userFacingPlan");
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
 function splitUtf8(value: string, maxBytes: number): string[] {
   const chunks: string[] = [];
   let chunk = "";
@@ -157,13 +150,4 @@ function splitUtf8(value: string, maxBytes: number): string[] {
   }
   if (chunk) chunks.push(chunk);
   return chunks;
-}
-
-function toolOutcome(event: Extract<AgentRuntimeEvent, { type: "tool_end" }>): "SUCCEEDED" | "FAILED" {
-  if (event.isError) return "FAILED";
-  const result = event.result;
-  if (typeof result !== "object" || result === null) return "SUCCEEDED";
-  const details = Reflect.get(result, "details");
-  return typeof details === "object" && details !== null && Reflect.get(details, "outcome") === "FAILED"
-    ? "FAILED" : "SUCCEEDED";
 }

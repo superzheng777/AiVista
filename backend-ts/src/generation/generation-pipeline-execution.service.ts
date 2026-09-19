@@ -8,7 +8,7 @@ import { GenerationCompletionClientService } from "./generation-completion-clien
 import { generationCompleted, generationFailed, type GenerationCompletion } from "./generation-completion.js";
 import { GenerationImageTransferService } from "./generation-image-transfer.service.js";
 import { GenerationPipelineStateService } from "./generation-pipeline-state.service.js";
-import { BailianConnectionError, BailianProviderError, providerFailureCode } from "./generation-provider-error.js";
+import { BailianProviderError, BailianTransportError, providerFailureCode } from "./generation-provider-error.js";
 import { GenerationProviderCallGateService } from "./generation-provider-call-gate.service.js";
 import type { TaskExecuteMessage } from "./generation-task-message.js";
 import { GenerationCompletionCoordinatorService } from "./generation-completion-coordinator.service.js";
@@ -27,7 +27,7 @@ export class GenerationPipelineExecutionService {
   }
 
   async execute(message: TaskExecuteMessage, signal?: AbortSignal): Promise<boolean> {
-    const executionKey = `${message.taskId}:${message.taskVersion}`;
+    const executionKey = `${message.generationTaskId}:${message.expectedRevision}`;
     // The outbox is at-least-once. A concurrently delivered duplicate must not
     // interpret this instance's in-flight provider call as a crashed call.
     if (this.active.has(executionKey)) return true;
@@ -38,27 +38,30 @@ export class GenerationPipelineExecutionService {
 
   private async executeOnce(message: TaskExecuteMessage, signal?: AbortSignal): Promise<boolean> {
     const plan = await this.state.prepare(message);
-    if (plan.kind === "ACK") return true;
-    if (plan.kind === "TERMINAL") {
-      this.completionCoordinator.complete(await this.java.getCompletion(message.taskId));
-      return true;
+    if (plan.kind === "IGNORE_MESSAGE") return true;
+    if (plan.kind === "DELIVER_COMMITTED_RESULT") return this.deliverCommitted(message.generationTaskId);
+    if (plan.kind === "FAIL_INTERRUPTED_PIPELINE") {
+      this.logger.warn(`Generation pipeline was interrupted for task ${message.generationTaskId}`);
+      return this.commit(generationFailed(message.generationTaskId, plan.task.revision,
+        "PROVIDER_CALL_OUTCOME_UNKNOWN", plan.task.provider_request_id));
     }
-    const generating = await this.java.reportPhase(message.taskId, "GENERATING", signal);
-    if (terminal(generating.status)) return true;
+    const generating = await this.java.reportPhase(message.generationTaskId, "GENERATING", signal);
+    if (terminal(generating.status)) return this.deliverCommitted(message.generationTaskId);
     let provider;
     try {
       provider = await this.generateWithRetry(plan.task, signal);
     } catch (error) {
       if (isAbort(error)) return false;
       const code = error instanceof BailianProviderError ? providerFailureCode(error)
-        : error instanceof BailianConnectionError ? "PROVIDER_CONNECTION_FAILED" : "PROVIDER_CALL_OUTCOME_UNKNOWN";
-      this.logger.warn(`Generation pipeline provider failed for task ${message.taskId}: ${errorName(error)}`);
-      return this.commit(generationFailed(message.taskId, generating.taskVersion + 1, code,
+        : error instanceof BailianTransportError && error.requestDefinitelyUnsent
+          ? "PROVIDER_CONNECTION_FAILED" : "PROVIDER_CALL_OUTCOME_UNKNOWN";
+      this.logger.warn(`Generation pipeline provider failed for task ${message.generationTaskId}: ${errorName(error)}`);
+      return this.commit(generationFailed(message.generationTaskId, generating.revision, code,
         error instanceof BailianProviderError ? error.requestId : null));
     }
-    const saving = await this.java.reportPhase(message.taskId, "SAVING", signal);
-    if (terminal(saving.status)) return true;
-    return this.transferAndCommit(message.taskId, saving.taskVersion + 1, plan.task,
+    const saving = await this.java.reportPhase(message.generationTaskId, "SAVING", signal);
+    if (terminal(saving.status)) return this.deliverCommitted(message.generationTaskId);
+    return this.transferAndCommit(message.generationTaskId, saving.revision, plan.task,
       provider.requestId, provider.snapshot);
   }
 
@@ -82,6 +85,11 @@ export class GenerationPipelineExecutionService {
     return true;
   }
 
+  private async deliverCommitted(taskId: bigint): Promise<boolean> {
+    this.completionCoordinator.complete(await this.java.getCompletion(taskId));
+    return true;
+  }
+
   private async generateWithRetry(task: Selectable<GenerationTaskTable>, signal?: AbortSignal) {
     for (let attempt = 0; ; attempt++) {
       let release: (() => void) | undefined;
@@ -97,7 +105,7 @@ export class GenerationPipelineExecutionService {
 }
 
 function retryable(error: unknown) {
-  if (error instanceof BailianConnectionError) return true;
+  if (error instanceof BailianTransportError) return error.requestDefinitelyUnsent;
   return error instanceof BailianProviderError
     && ["PROVIDER_RATE_LIMITED", "PROVIDER_SERVICE_UNAVAILABLE"].includes(providerFailureCode(error));
 }

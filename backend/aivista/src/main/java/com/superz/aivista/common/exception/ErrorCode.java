@@ -20,7 +20,7 @@ public enum ErrorCode {
     GENERATION_CONSENT_VERSION_OUTDATED(40902, "第三方数据处理规则已更新，请重新确认", HttpStatus.CONFLICT),
     GENERATION_CONSENT_REQUIRED(40903, "请先确认第三方数据处理规则", HttpStatus.CONFLICT),
     USER_GENERATION_CONCURRENCY_LIMIT(40905, "未完成的生成任务数量已达上限", HttpStatus.CONFLICT),
-    IDEMPOTENCY_KEY_CONFLICT(40906, "幂等键与此前请求不一致", HttpStatus.CONFLICT),
+    AGENT_TOOL_CALL_CONFLICT(40906, "Agent 工具调用与已创建任务不一致", HttpStatus.CONFLICT),
     AGENT_CREATION_NOT_RUNNING(40907, "创作已经结束，无法取消", HttpStatus.CONFLICT),
     SESSION_CREATION_IN_PROGRESS(40908, "当前会话已有创作正在进行", HttpStatus.CONFLICT),
     GENERATION_RESOURCE_NOT_FOUND(40401, "生成资源不存在", HttpStatus.NOT_FOUND),

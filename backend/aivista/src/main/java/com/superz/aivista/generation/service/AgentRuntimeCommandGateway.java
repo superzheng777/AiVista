@@ -33,7 +33,7 @@ public class AgentRuntimeCommandGateway {
             synchronized (session) {
                 session.sendMessage(new TextMessage(json.writeValueAsString(Map.of(
                         "type", "CANCEL",
-                        "creationTaskId", Long.toString(creationTaskId),
+                        "creationId", Long.toString(creationTaskId),
                         "revision", revision))));
             }
             return true;

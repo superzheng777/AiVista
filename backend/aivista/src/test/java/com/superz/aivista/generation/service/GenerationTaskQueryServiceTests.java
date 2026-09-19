@@ -38,12 +38,13 @@ class GenerationTaskQueryServiceTests {
         when(taskMapper.selectOwnedById(7L, 301L)).thenReturn(task);
         when(imageMapper.selectByOriginTaskId(301L)).thenReturn(List.of(image));
         when(ossClient.generatePresignedUrl(org.mockito.ArgumentMatchers.eq("private-bucket"),
-                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.eq(java.util.Date.from(NOW.plusSeconds(600)))))
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.eq(java.util.Date.from(NOW.plus(Duration.ofDays(1))))))
                 .thenAnswer(invocation -> new URL("https://oss.example/" + invocation.getArgument(1)));
 
         GenerationTaskSnapshotResponse response = service(taskMapper, imageMapper, ossClient).get(7L, 301L);
 
-        assertThat(response.taskId()).isEqualTo("301");
+        assertThat(response.generationTaskId()).isEqualTo("301");
         assertThat(response.sessionId()).isEqualTo("201");
         assertThat(response.failedImageCount()).isZero();
         assertThat(response.images()).singleElement().satisfies(result -> {
@@ -51,7 +52,7 @@ class GenerationTaskQueryServiceTests {
             assertThat(result.sourceIndex()).isZero();
             assertThat(result.imageUrls().thumbnail().url()).endsWith("/card.webp");
             assertThat(result.imageUrls().display().url()).endsWith("/display.webp");
-            assertThat(result.imageUrls().display().expiresAt()).isEqualTo(NOW.plusSeconds(600));
+            assertThat(result.imageUrls().display().expiresAt()).isEqualTo(NOW.plus(Duration.ofDays(1)));
             assertThat(result.generationConfig().width()).isEqualTo(2048);
         });
         verify(imageMapper).selectByOriginTaskId(301L);
@@ -110,7 +111,7 @@ class GenerationTaskQueryServiceTests {
             ImageAssetMapper imageMapper, OSS ossClient) {
         return new GenerationTaskQueryService(taskMapper, imageMapper, ossClient,
                 new GenerationOssProperties("oss.example", "private-bucket", "key-id", "key-secret", "users",
-                        Duration.ofMinutes(10), Duration.ofSeconds(5), Duration.ofSeconds(60)),
+                        Duration.ofDays(1), Duration.ofMinutes(10), Duration.ofSeconds(5), Duration.ofSeconds(60)),
                 new GenerationBailianProperties(3),
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
@@ -121,7 +122,7 @@ class GenerationTaskQueryServiceTests {
         task.setUserId(7L);
         task.setSessionId(201L);
         task.setStatus(status);
-        task.setTaskVersion(4);
+        task.setRevision(4);
         task.setRequestedImageCount(1);
         task.setCompletedImageCount(0);
         task.setWidth(2048);

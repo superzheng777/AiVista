@@ -41,7 +41,7 @@ class InspirationQueryServiceTests {
         assertThat(response).singleElement().satisfies(item -> {
             assertThat(item.imageId()).isEqualTo("11");
             assertThat(item.title()).isEqualTo("Published title");
-            assertThat(item.imageUrls().thumbnail().expiresAt()).isEqualTo(NOW.plusSeconds(600));
+            assertThat(item.imageUrls().thumbnail().expiresAt()).isEqualTo(NOW.plus(Duration.ofDays(1)));
         });
         verify(images).selectPublishedByUserId(7L);
     }
@@ -133,7 +133,7 @@ class InspirationQueryServiceTests {
             OSS oss) {
         return new InspirationQueryService(images, likes, oss,
                 new GenerationOssProperties("oss.example", "private-bucket", "id", "secret", "users",
-                        Duration.ofMinutes(10), Duration.ofSeconds(5), Duration.ofSeconds(60)),
+                        Duration.ofDays(1), Duration.ofMinutes(10), Duration.ofSeconds(5), Duration.ofSeconds(60)),
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 

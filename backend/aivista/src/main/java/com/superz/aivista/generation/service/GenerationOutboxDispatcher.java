@@ -112,9 +112,8 @@ public class GenerationOutboxDispatcher {
 
     private Message taskMessage(OutboxEvent event) throws JsonProcessingException {
         Object command = switch (OutboxEventType.valueOf(event.getEventType())) {
-            case AGENT_EXECUTE -> new AgentExecuteMessage(
-                    event.getId(), event.getAggregateId(), event.getAggregateVersion());
-            case GENERATION_TASK_EXECUTE -> new TaskExecuteMessage(event.getId(), event.getAggregateId(),
+            case AGENT_EXECUTE -> new AgentExecuteMessage(event.getAggregateId(), event.getAggregateVersion());
+            case GENERATION_TASK_EXECUTE -> new TaskExecuteMessage(event.getAggregateId(),
                     Math.toIntExact(event.getAggregateVersion()));
             default -> throw new IllegalArgumentException("Unsupported command event " + event.getEventType());
         };

@@ -3,9 +3,8 @@ import type { TransferredImage } from "./generation-image-transfer.service.js";
 
 interface CompletionBase {
   contractVersion: 1;
-  completionId: string;
-  taskId: string;
-  taskVersion: number;
+  generationTaskId: string;
+  expectedRevision: number;
 }
 
 export type GenerationCompletion = GenerationCompleted | GenerationFailed;
@@ -30,18 +29,17 @@ export interface GenerationFailed extends CompletionBase {
   providerRequestId: string | null;
 }
 
-export function generationCompleted(taskId: bigint, taskVersion: number, providerRequestId: string | null,
+export function generationCompleted(generationTaskId: bigint, expectedRevision: number, providerRequestId: string | null,
   expectedImageCount: number, images: TransferredImage[]): GenerationCompleted {
-  return { ...base(taskId, taskVersion), outcome: "COMPLETED", providerRequestId, expectedImageCount,
+  return { ...base(generationTaskId, expectedRevision), outcome: "COMPLETED", providerRequestId, expectedImageCount,
     images: images.map((image) => ({ ...image, contentType: "image/png", fileSize: image.fileSize.toString() })) };
 }
 
-export function generationFailed(taskId: bigint, taskVersion: number, failureCode: GenerationFailureCode,
+export function generationFailed(generationTaskId: bigint, expectedRevision: number, failureCode: GenerationFailureCode,
   providerRequestId: string | null = null): GenerationFailed {
-  return { ...base(taskId, taskVersion), outcome: "FAILED", failureCode, providerRequestId };
+  return { ...base(generationTaskId, expectedRevision), outcome: "FAILED", failureCode, providerRequestId };
 }
 
-function base(taskId: bigint, taskVersion: number): CompletionBase {
-  return { contractVersion: 1, completionId: `generation-${taskId}-${taskVersion}`,
-    taskId: taskId.toString(), taskVersion };
+function base(generationTaskId: bigint, expectedRevision: number): CompletionBase {
+  return { contractVersion: 1, generationTaskId: generationTaskId.toString(), expectedRevision };
 }

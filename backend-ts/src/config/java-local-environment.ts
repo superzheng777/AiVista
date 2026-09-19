@@ -63,6 +63,7 @@ export function loadJavaLocalEnvironment(path: string | undefined, processEnviro
   set("AIVISTA_OSS_ACCESS_KEY_SECRET", value("app.generation.oss.access-key-secret"));
   set("AIVISTA_OSS_OBJECT_PREFIX", value("app.generation.oss.object-prefix"));
   set("AIVISTA_OSS_SIGNED_URL_TTL_SECONDS", durationSeconds(value("app.generation.oss.signed-url-ttl")));
+  set("AIVISTA_OSS_ORIGINAL_SIGNED_URL_TTL_SECONDS", durationSeconds(value("app.generation.oss.original-signed-url-ttl")));
   set("AIVISTA_TRANSFER_SOURCE_READ_TIMEOUT_MS", durationMs(value("app.generation.image-transfer.source-read-timeout")));
   return output;
 }

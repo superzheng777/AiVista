@@ -27,14 +27,14 @@ class AgentRuntimeWebSocketHandlerTests {
         handler.handleTextMessage(session,
                 new TextMessage("{\"type\":\"HELLO\",\"contractVersion\":1,\"token\":\"worker-secret\"}"));
         handler.handleTextMessage(session, new TextMessage("""
-                {"type":"EVENT","event":{"creationTaskId":31,"revision":4,"eventType":"TEXT_DELTA",
+                {"type":"EVENT","event":{"creationId":31,"revision":4,"eventType":"TEXT_DELTA",
                 "payload":{"contentIndex":0,"delta":"构图"}}}
                 """));
 
         assertThat(session.getAttributes()).containsEntry(AgentRuntimeWebSocketHandler.AUTHENTICATED, true);
         verify(session).sendMessage(new TextMessage("{\"type\":\"READY\",\"contractVersion\":1}"));
         verify(commands).register(session);
-        verify(projection).publish(Mockito.argThat(event -> event.creationTaskId() == 31L
+        verify(projection).publish(Mockito.argThat(event -> event.creationId() == 31L
                 && "构图".equals(event.payload().get("delta"))));
     }
 

@@ -39,7 +39,7 @@ describe("JavaAgentRealtimeClient", () => {
     socket.fire("message", { data: '{"type":"READY","contractVersion":1}' });
     expect(client.publish("31", 4, { eventType: "TEXT_DELTA",
       payload: { contentIndex: 0, delta: "构图" } })).toBe(true);
-    expect(JSON.parse(socket.sent[1]!)).toEqual({ type: "EVENT", event: { creationTaskId: "31",
+    expect(JSON.parse(socket.sent[1]!)).toEqual({ type: "EVENT", event: { creationId: "31",
       revision: 4, eventType: "TEXT_DELTA", payload: { contentIndex: 0, delta: "构图" } } });
     client.onModuleDestroy();
   });
@@ -59,10 +59,10 @@ describe("JavaAgentRealtimeClient", () => {
     socket.readyState = 1;
     socket.fire("open");
     socket.fire("message", { data: '{"type":"READY","contractVersion":1}' });
-    socket.fire("message", { data: '{"type":"CANCEL","creationTaskId":"31","revision":5}' });
+    socket.fire("message", { data: '{"type":"CANCEL","creationId":"31","revision":5}' });
 
     expect(controls).toEqual([{ type: "READY" },
-      { type: "CANCEL", creationTaskId: "31", revision: 5 }]);
+      { type: "CANCEL", creationId: "31", revision: 5 }]);
     client.onModuleDestroy();
   });
 

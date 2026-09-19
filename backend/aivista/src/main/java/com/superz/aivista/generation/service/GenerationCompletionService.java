@@ -45,11 +45,11 @@ public class GenerationCompletionService {
     @Transactional
     public GenerationCompletionResponse complete(GenerationCompletionCommand command) {
         validateCommand(command);
-        long taskId = Long.parseLong(command.taskId());
+        long taskId = Long.parseLong(command.generationTaskId());
         Instant now = clock.instant();
         GenerationTask task = requireTask(taskId);
         if (terminal(task.getStatus())) return response(task);
-        if (!active(task.getStatus()) || task.getTaskVersion() + 1 != command.taskVersion()) {
+        if (!active(task.getStatus()) || task.getRevision() != command.expectedRevision()) {
             throw new IllegalArgumentException("Generation completion does not own the current task version");
         }
         if ("FAILED".equals(command.outcome())) {
@@ -119,11 +119,11 @@ public class GenerationCompletionService {
         String failure = "SUCCEEDED".equals(status) ? null : completed.isEmpty()
                 ? GenerationFailureCode.IMAGE_TRANSFER_FAILED.name()
                 : GenerationFailureCode.IMAGE_TRANSFER_PARTIAL_FAILURE.name();
-        if (tasks.completeActivePipeline(task.getId(), task.getTaskVersion(), status, completed.size(), failure,
+        if (tasks.completeActivePipeline(task.getId(), task.getRevision(), status, completed.size(), failure,
                 command.providerRequestId(), now) != 1) {
             throw new IllegalStateException("Cannot complete generation task " + task.getId());
         }
-        outbox.insertSelective(GenerationStatusOutboxEvent.create(task.getId(), task.getTaskVersion() + 1,
+        outbox.insertSelective(GenerationStatusOutboxEvent.create(task.getId(), task.getRevision() + 1,
                 status, retryCount(task), now));
     }
 
@@ -135,11 +135,11 @@ public class GenerationCompletionService {
                 task.getRequestedImageCount(), now) != 1) {
             throw new IllegalStateException("Generation quota refund record is missing for task " + task.getId());
         }
-        if (tasks.failActivePipeline(task.getId(), task.getTaskVersion(), failure.name(), command.providerRequestId(),
+        if (tasks.failActivePipeline(task.getId(), task.getRevision(), failure.name(), command.providerRequestId(),
                 refund ? now : null, now) != 1) {
             throw new IllegalStateException("Cannot fail generation task " + task.getId());
         }
-        outbox.insertSelective(GenerationStatusOutboxEvent.create(task.getId(), task.getTaskVersion() + 1,
+        outbox.insertSelective(GenerationStatusOutboxEvent.create(task.getId(), task.getRevision() + 1,
                 "FAILED", retryCount(task), now));
     }
 
@@ -148,7 +148,7 @@ public class GenerationCompletionService {
                 .map(asset -> new GenerationCompletionResponse.CompletedAsset(asset.getId().toString(),
                         asset.getSourceIndex(), asset.getWidth(), asset.getHeight()))
                 .toList();
-        return new GenerationCompletionResponse(task.getId().toString(), task.getStatus(), task.getTaskVersion(),
+        return new GenerationCompletionResponse(task.getId().toString(), task.getStatus(), task.getRevision(),
                 task.getFailureCode(), assets);
     }
 
@@ -159,10 +159,8 @@ public class GenerationCompletionService {
     }
 
     private static void validateCommand(GenerationCompletionCommand command) {
-        long taskId = Long.parseLong(command.taskId());
-        if (command.contractVersion() != 1 || taskId <= 0 || command.taskVersion() < 0
-                || command.completionId() == null
-                || !command.completionId().equals("generation-" + taskId + "-" + command.taskVersion())
+        long taskId = Long.parseLong(command.generationTaskId());
+        if (command.contractVersion() != 1 || taskId <= 0 || command.expectedRevision() < 0
                 || !List.of("COMPLETED", "FAILED").contains(command.outcome())) {
             throw new IllegalArgumentException("Invalid generation completion");
         }

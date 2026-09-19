@@ -5,7 +5,6 @@ import com.superz.aivista.common.exception.ErrorCode;
 import com.superz.aivista.generation.dto.CancelAgentCreationResponse;
 import com.superz.aivista.generation.entity.CreationTask;
 import com.superz.aivista.generation.mapper.CreationTaskMapper;
-import com.superz.aivista.generation.mapper.CreationActivityMapper;
 import java.time.Clock;
 import java.time.Instant;
 import org.springframework.stereotype.Service;
@@ -15,12 +14,10 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class AgentCancellationService {
     private final CreationTaskMapper creations;
-    private final CreationActivityMapper activities;
     private final Clock clock;
 
-    public AgentCancellationService(CreationTaskMapper creations, CreationActivityMapper activities, Clock clock) {
+    public AgentCancellationService(CreationTaskMapper creations, Clock clock) {
         this.creations = creations;
-        this.activities = activities;
         this.clock = clock;
     }
 
@@ -31,8 +28,6 @@ public class AgentCancellationService {
             throw new BusinessException(ErrorCode.GENERATION_RESOURCE_NOT_FOUND);
         }
         if ("CANCELLED".equals(creation.getStatus())) {
-            activities.cancelRunningByCreationTaskId(creationTaskId,
-                    creation.getCompletedAt() == null ? clock.instant() : creation.getCompletedAt());
             return new CancellationResult(response(creation), false, creation.getRevision() - 1);
         }
         if (!"RUNNING".equals(creation.getStatus()) || creation.getRevision() == null) {
@@ -43,7 +38,6 @@ public class AgentCancellationService {
         if (creations.completeRunning(creationTaskId, executionRevision, "CANCELLED", null, now) != 1) {
             throw new BusinessException(ErrorCode.AGENT_CREATION_NOT_RUNNING);
         }
-        activities.cancelRunningByCreationTaskId(creationTaskId, now);
         creation.setStatus("CANCELLED");
         creation.setFailureCode(null);
         creation.setRevision(executionRevision + 1);

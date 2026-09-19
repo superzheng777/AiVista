@@ -10,7 +10,6 @@ import com.superz.aivista.generation.mapper.ImageAssetMapper;
 import com.superz.aivista.generation.model.GenerationImageObjectKeys;
 import java.net.URL;
 import java.time.Clock;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.Date;
 import java.util.List;
@@ -62,7 +61,7 @@ public class GenerationAssetQueryService {
     public GenerationAssetImageResponse.ImageUrl originalDownload(long userId, long imageId) {
         ImageAsset row = imageMapper.selectVisibleDetailByUserIdAndId(userId, imageId);
         if (row == null) throw new BusinessException(ErrorCode.GENERATION_RESOURCE_NOT_FOUND);
-        Instant expiresAt = clock.instant().plus(Duration.ofMinutes(3));
+        Instant expiresAt = clock.instant().plus(ossProperties.originalSignedUrlTtl());
         return signed(row.getOriginalObjectKey(), expiresAt);
     }
 

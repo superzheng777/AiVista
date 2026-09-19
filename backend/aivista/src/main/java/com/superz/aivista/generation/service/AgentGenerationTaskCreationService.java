@@ -1,11 +1,7 @@
 package com.superz.aivista.generation.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.superz.aivista.common.exception.BusinessException;
 import com.superz.aivista.common.exception.ErrorCode;
-import com.superz.aivista.common.idempotency.IdempotencyRecord;
-import com.superz.aivista.common.idempotency.IdempotencyRecordMapper;
 import com.superz.aivista.generation.dto.CreateAgentGenerationTaskRequest;
 import com.superz.aivista.generation.dto.CreateGenerationTaskResponse;
 import com.superz.aivista.generation.entity.CreationTask;
@@ -17,50 +13,41 @@ import com.superz.aivista.generation.model.CreationMode;
 import com.superz.aivista.generation.model.GenerationOperation;
 import com.superz.aivista.user.mapper.UserMapper;
 import java.time.Clock;
-import java.time.Duration;
 import java.time.Instant;
-import java.util.Map;
-import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /** Idempotently creates a generation task under an existing Agent Creation. */
 @Service
 public class AgentGenerationTaskCreationService {
-    private static final String IDEMPOTENCY_SCOPE = "AGENT_GENERATION_TASK_CREATE";
-
     private final CreationTaskMapper creationTaskMapper;
     private final UserMapper userMapper;
     private final CreationTaskInputAssetMapper creationInputAssets;
     private final GenerationTaskMapper generationTasks;
-    private final IdempotencyRecordMapper idempotencyRecordMapper;
     private final GenerationTaskSpecificationValidator specificationValidator;
     private final GenerationTaskProvisioningService provisioningService;
     private final Clock clock;
-    private final ObjectMapper objectMapper;
 
     public AgentGenerationTaskCreationService(CreationTaskMapper creationTaskMapper, UserMapper userMapper,
             CreationTaskInputAssetMapper creationInputAssets,
             GenerationTaskMapper generationTasks,
-            IdempotencyRecordMapper idempotencyRecordMapper,
             GenerationTaskSpecificationValidator specificationValidator,
-            GenerationTaskProvisioningService provisioningService, Clock clock, ObjectMapper objectMapper) {
+            GenerationTaskProvisioningService provisioningService, Clock clock) {
         this.creationTaskMapper = creationTaskMapper;
         this.userMapper = userMapper;
         this.creationInputAssets = creationInputAssets;
         this.generationTasks = generationTasks;
-        this.idempotencyRecordMapper = idempotencyRecordMapper;
         this.specificationValidator = specificationValidator;
         this.provisioningService = provisioningService;
         this.clock = clock;
-        this.objectMapper = objectMapper;
     }
 
     @Transactional
-    public CreateGenerationTaskResponse create(long creationTaskId, String idempotencyKey,
+    public CreateGenerationTaskResponse create(long creationTaskId, String toolCallId,
             CreateAgentGenerationTaskRequest request) {
-        if (request == null || !isCanonicalUuid(idempotencyKey)) {
-            throw invalid("Idempotency-Key：必须是 UUID v4 格式");
+        if (request == null || toolCallId == null || toolCallId.isBlank()
+                || toolCallId.length() > 128) {
+            throw invalid("toolCallId：不能为空且不能超过 128 个字符");
         }
         CreationTask snapshot = creationTaskMapper.selectSnapshotById(creationTaskId);
         if (snapshot == null || !CreationMode.AGENT.name().equals(snapshot.getMode())) {
@@ -95,16 +82,15 @@ public class AgentGenerationTaskCreationService {
                 .containsAll(specification.inputAssetIds())) {
             throw new BusinessException(ErrorCode.MEDIA_FORBIDDEN);
         }
-        String fingerprint = GenerationRequestFingerprint.sha256(userId, Long.toString(creationTaskId),
-                specification.prompt(), specification.negativePrompt(), specification.aspectRatio(),
-                specification.promptExtend(), specification.imageCount(), specification.inputAssetIds());
         Instant now = clock.instant();
-        IdempotencyRecord existing = idempotencyRecordMapper.selectByOwnerScopeAndKeyForUpdate(
-                userId, IDEMPOTENCY_SCOPE, idempotencyKey);
-        if (existing != null && existing.getExpiresAt().isAfter(now)) {
-            return idempotentResponse(existing, fingerprint);
+        GenerationTask existing = generationTasks.selectByCreationTaskIdAndToolCallIdForUpdate(
+                creationTaskId, toolCallId);
+        if (existing != null) {
+            if (!provisioningService.matches(existing, specification)) {
+                throw new BusinessException(ErrorCode.AGENT_TOOL_CALL_CONFLICT);
+            }
+            return responseOf(existing);
         }
-        if (existing != null) idempotencyRecordMapper.deleteById(existing.getId());
         if (creation.getRequestedImageCount() > 0) {
             int allocated = generationTasks.sumEffectiveRequestedImagesByCreationTaskId(creationTaskId);
             if (allocated + specification.imageCount() > creation.getRequestedImageCount()) {
@@ -113,63 +99,13 @@ public class AgentGenerationTaskCreationService {
         }
 
         GenerationTask task = provisioningService.create(userId, creation.getSessionId(), creationTaskId,
-                specification, now);
-        CreateGenerationTaskResponse response = responseOf(task);
-        saveIdempotencyRecord(userId, idempotencyKey, fingerprint, task.getId(), response, now);
-        return response;
-    }
-
-    private CreateGenerationTaskResponse idempotentResponse(IdempotencyRecord record, String fingerprint) {
-        if (!fingerprint.equals(record.getRequestFingerprint())) {
-            throw new BusinessException(ErrorCode.IDEMPOTENCY_KEY_CONFLICT);
-        }
-        try {
-            var response = objectMapper.readTree(record.getResponseBody());
-            return new CreateGenerationTaskResponse(response.required("taskId").asText(),
-                    response.required("sessionId").asText(), response.required("status").asText(),
-                    response.required("taskVersion").asInt(), response.required("requestedImageCount").asInt(),
-                    Instant.parse(response.required("createdAt").asText()));
-        } catch (JsonProcessingException | RuntimeException exception) {
-            throw new IllegalStateException("Invalid persisted idempotency response", exception);
-        }
-    }
-
-    private void saveIdempotencyRecord(long userId, String key, String fingerprint, long taskId,
-            CreateGenerationTaskResponse response, Instant now) {
-        try {
-            IdempotencyRecord record = new IdempotencyRecord();
-            record.setOwnerId(userId);
-            record.setScope(IDEMPOTENCY_SCOPE);
-            record.setIdempotencyKey(key);
-            record.setRequestFingerprint(fingerprint);
-            record.setResourceType("GENERATION_TASK");
-            record.setResourceId(taskId);
-            record.setResponseStatus(202);
-            record.setResponseBody(objectMapper.writeValueAsString(Map.of(
-                    "taskId", response.taskId(), "sessionId", response.sessionId(), "status", response.status(),
-                    "taskVersion", response.taskVersion(), "requestedImageCount", response.requestedImageCount(),
-                    "createdAt", response.createdAt().toString())));
-            record.setCreatedAt(now);
-            record.setExpiresAt(now.plus(Duration.ofMinutes(30)));
-            idempotencyRecordMapper.insertSelective(record);
-        } catch (JsonProcessingException exception) {
-            throw new IllegalStateException("Cannot persist idempotency response", exception);
-        }
+                toolCallId, specification, now);
+        return responseOf(task);
     }
 
     private static CreateGenerationTaskResponse responseOf(GenerationTask task) {
         return new CreateGenerationTaskResponse(Long.toString(task.getId()), Long.toString(task.getSessionId()),
-                task.getStatus(), task.getTaskVersion(), task.getRequestedImageCount(), task.getCreatedAt());
-    }
-
-    private static boolean isCanonicalUuid(String value) {
-        if (value == null) return false;
-        try {
-            UUID uuid = UUID.fromString(value);
-            return uuid.version() == 4 && uuid.toString().equals(value);
-        } catch (IllegalArgumentException exception) {
-            return false;
-        }
+                task.getStatus(), task.getRevision(), task.getRequestedImageCount(), task.getCreatedAt());
     }
 
     private static BusinessException invalid(String message) {

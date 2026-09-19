@@ -1,10 +1,9 @@
-import { createHash } from "node:crypto";
 import { JavaGenerationApiError, type JavaGenerationClient } from "../adapters/java-generation-client.js";
 import type { GenerationCompletionCoordinatorService } from "../../generation/generation-completion-coordinator.service.js";
 import type { GenerationToolExecutor, GenerationToolOutcome, GenerationToolRequest } from "./generation.js";
 
 export interface AgentGenerationExecutorOptions {
-  creationTaskId: string;
+  creationId: string;
   java: JavaGenerationClient;
   completions: GenerationCompletionCoordinatorService;
   toolWaitTimeoutMs?: number;
@@ -19,15 +18,15 @@ export class AgentGenerationToolExecutor implements GenerationToolExecutor {
     try {
       const timeout = AbortSignal.timeout(this.options.toolWaitTimeoutMs ?? 660_000);
       const executionSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
-      const created = await this.options.java.createTask(this.options.creationTaskId,
-        stableIdempotencyKey(this.options.creationTaskId, toolCallId), request, executionSignal);
-      const completed = await this.options.completions.wait(created.taskId, executionSignal);
+      const created = await this.options.java.createTask(this.options.creationId,
+        toolCallId, request, executionSignal);
+      const completed = await this.options.completions.wait(created.generationTaskId, executionSignal);
       if ((completed.status === "SUCCEEDED" || completed.status === "PARTIALLY_SUCCEEDED")
           && completed.assets.length > 0) {
-        return { outcome: "SUCCEEDED", taskId: completed.taskId,
+        return { outcome: "SUCCEEDED", generationTaskId: completed.generationTaskId,
           imageAssetIds: completed.assets.map((asset) => asset.assetId) };
       }
-      return { outcome: "FAILED", taskId: completed.taskId,
+      return { outcome: "FAILED", generationTaskId: completed.generationTaskId,
         code: completed.failureCode ?? "GENERATION_FAILED",
         message: "图片生成未成功，请根据错误调整方案。", retryable: true };
     } catch (error) {
@@ -40,14 +39,6 @@ export class AgentGenerationToolExecutor implements GenerationToolExecutor {
         message: "图片生成服务暂时不可用，请稍后再试。", retryable: true };
     }
   }
-}
-
-function stableIdempotencyKey(creationTaskId: string, toolCallId: string): string {
-  const hex = createHash("sha256").update(`${creationTaskId}:${toolCallId}`).digest("hex").slice(0, 32).split("");
-  hex[12] = "4";
-  hex[16] = ((Number.parseInt(hex[16]!, 16) & 0x3) | 0x8).toString(16);
-  const value = hex.join("");
-  return `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20)}`;
 }
 
 function retryableJavaError(error: JavaGenerationApiError): boolean {

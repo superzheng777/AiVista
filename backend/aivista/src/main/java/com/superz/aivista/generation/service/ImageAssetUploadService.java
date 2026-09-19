@@ -59,7 +59,7 @@ public class ImageAssetUploadService {
         ObjectMetadata metadata = new ObjectMetadata();
         metadata.setContentType(file.getContentType());
         metadata.setContentLength(file.getSize());
-        metadata.setCacheControl("private, max-age=" + ossProperties.signedUrlTtl().toSeconds());
+        metadata.setCacheControl("private, max-age=" + ossProperties.originalSignedUrlTtl().toSeconds());
         try (InputStream input = file.getInputStream()) {
             oss.putObject(ossProperties.bucket(), objectKey, input, metadata);
         } catch (Exception exception) {

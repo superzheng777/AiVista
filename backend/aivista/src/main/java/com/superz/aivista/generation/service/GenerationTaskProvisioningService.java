@@ -22,6 +22,7 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import org.springframework.stereotype.Service;
 
 /** Creates one queued generation task inside a transaction opened by its owning use case. */
@@ -52,6 +53,11 @@ public class GenerationTaskProvisioningService {
 
     public GenerationTask create(long userId, long sessionId, long creationTaskId,
             GenerationTaskSpecification specification, Instant now) {
+        return create(userId, sessionId, creationTaskId, null, specification, now);
+    }
+
+    public GenerationTask create(long userId, long sessionId, long creationTaskId,
+            String toolCallId, GenerationTaskSpecification specification, Instant now) {
         if (taskMapper.countActiveByUserId(userId) >= properties.maxActiveTasksPerUser()) {
             throw new BusinessException(ErrorCode.USER_GENERATION_CONCURRENCY_LIMIT);
         }
@@ -62,11 +68,12 @@ public class GenerationTaskProvisioningService {
         task.setUserId(userId);
         task.setSessionId(sessionId);
         task.setCreationTaskId(creationTaskId);
+        task.setToolCallId(toolCallId);
         task.setOperation(specification.inputAssetIds().isEmpty()
                 ? GenerationOperation.TEXT_TO_IMAGE.name() : GenerationOperation.IMAGE_TO_IMAGE.name());
         task.setModel(properties.model());
         task.setStatus(GenerationTaskStatus.QUEUED.name());
-        task.setTaskVersion(0);
+        task.setRevision(0);
         task.setAttemptCount(0);
         task.setFinalPrompt(specification.prompt());
         task.setFinalNegativePrompt(specification.negativePrompt());
@@ -84,7 +91,7 @@ public class GenerationTaskProvisioningService {
         execute.setEventType(OutboxEventType.GENERATION_TASK_EXECUTE.name());
         execute.setAggregateType("GENERATION_TASK");
         execute.setAggregateId(task.getId());
-        execute.setAggregateVersion(task.getTaskVersion().longValue());
+        execute.setAggregateVersion(task.getRevision().longValue());
         execute.setStatus(OutboxStatus.PENDING.name());
         execute.setRetryCount(0);
         execute.setAvailableAt(now);
@@ -92,8 +99,25 @@ public class GenerationTaskProvisioningService {
         execute.setUpdatedAt(now);
         outboxEventMapper.insertSelective(execute);
         outboxEventMapper.insertSelective(GenerationStatusOutboxEvent.create(
-                task.getId(), task.getTaskVersion(), task.getStatus(), task.getAttemptCount(), now));
+                task.getId(), task.getRevision(), task.getStatus(), task.getAttemptCount(), now));
         return task;
+    }
+
+    boolean matches(GenerationTask task, GenerationTaskSpecification specification) {
+        Dimension dimension = dimensionOf(specification.aspectRatio());
+        List<Long> inputAssetIds = taskInputAssetMapper.selectByTaskId(task.getId()).stream()
+                .map(GenerationTaskInputAsset::getAssetId)
+                .toList();
+        String operation = specification.inputAssetIds().isEmpty()
+                ? GenerationOperation.TEXT_TO_IMAGE.name() : GenerationOperation.IMAGE_TO_IMAGE.name();
+        return Objects.equals(task.getOperation(), operation)
+                && Objects.equals(task.getFinalPrompt(), specification.prompt())
+                && Objects.equals(task.getFinalNegativePrompt(), specification.negativePrompt())
+                && Objects.equals(task.getWidth(), dimension.width())
+                && Objects.equals(task.getHeight(), dimension.height())
+                && Objects.equals(task.getPromptExtend(), specification.promptExtend())
+                && Objects.equals(task.getRequestedImageCount(), specification.imageCount())
+                && Objects.equals(inputAssetIds, specification.inputAssetIds());
     }
 
     private void reserveDailyQuota(long userId, LocalDate usageDate, int imageCount, Instant now) {

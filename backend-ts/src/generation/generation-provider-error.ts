@@ -14,9 +14,12 @@ export class BailianProviderError extends Error {
   ) { super(message); this.name = "BailianProviderError"; }
 }
 
-/** 能确认 HTTP 请求尚未发出时的建连失败。 */
-export class BailianConnectionError extends Error {
-  constructor(readonly cause: unknown) { super("Bailian connection failed", { cause }); this.name = "BailianConnectionError"; }
+/** HTTP 传输失败；只有 requestDefinitelyUnsent=true 时才允许重试。 */
+export class BailianTransportError extends Error {
+  constructor(readonly cause: unknown, readonly requestDefinitelyUnsent: boolean) {
+    super("Bailian transport failed", { cause });
+    this.name = "BailianTransportError";
+  }
 }
 
 export function providerFailureCode(error: BailianProviderError): GenerationFailureCode {

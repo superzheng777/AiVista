@@ -23,7 +23,7 @@ export class AgentCommandListenerService {
         return;
       }
     } catch (error) {
-      this.logger.error(`Agent command failed for creation ${command.creationTaskId}: ${messageOf(error)}`,
+      this.logger.error(`Agent command failed for creation ${command.creationId}: ${messageOf(error)}`,
         error instanceof Error ? error.stack : undefined);
     }
     channel.nack(message, false, true);

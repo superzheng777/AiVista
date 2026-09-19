@@ -8,7 +8,8 @@ import {
   type AgentRuntimeEvent,
 } from "../src/agent/agent-runtime.js";
 import type { AgentModelBinding } from "../src/agent/providers/bailian.js";
-import { createGenerationTools, type GenerationToolRequest } from "../src/agent/tools/index.js";
+import { createGenerationTools, createInspectImageTool,
+  type GenerationToolRequest } from "../src/agent/tools/index.js";
 
 const cleanup: Array<() => void> = [];
 
@@ -29,11 +30,11 @@ describe("Agent runtime", () => {
       onEvent: (event) => events.push(event),
     });
 
-    expect(result).toEqual({ text: "你好，我是 AiVista。", turns: 1 });
+    expect(result.text).toBe("你好，我是 AiVista。");
+    expect(result.context).toMatchObject({ schemaVersion: 1, compaction: null });
     expect(events[0]).toEqual({ type: "agent_start" });
     expect(events).toContainEqual({ type: "turn_start", turn: 1 });
     expect(events).toContainEqual({ type: "text_end", contentIndex: 0, text: "你好，我是 AiVista。" });
-    expect(events.at(-1)).toEqual({ type: "agent_settled" });
   });
 
   it("rejects a turn budget outside the configured product limit", async () => {
@@ -43,7 +44,7 @@ describe("Agent runtime", () => {
       .rejects.toThrow("maxTurns must be an integer between 1 and 20");
   });
 
-  it("preloads bounded database history into the in-memory Pi session with original roles", async () => {
+  it("restores the persisted Pi context into the request-scoped session with original roles", async () => {
     const { binding, faux } = await createFauxBinding();
     let rolesAndText: string[] = [];
     faux.setResponses([(context) => {
@@ -55,10 +56,14 @@ describe("Agent runtime", () => {
       return fauxAssistantMessage("继续创作。");
     }]);
 
-    await runAgentPrompt({ binding, prompt: "把标题改成秋日特饮", maxTurns: 20, history: [
-      { role: "USER", content: "制作一张饮品海报" },
-      { role: "ASSISTANT", content: "海报已经生成。" },
-    ] });
+    await runAgentPrompt({ binding, prompt: "把标题改成秋日特饮", maxTurns: 20, context: {
+      schemaVersion: 1,
+      compaction: null,
+      messages: [
+        { role: "user", content: "制作一张饮品海报", timestamp: Date.now() },
+        fauxAssistantMessage("海报已经生成。"),
+      ],
+    } });
 
     expect(rolesAndText).toEqual([
       "user:制作一张饮品海报", "assistant:海报已经生成。", "user:把标题改成秋日特饮",
@@ -86,6 +91,7 @@ describe("Agent runtime", () => {
     expect(systemPrompt).toContain("inputAssetIds 只能从上述 ID 中选择");
     expect(systemPrompt).toContain("固定为 3:4");
     expect(systemPrompt).toContain("本轮最终目标为 3 张");
+    expect(systemPrompt).toContain("inspect_image");
   });
 
   it("feeds the formal generation Tool Result into the next Pi turn", async () => {
@@ -107,7 +113,7 @@ describe("Agent runtime", () => {
       executor: {
         async execute(_toolCallId, request) {
           requests.push(request);
-          return { outcome: "SUCCEEDED", taskId: "9001", imageAssetIds: ["7001"] };
+          return { outcome: "SUCCEEDED", generationTaskId: "9001", imageAssetIds: ["7001"] };
         },
       },
     });
@@ -120,7 +126,7 @@ describe("Agent runtime", () => {
       onEvent: (event) => events.push(event),
     });
 
-    expect(result).toEqual({ text: "海报已经生成。", turns: 2 });
+    expect(result.text).toBe("海报已经生成。");
     expect(requests).toHaveLength(1);
     expect(events).toContainEqual(expect.objectContaining({
       type: "tool_start", toolName: "text_to_image",
@@ -133,6 +139,28 @@ describe("Agent runtime", () => {
       promptExtend: true,
       imageCount: 1,
     });
+  });
+
+  it("feeds inspected ImageContent into the next turn but exports only its Asset ID", async () => {
+    const { binding, faux } = await createFauxBinding();
+    let nextTurnSawImage = false;
+    faux.setResponses([
+      fauxAssistantMessage(fauxToolCall("inspect_image", { assetId: "701" }), { stopReason: "toolUse" }),
+      (context) => {
+        const result = context.messages.findLast((message) => message.role === "toolResult");
+        nextTurnSawImage = result?.role === "toolResult"
+          && result.content.some((item) => item.type === "image" && item.data === "AQI=");
+        return fauxAssistantMessage("我已理解这张历史图片。");
+      },
+    ]);
+    const tool = createInspectImageTool({ inspect: async (assetId) => ({ assetId,
+      image: { type: "image", data: "AQI=", mimeType: "image/webp" } }) });
+
+    const result = await runAgentPrompt({ binding, prompt: "看看上一张图片", maxTurns: 20, tools: [tool] });
+
+    expect(nextTurnSawImage).toBe(true);
+    expect(JSON.stringify(result.context)).toContain("Asset ID: 701");
+    expect(JSON.stringify(result.context)).not.toContain("AQI=");
   });
 
   it("feeds an actionable failed Tool Result back so the model can correct the next call", async () => {
@@ -165,7 +193,7 @@ describe("Agent runtime", () => {
       executor: {
         async execute(_toolCallId, request) {
           requests.push(request);
-          return { outcome: "SUCCEEDED", taskId: "9002", imageAssetIds: ["7002"] };
+          return { outcome: "SUCCEEDED", generationTaskId: "9002", imageAssetIds: ["7002"] };
         },
       },
     });
@@ -177,7 +205,7 @@ describe("Agent runtime", () => {
     expect(correctionContext).toContain("本轮允许的图片资产 ID：101");
     expect(requests).toHaveLength(1);
     expect(requests[0]?.inputAssetIds).toEqual(["101"]);
-    expect(result).toEqual({ text: "已使用获授权的参考图重新生成。", turns: 3 });
+    expect(result.text).toBe("已使用获授权的参考图重新生成。");
   });
 
   it("aborts without completing a turn beyond the twentieth", async () => {
@@ -217,7 +245,6 @@ describe("Agent runtime", () => {
     let toolStarted!: () => void;
     const started = new Promise<void>((resolve) => { toolStarted = resolve; });
     let toolSignalAborted = false;
-    let settled = 0;
     const tool = defineTool({
       name: "wait_for_cancel",
       label: "Wait for cancel",
@@ -234,14 +261,12 @@ describe("Agent runtime", () => {
     });
 
     const run = runAgentPrompt({ binding, prompt: "等待取消", maxTurns: 20, tools: [tool],
-      signal: controller.signal,
-      onEvent: (event) => { if (event.type === "agent_settled") settled += 1; } });
+      signal: controller.signal });
     await started;
     controller.abort();
 
     await expect(run).rejects.toMatchObject({ name: "AbortError" });
     expect(toolSignalAborted).toBe(true);
-    expect(settled).toBe(1);
   });
 });
 

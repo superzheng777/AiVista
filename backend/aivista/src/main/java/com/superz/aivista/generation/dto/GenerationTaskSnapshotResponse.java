@@ -5,10 +5,10 @@ import java.util.List;
 
 /** 供任务详情、会话创作轮次和状态对账复用的安全任务快照。 */
 public record GenerationTaskSnapshotResponse(
-        String taskId,
+        String generationTaskId,
         String sessionId,
         String status,
-        int taskVersion,
+        int revision,
         int retryCount,
         int maxRetryCount,
         int requestedImageCount,

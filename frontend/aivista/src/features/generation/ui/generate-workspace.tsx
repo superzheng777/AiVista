@@ -721,12 +721,7 @@ function ConversationTurn({
   onDelete: (asset: GenerationAsset) => void;
 }) {
   const live = useGenerationEventStream().agentRuns[turn.id];
-  const transientTools = live?.tools.filter(
-    (tool) =>
-      !turn.activities.some(
-        (activity) => activity.activityKey === `tool:${tool.toolCallId}`,
-      ),
-  );
+  const transientTools = live?.tools;
   const transientSkills = live?.skills.filter(
     (skillName) =>
       !turn.activities.some(
@@ -838,10 +833,10 @@ function ConversationTurn({
                 >
                   {processActivities.map((activity) => (
                     <li
-                      key={activity.activityKey}
+                      key={activity.sequenceNo}
                       className="flex items-start gap-2"
                     >
-                      <ActivityStateMark state={activity.state} />
+                      <ActivityStateMark state={activity.outcome} />
                       <span
                         className={cn(
                           "leading-5",

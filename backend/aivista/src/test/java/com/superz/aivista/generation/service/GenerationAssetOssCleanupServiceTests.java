@@ -70,7 +70,7 @@ class GenerationAssetOssCleanupServiceTests {
     private static GenerationAssetOssCleanupService service(ImageAssetMapper imageMapper, OSS ossClient) {
         return new GenerationAssetOssCleanupService(imageMapper, ossClient,
                 new GenerationOssProperties("oss.example", "private-bucket", "key-id", "key-secret", "users",
-                        Duration.ofMinutes(10), Duration.ofSeconds(5), Duration.ofSeconds(60)),
+                        Duration.ofDays(1), Duration.ofMinutes(10), Duration.ofSeconds(5), Duration.ofSeconds(60)),
                 new GenerationAssetCleanupProperties(Duration.ofMinutes(1), Duration.ofMinutes(10), 100),
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }

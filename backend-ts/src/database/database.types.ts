@@ -11,8 +11,9 @@ export interface DatabaseSchema {
   agent_worker_executions: AgentWorkerExecutionTable;
 }
 export interface GenerationTaskTable {
-  id:Generated<bigint>; user_id:bigint; session_id:bigint; creation_task_id:bigint; operation:string; model:string;
-  status:string; task_version:Generated<number>; attempt_count:number;
+  id:Generated<bigint>; user_id:bigint; session_id:bigint; creation_task_id:bigint; tool_call_id:string|null;
+  operation:string; model:string;
+  status:string; revision:Generated<number>; attempt_count:number;
   final_prompt:string; final_negative_prompt:string|null; width:number; height:number; prompt_extend:boolean;
   requested_image_count:number; completed_image_count:number; quota_refunded_at:DbDate|null;
   provider_request_id:string|null;
@@ -39,7 +40,7 @@ export interface OutboxEventTable {
 export interface AgentWorkerExecutionTable {
   creation_task_id: bigint;
   state: string;
-  result_json: string | null;
+  completion_json: string | null;
   started_at: DbDate;
   completed_at: DbDate | null;
   updated_at: DbDate;

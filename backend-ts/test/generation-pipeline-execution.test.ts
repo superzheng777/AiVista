@@ -1,16 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
 import { GenerationPipelineExecutionService } from "../src/generation/generation-pipeline-execution.service.js";
+import { BailianTransportError } from "../src/generation/generation-provider-error.js";
 
 describe("GenerationPipelineExecutionService", () => {
   it("reports user-visible phases and commits the transferred result", async () => {
     const calls: string[] = [];
     const java = {
-      reportPhase: vi.fn(async (_taskId: bigint, phase: string) => {
+      reportPhase: vi.fn(async (_generationTaskId: bigint, phase: string) => {
         calls.push(phase.toLowerCase());
-        return { taskId: "301", status: phase, taskVersion: phase === "GENERATING" ? 1 : 2 };
+        return { generationTaskId: "301", status: phase, revision: phase === "GENERATING" ? 1 : 2 };
       }),
       complete: vi.fn(async () => { calls.push("complete"); return {
-        taskId: "301", status: "SUCCEEDED", taskVersion: 3, assets: [] }; }),
+        generationTaskId: "301", status: "SUCCEEDED", revision: 3, assets: [] }; }),
     };
     const bailian = {
       generate: vi.fn(async () => { calls.push("provider"); return { requestId: "req-1",
@@ -20,33 +21,33 @@ describe("GenerationPipelineExecutionService", () => {
     const transfer = { transfer: vi.fn(async () => { calls.push("transfer"); return [{ sourceIndex: 0,
       objectKey: "generation/7/tasks/301/0", fileSize: 12n, width: 1024, height: 1024 }]; }) };
     const coordinator = { complete: vi.fn(() => { calls.push("notify-tool"); }) };
-    const service = serviceWith({ prepare: vi.fn().mockResolvedValue({ kind: "START", task: generationTask() }) },
+    const service = serviceWith({ prepare: vi.fn().mockResolvedValue({ kind: "EXECUTE_PIPELINE", task: generationTask() }) },
       java, bailian, transfer, coordinator);
 
-    expect(await service.execute({ eventId: 11n, taskId: 301n, taskVersion: 0 })).toBe(true);
+    expect(await service.execute({ generationTaskId: 301n, expectedRevision: 0 })).toBe(true);
     expect(calls).toEqual(["generating", "provider", "saving", "transfer", "complete", "notify-tool"]);
     expect(java.complete).toHaveBeenCalledWith(expect.objectContaining({
-      completionId: "generation-301-3", outcome: "COMPLETED", expectedImageCount: 1,
+      generationTaskId: "301", outcome: "COMPLETED", expectedImageCount: 1,
     }));
   });
 
   it("replays Java's terminal snapshot without calling the provider", async () => {
     const java = { reportPhase: vi.fn(), complete: vi.fn(), getCompletion: vi.fn().mockResolvedValue({
-      taskId: "301", status: "SUCCEEDED", taskVersion: 3, assets: [],
+      generationTaskId: "301", status: "SUCCEEDED", revision: 3, assets: [],
     }) };
     const bailian = { generate: vi.fn(), restore: vi.fn() };
     const coordinator = { complete: vi.fn() };
-    const service = serviceWith({ prepare: vi.fn().mockResolvedValue({ kind: "ACK" }) }, java, bailian,
+    const service = serviceWith({ prepare: vi.fn().mockResolvedValue({ kind: "IGNORE_MESSAGE" }) }, java, bailian,
       { transfer: vi.fn() }, coordinator);
 
-    expect(await service.execute({ eventId: 11n, taskId: 301n, taskVersion: 0 })).toBe(true);
+    expect(await service.execute({ generationTaskId: 301n, expectedRevision: 0 })).toBe(true);
     expect(java.getCompletion).not.toHaveBeenCalled();
     expect(java.complete).not.toHaveBeenCalled();
     expect(bailian.generate).not.toHaveBeenCalled();
 
-    const replay = serviceWith({ prepare: vi.fn().mockResolvedValue({ kind: "TERMINAL" }) }, java, bailian,
+    const replay = serviceWith({ prepare: vi.fn().mockResolvedValue({ kind: "DELIVER_COMMITTED_RESULT" }) }, java, bailian,
       { transfer: vi.fn() }, coordinator);
-    expect(await replay.execute({ eventId: 12n, taskId: 301n, taskVersion: 0 })).toBe(true);
+    expect(await replay.execute({ generationTaskId: 301n, expectedRevision: 0 })).toBe(true);
     expect(java.getCompletion).toHaveBeenCalledWith(301n);
     expect(coordinator.complete).toHaveBeenCalled();
   });
@@ -54,10 +55,10 @@ describe("GenerationPipelineExecutionService", () => {
   it("acks a concurrent duplicate without starting a second provider call", async () => {
     let releaseProvider!: () => void;
     const providerWait = new Promise<void>((resolve) => { releaseProvider = resolve; });
-    const state = { prepare: vi.fn().mockResolvedValue({ kind: "START", task: generationTask() }) };
+    const state = { prepare: vi.fn().mockResolvedValue({ kind: "EXECUTE_PIPELINE", task: generationTask() }) };
     const java = {
-      reportPhase: vi.fn(async (_taskId: bigint, phase: string) => ({ taskId: "301", status: phase,
-        taskVersion: phase === "GENERATING" ? 1 : 2 })),
+      reportPhase: vi.fn(async (_generationTaskId: bigint, phase: string) => ({ generationTaskId: "301", status: phase,
+        revision: phase === "GENERATING" ? 1 : 2 })),
       complete: vi.fn().mockResolvedValue({}),
     };
     const bailian = { generate: vi.fn(async () => { await providerWait; return { requestId: "req-1",
@@ -66,7 +67,7 @@ describe("GenerationPipelineExecutionService", () => {
     const transfer = { transfer: vi.fn().mockResolvedValue([{ sourceIndex: 0,
       objectKey: "generation/7/tasks/301/0", fileSize: 12n, width: 1024, height: 1024 }]) };
     const service = serviceWith(state, java, bailian, transfer, { complete: vi.fn() });
-    const command = { eventId: 11n, taskId: 301n, taskVersion: 0 };
+    const command = { generationTaskId: 301n, expectedRevision: 0 };
 
     const first = service.execute(command);
     await vi.waitFor(() => expect(bailian.generate).toHaveBeenCalledOnce());
@@ -75,13 +76,74 @@ describe("GenerationPipelineExecutionService", () => {
     releaseProvider();
     expect(await first).toBe(true);
   });
+
+  it("wakes the Agent Tool when a phase report observes an already committed task", async () => {
+    const committed = { generationTaskId: "301", status: "SUCCEEDED", revision: 3, assets: [] };
+    const java = {
+      reportPhase: vi.fn().mockResolvedValue(committed),
+      getCompletion: vi.fn().mockResolvedValue(committed),
+      complete: vi.fn(),
+    };
+    const bailian = { generate: vi.fn(), restore: vi.fn() };
+    const coordinator = { complete: vi.fn() };
+    const service = serviceWith({ prepare: vi.fn().mockResolvedValue({
+      kind: "EXECUTE_PIPELINE", task: generationTask(),
+    }) }, java, bailian, { transfer: vi.fn() }, coordinator);
+
+    await expect(service.execute({ generationTaskId: 301n, expectedRevision: 0 })).resolves.toBe(true);
+    expect(java.getCompletion).toHaveBeenCalledWith(301n);
+    expect(coordinator.complete).toHaveBeenCalledWith(committed);
+    expect(bailian.generate).not.toHaveBeenCalled();
+    expect(java.complete).not.toHaveBeenCalled();
+  });
+
+  it("fails an interrupted provider phase without calling the provider again", async () => {
+    const task = { ...generationTask(), status: "GENERATING", revision: 1, provider_request_id: null };
+    const java = { reportPhase: vi.fn(), getCompletion: vi.fn(),
+      complete: vi.fn().mockResolvedValue({ generationTaskId: "301", status: "FAILED", revision: 2,
+        failureCode: "PROVIDER_CALL_OUTCOME_UNKNOWN", assets: [] }) };
+    const bailian = { generate: vi.fn(), restore: vi.fn() };
+    const coordinator = { complete: vi.fn() };
+    const service = serviceWith({ prepare: vi.fn().mockResolvedValue({
+      kind: "FAIL_INTERRUPTED_PIPELINE", task,
+    }) }, java, bailian, { transfer: vi.fn() }, coordinator);
+
+    await expect(service.execute({ generationTaskId: 301n, expectedRevision: 1 })).resolves.toBe(true);
+    expect(bailian.generate).not.toHaveBeenCalled();
+    expect(java.reportPhase).not.toHaveBeenCalled();
+    expect(java.complete).toHaveBeenCalledWith(expect.objectContaining({
+      outcome: "FAILED", expectedRevision: 1, failureCode: "PROVIDER_CALL_OUTCOME_UNKNOWN",
+    }));
+    expect(coordinator.complete).toHaveBeenCalled();
+  });
+
+  it("does not retry an ambiguous transport failure that may have reached the Provider", async () => {
+    const java = {
+      reportPhase: vi.fn().mockResolvedValue({ generationTaskId: "301", status: "GENERATING", revision: 1 }),
+      complete: vi.fn().mockResolvedValue({ generationTaskId: "301", status: "FAILED", revision: 2,
+        failureCode: "PROVIDER_CALL_OUTCOME_UNKNOWN", assets: [] }),
+    };
+    const bailian = { generate: vi.fn().mockRejectedValue(
+      new BailianTransportError(new Error("socket closed"), false)), restore: vi.fn() };
+    const coordinator = { complete: vi.fn() };
+    const service = serviceWith({ prepare: vi.fn().mockResolvedValue({
+      kind: "EXECUTE_PIPELINE", task: generationTask(),
+    }) }, java, bailian, { transfer: vi.fn() }, coordinator, 3);
+
+    await expect(service.execute({ generationTaskId: 301n, expectedRevision: 0 })).resolves.toBe(true);
+    expect(bailian.generate).toHaveBeenCalledOnce();
+    expect(java.complete).toHaveBeenCalledWith(expect.objectContaining({
+      outcome: "FAILED", failureCode: "PROVIDER_CALL_OUTCOME_UNKNOWN",
+    }));
+  });
 });
 
-function serviceWith(state: object, java: object, bailian: object, transfer: object, coordinator: object) {
-  return new GenerationPipelineExecutionService({ get: vi.fn().mockReturnValue(0) } as never,
+function serviceWith(state: object, java: object, bailian: object, transfer: object, coordinator: object,
+    maxRetries = 0) {
+  return new GenerationPipelineExecutionService({ get: vi.fn().mockReturnValue(maxRetries) } as never,
     state as never, java as never, bailian as never, transfer as never,
     { acquire: vi.fn().mockResolvedValue(() => undefined) } as never, coordinator as never);
 }
 function generationTask() {
-  return { id: 301n, user_id: 7n, requested_image_count: 1, width: 1024, height: 1024 } as never;
+  return { id: 301n, user_id: 7n, requested_image_count: 1, width: 1024, height: 1024 };
 }

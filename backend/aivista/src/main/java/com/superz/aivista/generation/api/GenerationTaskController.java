@@ -22,7 +22,6 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -45,8 +44,6 @@ public class GenerationTaskController {
     @PostMapping
     public ResponseEntity<ApiResponse<CreateGenerationTaskResponse>> create(
             Authentication authentication,
-            /** 同一次用户主动提交的网络重试必须复用该 UUID v4。 */
-            @RequestHeader("Idempotency-Key") String idempotencyKey,
             @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(
                     mediaType = "application/json", examples = @ExampleObject(value = """
                             {
@@ -58,16 +55,15 @@ public class GenerationTaskController {
                             }
                             """)))
             @RequestBody CreateGenerationTaskRequest request) {
-        CreateGenerationTaskResponse response = creationService.create(
-                currentUserId(authentication), idempotencyKey, request);
+        CreateGenerationTaskResponse response = creationService.create(currentUserId(authentication), request);
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(ResponseUtils.success(response));
     }
 
     @Operation(summary = "查询生成任务详情", description = "返回当前用户可见的任务状态和短期图片签名地址")
-    @GetMapping("/{taskId}")
+    @GetMapping("/{generationTaskId}")
     public ResponseEntity<ApiResponse<GenerationTaskSnapshotResponse>> get(
-            Authentication authentication, @PathVariable long taskId) {
-        GenerationTaskSnapshotResponse response = queryService.get(currentUserId(authentication), taskId);
+            Authentication authentication, @PathVariable long generationTaskId) {
+        GenerationTaskSnapshotResponse response = queryService.get(currentUserId(authentication), generationTaskId);
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore().cachePrivate())
                 .body(ResponseUtils.success(response));

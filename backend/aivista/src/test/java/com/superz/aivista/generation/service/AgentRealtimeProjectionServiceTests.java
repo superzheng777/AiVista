@@ -32,7 +32,7 @@ class AgentRealtimeProjectionServiceTests {
         assertThat(events.getAllValues()).extracting(AgentRealtimeEvent::sequence).containsExactly(1L, 2L);
         assertThat(events.getAllValues()).extracting(AgentRealtimeEvent::streamId).doesNotContainNull()
                 .containsOnly(events.getAllValues().getFirst().streamId());
-        assertThat(events.getAllValues().getFirst().creationTaskId()).isEqualTo("31");
+        assertThat(events.getAllValues().getFirst().creationId()).isEqualTo("31");
         assertThat(events.getAllValues().getFirst().sessionId()).isEqualTo("9");
     }
 
@@ -42,6 +42,24 @@ class AgentRealtimeProjectionServiceTests {
         assertThat(service.publish(event("PROVIDER_DEBUG", Map.of()))).isFalse();
         assertThat(service.publish(event("TEXT_DELTA", Map.of("delta", "old")))).isFalse();
         verify(connections, never()).publishAgent(anyLong(), anyLong(), Mockito.any());
+    }
+
+    @Test
+    void replaysOneSafeSnapshotForANewBrowserConnection() {
+        when(creations.selectSnapshotById(31L)).thenReturn(creation("AGENT", "RUNNING", 4L));
+        service.publish(event("RUN_STARTED", Map.of()));
+        service.publish(event("TEXT_DELTA", Map.of("contentIndex", 0, "delta", "正在构图")));
+        service.publish(event("TOOL_STARTED", Map.of("toolCallId", "call-1", "toolName", "text_to_image")));
+
+        service.replay(7L);
+
+        ArgumentCaptor<AgentRealtimeEvent> events = ArgumentCaptor.forClass(AgentRealtimeEvent.class);
+        verify(connections, Mockito.times(4)).publishAgent(Mockito.eq(7L), anyLong(), events.capture());
+        AgentRealtimeEvent snapshot = events.getAllValues().getLast();
+        assertThat(snapshot.eventType()).isEqualTo("RUN_SNAPSHOT");
+        assertThat(snapshot.sequence()).isEqualTo(3L);
+        assertThat(snapshot.payload()).containsEntry("text", "正在构图");
+        assertThat((java.util.List<?>) snapshot.payload().get("tools")).hasSize(1);
     }
 
     @Test

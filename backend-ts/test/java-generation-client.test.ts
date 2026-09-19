@@ -7,24 +7,23 @@ import type { GenerationToolRequest } from "../src/agent/tools/index.js";
 afterEach(() => vi.unstubAllGlobals());
 
 describe("JavaGenerationClient", () => {
-  it("creates an Agent child generation task with worker authentication and idempotency", async () => {
+  it("creates an Agent child generation task with its toolCallId", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
-      taskId: "301", sessionId: "101", status: "QUEUED", taskVersion: 0,
+      generationTaskId: "301", sessionId: "101", status: "QUEUED", revision: 0,
       requestedImageCount: 1, createdAt: "2026-09-09T02:00:00Z",
     }), { status: 200, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
     const client = new JavaGenerationClient(config());
 
-    const result = await client.createTask("151", "b719c741-8607-4b0f-9a72-2dcbfdd6b6ee", request());
+    const result = await client.createTask("151", "call-1", request());
 
-    expect(result.taskId).toBe("301");
+    expect(result.generationTaskId).toBe("301");
     expect(fetchMock).toHaveBeenCalledWith(
-      "http://java/api/internal/generation-worker/agent-creations/151/generation-tasks",
+      "http://java/api/internal/generation-worker/agent-creations/151/generation-tasks/call-1",
       expect.objectContaining({
-        method: "POST",
+        method: "PUT",
         headers: expect.objectContaining({
           "X-AiVista-Worker-Token": "worker-secret",
-          "Idempotency-Key": "b719c741-8607-4b0f-9a72-2dcbfdd6b6ee",
         }),
       }),
     );
@@ -33,9 +32,10 @@ describe("JavaGenerationClient", () => {
   });
 
   it("preserves Java business code and safe message for Tool error mapping", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       code: 42901, message: "今日生成图片额度已用尽", data: null,
-    }), { status: 429, headers: { "Content-Type": "application/json" } })));
+    }), { status: 429, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
     const client = new JavaGenerationClient(config());
 
     const error = await client.createTask("151", "b719c741-8607-4b0f-9a72-2dcbfdd6b6ee", request())
@@ -43,12 +43,43 @@ describe("JavaGenerationClient", () => {
 
     expect(error).toBeInstanceOf(JavaGenerationApiError);
     expect(error).toMatchObject({ status: 429, code: 42901, message: "今日生成图片额度已用尽" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries a transient Java failure with the same toolCallId", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 503 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        generationTaskId: "301", sessionId: "101", status: "QUEUED", revision: 0,
+        requestedImageCount: 1, createdAt: "2026-09-09T02:00:00Z",
+      }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(new JavaGenerationClient(config()).createTask("151", "call-1", request()))
+      .resolves.toMatchObject({ generationTaskId: "301" });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      "http://java/api/internal/generation-worker/agent-creations/151/generation-tasks/call-1",
+      "http://java/api/internal/generation-worker/agent-creations/151/generation-tasks/call-1",
+    ]);
+  });
+
+  it("accepts the existing child task after a lost create response has already progressed", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      generationTaskId: "301", sessionId: "101", status: "GENERATING", revision: 1,
+      requestedImageCount: 1, createdAt: "2026-09-09T02:00:00Z",
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(new JavaGenerationClient(config()).createTask("151", "call-1", request()))
+      .resolves.toMatchObject({ generationTaskId: "301", status: "GENERATING", revision: 1 });
   });
 
   it("loads and validates the minimal Agent execution snapshot", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
-      contractVersion: 1, creationTaskId: "151", revision: 0, status: "RUNNING", sessionId: "101",
-      prompt: "把这张图改成海报", history: [{ role: "USER", content: "上一轮" }],
+      contractVersion: 2, creationId: "151", revision: 0, status: "RUNNING", sessionId: "101",
+      prompt: "把这张图改成海报", agentContext: { schemaVersion: 1, compaction: null,
+        messages: [{ role: "user", content: "上一轮", timestamp: 1 }] },
       inputAssets: [{ assetId: "501", objectKey: "users/7/x/display.webp",
         contentType: "image/webp", fileSize: 1234, width: 800, height: 1200 }],
       constraints: { aspectRatio: "3:4", imageCount: 3 },
@@ -59,10 +90,26 @@ describe("JavaGenerationClient", () => {
     const result = await client.getAgentExecution("151");
 
     expect(result.inputAssets[0]?.contentType).toBe("image/webp");
-    expect(result.history).toEqual([{ role: "USER", content: "上一轮" }]);
+    expect(result.agentContext?.messages).toEqual([{ role: "user", content: "上一轮", timestamp: 1 }]);
     expect(result.constraints).toEqual({ aspectRatio: "3:4", imageCount: 3 });
     expect(fetchMock).toHaveBeenCalledWith(
       "http://java/api/internal/generation-worker/agent-creations/151/execution",
+      expect.objectContaining({ headers: { "X-AiVista-Worker-Token": "worker-secret" } }),
+    );
+  });
+
+  it("resolves one authorized historical image for the active Agent revision", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      assetId: "501", objectKey: "users/7/tasks/20/0/display.webp", contentType: "image/webp",
+      fileSize: 1234, width: 800, height: 1200,
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await new JavaGenerationClient(config()).resolveAgentImage("151", 3, "501");
+
+    expect(result).toMatchObject({ assetId: "501", contentType: "image/webp" });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://java/api/internal/generation-worker/agent-creations/151/assets/501?expectedRevision=3",
       expect.objectContaining({ headers: { "X-AiVista-Worker-Token": "worker-secret" } }),
     );
   });

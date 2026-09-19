@@ -2,7 +2,7 @@ package com.superz.aivista.generation.dto;
 
 /** 一次创作任务及其用户、助手消息和图片生成快照。 */
 public record ConversationTurnResponse(
-        String creationTaskId,
+        String creationId,
         String mode,
         String status,
         String failureCode,

@@ -5,7 +5,7 @@ describe("generation worker listeners", () => {
   it("acks completed work and requeues transient failures", async () => {
     const generationChannel = channel();
     await new GenerationTaskListenerService({ execute: vi.fn().mockResolvedValue(true) } as never)
-      .consume(message('{"eventId":11,"taskId":301,"taskVersion":0}'), generationChannel as never);
+      .consume(message('{"generationTaskId":301,"expectedRevision":0}'), generationChannel as never);
     expect(generationChannel.ack).toHaveBeenCalledOnce();
   });
 });

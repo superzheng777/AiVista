@@ -5,9 +5,8 @@ import java.util.List;
 /** One terminal result submitted after the TypeScript worker finishes provider and OSS work. */
 public record GenerationCompletionCommand(
         int contractVersion,
-        String completionId,
-        String taskId,
-        int taskVersion,
+        String generationTaskId,
+        int expectedRevision,
         String outcome,
         String providerRequestId,
         Integer expectedImageCount,

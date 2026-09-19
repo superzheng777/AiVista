@@ -11,7 +11,6 @@ import com.superz.aivista.common.exception.BusinessException;
 import com.superz.aivista.common.exception.ErrorCode;
 import com.superz.aivista.generation.entity.CreationTask;
 import com.superz.aivista.generation.mapper.CreationTaskMapper;
-import com.superz.aivista.generation.mapper.CreationActivityMapper;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -20,9 +19,8 @@ import org.junit.jupiter.api.Test;
 class AgentCancellationServiceTests {
     private static final Instant NOW = Instant.parse("2026-09-10T01:00:00Z");
     private final CreationTaskMapper creations = mock(CreationTaskMapper.class);
-    private final CreationActivityMapper activities = mock(CreationActivityMapper.class);
     private final AgentCancellationService service = new AgentCancellationService(
-            creations, activities, Clock.fixed(NOW, ZoneOffset.UTC));
+            creations, Clock.fixed(NOW, ZoneOffset.UTC));
 
     @Test
     void atomicallyCancelsTheOwnedRunningAgent() {
@@ -39,7 +37,6 @@ class AgentCancellationServiceTests {
         assertThat(result.transitioned()).isTrue();
         assertThat(result.executionRevision()).isEqualTo(4L);
         verify(creations).completeRunning(31L, 4L, "CANCELLED", null, NOW);
-        verify(activities).cancelRunningByCreationTaskId(31L, NOW);
     }
 
     @Test
@@ -52,7 +49,6 @@ class AgentCancellationServiceTests {
         assertThat(result.response().revision()).isEqualTo(5L);
         assertThat(result.transitioned()).isFalse();
         verify(creations, never()).completeRunning(31L, 5L, "CANCELLED", null, NOW);
-        verify(activities).cancelRunningByCreationTaskId(31L, NOW);
     }
 
     @Test

@@ -14,7 +14,7 @@ export class GenerationImageTransferService {
   private readonly client?: OSS;
   private readonly bucket?: string;
   private readonly prefix: string;
-  private readonly ttlSeconds: number;
+  private readonly originalTtlSeconds: number;
   private readonly readTimeoutMs: number;
   constructor(config: ConfigService<Environment, true>) {
     const endpoint = config.get("AIVISTA_OSS_ENDPOINT", { infer: true }); this.bucket = config.get("AIVISTA_OSS_BUCKET", { infer: true });
@@ -22,7 +22,7 @@ export class GenerationImageTransferService {
     const accessKeySecret = config.get("AIVISTA_OSS_ACCESS_KEY_SECRET", { infer: true });
     if (endpoint && this.bucket && accessKeyId && accessKeySecret) this.client = new OSS({ endpoint, bucket: this.bucket, accessKeyId, accessKeySecret });
     this.prefix = config.get("AIVISTA_OSS_OBJECT_PREFIX", { infer: true });
-    this.ttlSeconds = config.get("AIVISTA_OSS_SIGNED_URL_TTL_SECONDS", { infer: true });
+    this.originalTtlSeconds = config.get("AIVISTA_OSS_ORIGINAL_SIGNED_URL_TTL_SECONDS", { infer: true });
     this.readTimeoutMs = config.get("AIVISTA_TRANSFER_SOURCE_READ_TIMEOUT_MS", { infer: true });
   }
 
@@ -46,7 +46,7 @@ export class GenerationImageTransferService {
       const counter = new ByteCountingTransform();
       Readable.fromWeb(response.body as never).pipe(counter);
       await this.client.put(original, counter, { headers: { "Content-Type": "image/png",
-        "Cache-Control": `private, max-age=${this.ttlSeconds}` } });
+        "Cache-Control": `private, max-age=${this.originalTtlSeconds}` } });
       const processClient = this.client as OSS & { processObjectSave(source: string, target: string, process: string): Promise<unknown> };
       await processClient.processObjectSave(original, `${objectKey}/card.webp`, "image/resize,l_640/format,webp/quality,Q_80");
       await processClient.processObjectSave(original, `${objectKey}/display.webp`, "image/resize,l_1600/format,webp/quality,Q_85");

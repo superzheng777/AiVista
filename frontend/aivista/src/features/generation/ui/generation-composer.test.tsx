@@ -66,7 +66,7 @@ describe("GenerationComposer", () => {
     await waitFor(() => expect(createAgentCreation).toHaveBeenCalledTimes(1));
     expect(createAgentCreation).toHaveBeenCalledWith({ sessionId: "session-1",
       prompt: "设计一张秋日海报", inputAssetIds: undefined,
-      aspectRatio: "AUTO", imageCount: 0 }, expect.any(String));
+      aspectRatio: "AUTO", imageCount: 0 });
     expect(createGenerationTask).not.toHaveBeenCalled();
     expect(screen.getByText("更多设置")).toBeInTheDocument();
     expect(screen.queryByText(/Agent 会理解目标并自行选择设计能力与生图工具/)).not.toBeInTheDocument();
@@ -138,7 +138,7 @@ describe("GenerationComposer", () => {
     await waitFor(() => expect(createAgentCreation).toHaveBeenCalledTimes(1));
     expect(createAgentCreation).toHaveBeenCalledWith({ sessionId: "session-1",
       prompt: "把参考图改成秋日风格", inputAssetIds: ["asset-101"],
-      aspectRatio: "AUTO", imageCount: 0 }, expect.any(String));
+      aspectRatio: "AUTO", imageCount: 0 });
   });
 
   it("prefills a continuation suggestion as an Agent draft without submitting it", async () => {
@@ -161,7 +161,7 @@ describe("GenerationComposer", () => {
       inputAssetIds: ["asset-existing"],
       aspectRatio: "AUTO",
       imageCount: 0,
-    }, expect.any(String));
+    });
   });
 
   it("submits explicit Agent aspect ratio and image count constraints", async () => {
@@ -180,6 +180,6 @@ describe("GenerationComposer", () => {
     await waitFor(() => expect(createAgentCreation).toHaveBeenCalledWith({
       sessionId: "session-1", prompt: "生成三张竖版海报", inputAssetIds: undefined,
       aspectRatio: "3:4", imageCount: 3,
-    }, expect.any(String)));
+    }));
   });
 });

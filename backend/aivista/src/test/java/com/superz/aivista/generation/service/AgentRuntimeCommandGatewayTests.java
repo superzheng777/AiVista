@@ -25,6 +25,6 @@ class AgentRuntimeCommandGatewayTests {
         ArgumentCaptor<TextMessage> message = ArgumentCaptor.forClass(TextMessage.class);
         verify(session).sendMessage(message.capture());
         assertThat(message.getValue().getPayload()).contains("\"type\":\"CANCEL\"")
-                .contains("\"creationTaskId\":\"31\"").contains("\"revision\":5");
+                .contains("\"creationId\":\"31\"").contains("\"revision\":5");
     }
 }

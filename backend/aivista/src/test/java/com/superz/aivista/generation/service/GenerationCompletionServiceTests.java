@@ -41,7 +41,7 @@ class GenerationCompletionServiceTests {
         var image = new GenerationCompletionCommand.CompletedImage(0, "users/7/tasks/101/0", "image/png",
                 "12345", 2048, 2048);
 
-        var response = service.complete(new GenerationCompletionCommand(1, "generation-101-3", "101", 3,
+        var response = service.complete(new GenerationCompletionCommand(1, "101", 2,
                 "COMPLETED", "provider-1", 1, null, List.of(image)));
 
         assertThat(response.status()).isEqualTo("SUCCEEDED");
@@ -57,7 +57,7 @@ class GenerationCompletionServiceTests {
         when(tasks.selectByIdForUpdate(101L)).thenReturn(succeeded);
         when(images.selectByOriginTaskId(101L)).thenReturn(List.of());
 
-        var response = service.complete(new GenerationCompletionCommand(1, "generation-101-1", "101", 1,
+        var response = service.complete(new GenerationCompletionCommand(1, "101", 1,
                 "FAILED", null, null, "PROVIDER_CONFIGURATION_ERROR", null));
 
         assertThat(response.status()).isEqualTo("SUCCEEDED");
@@ -76,7 +76,7 @@ class GenerationCompletionServiceTests {
         var response = service.get(101L);
 
         assertThat(response.status()).isEqualTo("SUCCEEDED");
-        assertThat(response.taskVersion()).isEqualTo(3);
+        assertThat(response.revision()).isEqualTo(3);
     }
 
     private static GenerationTask task(String status, int version) {
@@ -85,7 +85,7 @@ class GenerationCompletionServiceTests {
         task.setUserId(7L);
         task.setCreationTaskId(151L);
         task.setStatus(status);
-        task.setTaskVersion(version);
+        task.setRevision(version);
         task.setAttemptCount(0);
         task.setWidth(2048);
         task.setHeight(2048);

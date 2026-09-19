@@ -13,16 +13,11 @@ import com.superz.aivista.generation.service.GenerationPhaseService;
 import com.superz.aivista.generation.service.AgentExecutionSnapshotService;
 import com.superz.aivista.generation.message.AgentExecutionSnapshot;
 import com.superz.aivista.generation.message.AgentCompletionCommand;
-import com.superz.aivista.generation.message.AgentCompletionResponse;
 import com.superz.aivista.generation.service.AgentCompletionService;
-import com.superz.aivista.generation.message.AgentActivityCommand;
-import com.superz.aivista.generation.message.AgentActivityResponse;
-import com.superz.aivista.generation.service.AgentActivityService;
 import com.superz.aivista.generation.service.AgentRealtimeProjectionService;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import org.springframework.http.HttpStatus;
-import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -30,6 +25,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.server.ResponseStatusException;
 
 /** Private worker callbacks; never exposed as a browser API. */
@@ -42,83 +38,82 @@ public class GenerationWorkerController {
     private final AgentGenerationTaskCreationService agentTasks;
     private final AgentExecutionSnapshotService agentSnapshots;
     private final AgentCompletionService agentCompletions;
-    private final AgentActivityService agentActivities;
     private final AgentRealtimeProjectionService agentRealtime;
     private final GenerationPhaseService phases;
 
     public GenerationWorkerController(GenerationCompletionService completions,
             GenerationWorkerApiProperties properties, AgentGenerationTaskCreationService agentTasks,
             AgentExecutionSnapshotService agentSnapshots, AgentCompletionService agentCompletions,
-            AgentActivityService agentActivities, AgentRealtimeProjectionService agentRealtime,
+            AgentRealtimeProjectionService agentRealtime,
             GenerationPhaseService phases) {
         this.completions = completions;
         this.properties = properties;
         this.agentTasks = agentTasks;
         this.agentSnapshots = agentSnapshots;
         this.agentCompletions = agentCompletions;
-        this.agentActivities = agentActivities;
         this.agentRealtime = agentRealtime;
         this.phases = phases;
     }
 
-    @PostMapping("/agent-creations/{creationTaskId}/activities")
-    public AgentActivityResponse submitAgentActivities(@RequestHeader(TOKEN_HEADER) String token,
-            @PathVariable long creationTaskId, @RequestBody AgentActivityCommand command) {
-        authenticate(token);
-        if (!Long.toString(creationTaskId).equals(command.creationTaskId())) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Agent creation path does not match body");
-        }
-        return agentActivities.submit(command);
-    }
-
-    @GetMapping("/agent-creations/{creationTaskId}/execution")
+    @GetMapping("/agent-creations/{creationId}/execution")
     public AgentExecutionSnapshot getAgentExecution(@RequestHeader(TOKEN_HEADER) String token,
-            @PathVariable long creationTaskId) {
+            @PathVariable long creationId) {
         authenticate(token);
-        return agentSnapshots.get(creationTaskId);
+        return agentSnapshots.get(creationId);
     }
 
-    @PostMapping("/agent-creations/{creationTaskId}/completion")
-    public AgentCompletionResponse completeAgent(@RequestHeader(TOKEN_HEADER) String token,
-            @PathVariable long creationTaskId, @RequestBody AgentCompletionCommand command) {
+    @GetMapping("/agent-creations/{creationId}/assets/{assetId}")
+    public AgentExecutionSnapshot.InputAsset getAgentImage(@RequestHeader(TOKEN_HEADER) String token,
+            @PathVariable long creationId, @PathVariable long assetId,
+            @RequestParam long expectedRevision) {
         authenticate(token);
-        if (!Long.toString(creationTaskId).equals(command.creationTaskId())) {
+        return agentSnapshots.resolveImage(creationId, expectedRevision, assetId);
+    }
+
+    @PutMapping("/agent-creations/{creationId}/completion")
+    @org.springframework.web.bind.annotation.ResponseStatus(HttpStatus.NO_CONTENT)
+    public void completeAgent(@RequestHeader(TOKEN_HEADER) String token,
+            @PathVariable long creationId, @RequestBody AgentCompletionCommand command) {
+        authenticate(token);
+        if (!Long.toString(creationId).equals(command.creationId())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Agent creation path does not match body");
         }
-        AgentCompletionResponse response = agentCompletions.complete(command);
-        agentRealtime.publishTerminal(creationTaskId, command.revision());
-        return response;
+        agentCompletions.complete(command);
+        agentRealtime.publishTerminal(creationId, command.expectedRevision());
     }
 
-    @PostMapping("/completion")
+    @PutMapping("/tasks/{generationTaskId}/completion")
     public GenerationCompletionResponse complete(@RequestHeader(TOKEN_HEADER) String token,
-            @RequestBody GenerationCompletionCommand command) {
+            @PathVariable long generationTaskId, @RequestBody GenerationCompletionCommand command) {
         authenticate(token);
+        if (!Long.toString(generationTaskId).equals(command.generationTaskId())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Generation task path does not match body");
+        }
         return completions.complete(command);
     }
 
-    @GetMapping("/tasks/{taskId}/completion")
+    @GetMapping("/tasks/{generationTaskId}/completion")
     public GenerationCompletionResponse getCompletion(@RequestHeader(TOKEN_HEADER) String token,
-            @PathVariable long taskId) {
+            @PathVariable long generationTaskId) {
         authenticate(token);
-        return completions.get(taskId);
+        return completions.get(generationTaskId);
     }
 
-    @PutMapping("/tasks/{taskId}/phase")
+    @PutMapping("/tasks/{generationTaskId}/phase")
     public GenerationPhaseResponse reportPhase(@RequestHeader(TOKEN_HEADER) String token,
-            @PathVariable long taskId, @RequestBody GenerationPhaseCommand command) {
+            @PathVariable long generationTaskId, @RequestBody GenerationPhaseCommand command) {
         authenticate(token);
-        return phases.report(taskId, command.phase());
+        return phases.report(generationTaskId, command.phase());
     }
 
-    @PostMapping("/agent-creations/{creationTaskId}/generation-tasks")
+    @PutMapping("/agent-creations/{creationId}/generation-tasks/{toolCallId}")
     public CreateGenerationTaskResponse createAgentGenerationTask(
             @RequestHeader(TOKEN_HEADER) String token,
-            @RequestHeader("Idempotency-Key") String idempotencyKey,
-            @PathVariable long creationTaskId,
+            @PathVariable long creationId,
+            @PathVariable String toolCallId,
             @RequestBody CreateAgentGenerationTaskRequest request) {
         authenticate(token);
-        return agentTasks.create(creationTaskId, idempotencyKey, request);
+        return agentTasks.create(creationId, toolCallId, request);
     }
 
     private void authenticate(String supplied) {

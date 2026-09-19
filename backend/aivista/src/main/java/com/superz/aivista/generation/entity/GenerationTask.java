@@ -20,6 +20,8 @@ public class GenerationTask {
     private Long sessionId;
     /** 所属通用创作轮次；普通与未来 Agent 模式共享。 */
     private Long creationTaskId;
+    /** Pi Tool 调用 ID；普通任务为空。 */
+    private String toolCallId;
     /** TEXT_TO_IMAGE 或 IMAGE_TO_IMAGE，由任务输入资产数量派生。 */
     private String operation;
     private String model;
@@ -29,7 +31,7 @@ public class GenerationTask {
      */
     private String status;
     /** 每次状态变化递增，供条件更新和 SSE 客户端去重使用。 */
-    private Integer taskVersion;
+    private Integer revision;
     /** 仅统计允许自动重试的服务商调用次数。 */
     private Integer attemptCount;
     /** 本次任务实际发送给模型的提示词快照，仅保留给服务端追溯。 */

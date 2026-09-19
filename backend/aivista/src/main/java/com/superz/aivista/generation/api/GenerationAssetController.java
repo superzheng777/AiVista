@@ -73,7 +73,7 @@ public class GenerationAssetController {
                 .body(ResponseUtils.success(queryService.get(currentUserId(authentication), imageId)));
     }
 
-    @Operation(summary = "获取原图下载 URL", description = "仅当前图片作者可获取 original.png 的 3 分钟临时下载地址。")
+    @Operation(summary = "获取原图下载 URL", description = "仅当前图片作者可获取 original.png 的 10 分钟临时下载地址。")
     @GetMapping("/{imageId}/original-download")
     public ResponseEntity<ApiResponse<GenerationAssetImageResponse.ImageUrl>> originalDownload(
             Authentication authentication, @PathVariable long imageId) {

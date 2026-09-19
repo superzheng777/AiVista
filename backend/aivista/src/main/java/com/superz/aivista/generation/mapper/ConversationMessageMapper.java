@@ -49,15 +49,4 @@ public interface ConversationMessageMapper extends BaseMapper<ConversationMessag
             """)
     Integer selectLastSequenceNoForUpdate(@Param("sessionId") long sessionId);
 
-    @Select("""
-            SELECT id, session_id, creation_task_id, sequence_no, role, content, created_at
-            FROM conversation_messages
-            WHERE session_id = #{sessionId} AND sequence_no < #{beforeSequenceNo}
-            ORDER BY sequence_no DESC
-            LIMIT #{limit}
-            """)
-    List<ConversationMessage> selectRecentBeforeSequence(
-            @Param("sessionId") long sessionId,
-            @Param("beforeSequenceNo") int beforeSequenceNo,
-            @Param("limit") int limit);
 }

@@ -40,7 +40,7 @@ public class GenerationPhaseService {
             return response(task);
         }
         if (!allowed(task.getStatus(), requestedPhase)
-                || tasks.advancePhase(taskId, task.getStatus(), task.getTaskVersion(), requestedPhase,
+                || tasks.advancePhase(taskId, task.getStatus(), task.getRevision(), requestedPhase,
                         clock.instant()) != 1) {
             throw new IllegalStateException("Cannot advance generation task phase");
         }
@@ -51,7 +51,7 @@ public class GenerationPhaseService {
 
     private void afterCommit(GenerationTask task) {
         GenerationTaskStatusEvent event = new GenerationTaskStatusEvent(task.getSessionId().toString(),
-                task.getId().toString(), task.getTaskVersion(), task.getStatus(), retryCount(task),
+                task.getId().toString(), task.getRevision(), task.getStatus(), retryCount(task),
                 bailian.maxRetries());
         if (!TransactionSynchronizationManager.isSynchronizationActive()) {
             sse.publish(task.getUserId(), event);
@@ -94,6 +94,6 @@ public class GenerationPhaseService {
     }
 
     private static GenerationPhaseResponse response(GenerationTask task) {
-        return new GenerationPhaseResponse(task.getId().toString(), task.getStatus(), task.getTaskVersion());
+        return new GenerationPhaseResponse(task.getId().toString(), task.getStatus(), task.getRevision());
     }
 }

@@ -47,28 +47,16 @@ export type GenerationComposerDraft = {
   mode: "agent";
 };
 
-type PendingSubmission = {
-  fingerprint: string;
-  idempotencyKey: string;
-};
-
 type GenerationMode = "image" | "agent";
 type AgentAspectRatio = "AUTO" | GenerationFormValues["aspectRatio"];
 type CreationSubmission =
   | { mode: "image"; input: CreateGenerationTaskInput }
   | { mode: "agent"; input: CreateAgentCreationInput };
 
-type StoredPendingSubmission = PendingSubmission & {
-  userId: string;
-  submission: CreationSubmission;
-  createdAt: number;
-};
-
 type SubmissionFeedback = {
   message: string;
   retryable: boolean;
   requiresConsent?: boolean;
-  clearPendingSubmission?: boolean;
 };
 
 type GenerationSelectOption = {
@@ -113,9 +101,7 @@ type GenerationSubmitButtonProps = {
   label: string;
 };
 
-const PENDING_SUBMISSION_STORAGE_KEY = "aivista.pending-generation-submission";
 const GENERATION_MODE_STORAGE_KEY = "aivista.generation-mode";
-const PENDING_SUBMISSION_MAX_AGE_MS = 10 * 60 * 1_000;
 const generationModeOptions: readonly GenerationSelectOption[] = [
   { value: "image", label: "图片生成", icon: Image },
   { value: "agent", label: "Agent 模式", icon: Bot },
@@ -196,19 +182,6 @@ function GenerationChoiceGroup({ ariaLabel, value, options, disabled = false, on
   </div>;
 }
 
-function createIdempotencyKey(): string {
-  return crypto.randomUUID();
-}
-
-function fingerprintOf(mode: GenerationMode, values: GenerationFormValues,
-    inputAssetIds: string[], sessionId: string | undefined,
-    agentAspectRatio: AgentAspectRatio, agentImageCount: number): string {
-  return JSON.stringify(mode === "agent"
-    ? { mode, sessionId: sessionId ?? null, prompt: values.prompt, inputAssetIds,
-      aspectRatio: agentAspectRatio, imageCount: agentImageCount }
-    : { mode, sessionId: sessionId ?? null, ...values, inputAssetIds });
-}
-
 function inputOf(values: GenerationFormValues, inputAssetIds: string[], sessionId?: string): CreateGenerationTaskInput {
   return {
     sessionId,
@@ -232,29 +205,10 @@ function submissionOf(mode: GenerationMode, values: GenerationFormValues,
   return { mode, input: inputOf(values, inputAssetIds, sessionId) };
 }
 
-function readStoredPendingSubmission(): StoredPendingSubmission | null {
-  try {
-    const raw = window.sessionStorage.getItem(PENDING_SUBMISSION_STORAGE_KEY);
-    if (!raw) return null;
-    const stored: unknown = JSON.parse(raw);
-    if (!stored || typeof stored !== "object") return null;
-    const value = stored as Partial<StoredPendingSubmission>;
-    if (typeof value.userId !== "string" || typeof value.fingerprint !== "string"
-      || typeof value.idempotencyKey !== "string" || typeof value.createdAt !== "number"
-      || !value.submission || typeof value.submission !== "object") return null;
-    if ((value.submission.mode !== "image" && value.submission.mode !== "agent")
-      || !value.submission.input || typeof value.submission.input !== "object") return null;
-    return value as StoredPendingSubmission;
-  } catch {
-    return null;
-  }
-}
-
 function feedbackFromCreateError(error: unknown): SubmissionFeedback {
   const code = getApiErrorCode(error);
   if (code === 40902 || code === 40903) return { message: "生成规则已更新，请重新确认后再提交。", retryable: false, requiresConsent: true };
   if (code === 40905) return { message: "未完成的生成任务已达上限，请等待其中的任务完成后再试。", retryable: true };
-  if (code === 40906) return { message: "本次提交标识发生冲突，请重新提交。", retryable: true, clearPendingSubmission: true };
   if (code === 40908) return { message: "当前会话仍在创作中，请等待完成或先停止 Agent。", retryable: false };
   if (code === 42901) return { message: "今日生成图片额度已用尽，请明日再试。", retryable: false };
   if (code === 42900) return { message: "请求过于频繁，请稍后重试。", retryable: true };
@@ -266,7 +220,7 @@ export function GenerationComposer({ sessionId, compact = false, onExpand,
     hasActiveCreation = false, initialDraft }: GenerationComposerProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { status, user } = useSession();
+  const { status } = useSession();
   const { open: openAuthDialog } = useAuthDialog();
   const generationStream = useGenerationEventStream();
   const [showOptions, setShowOptions] = useState(false);
@@ -281,8 +235,6 @@ export function GenerationComposer({ sessionId, compact = false, onExpand,
   const [agentImageCount, setAgentImageCount] = useState(0);
   const controlsRef = useRef<HTMLDivElement>(null);
   const optionsTriggerRef = useRef<HTMLButtonElement>(null);
-  const pendingSubmission = useRef<PendingSubmission | null>(null);
-  const recoveryCheckedUserId = useRef<string | null>(null);
   const form = useForm<GenerationFormValues>({
     resolver: zodResolver(generationFormSchema),
     defaultValues: { prompt: initialDraft?.prompt ?? "", negativePrompt: "", aspectRatio: "1:1", promptExtend: true, imageCount: 1 },
@@ -305,14 +257,11 @@ export function GenerationComposer({ sessionId, compact = false, onExpand,
     },
   );
   const createTask = useMutation({
-    mutationFn: ({ submission, idempotencyKey }:
-      { submission: CreationSubmission; idempotencyKey: string }): Promise<CreatedCreation> =>
+    mutationFn: (submission: CreationSubmission): Promise<CreatedCreation> =>
       submission.mode === "agent"
-        ? createAgentCreation(submission.input, idempotencyKey)
-        : createGenerationTask(submission.input, idempotencyKey),
+        ? createAgentCreation(submission.input)
+        : createGenerationTask(submission.input),
     onSuccess: (task) => {
-      pendingSubmission.current = null;
-      window.sessionStorage.removeItem(PENDING_SUBMISSION_STORAGE_KEY);
       setSubmitFeedback(null);
       setReferenceImages([]);
       void Promise.all([
@@ -322,12 +271,7 @@ export function GenerationComposer({ sessionId, compact = false, onExpand,
       router.push(`/generate?sessionId=${encodeURIComponent(task.sessionId)}`);
     },
     onError: (error) => {
-      const apiErrorCode = getApiErrorCode(error);
       const feedback = feedbackFromCreateError(error);
-      if (feedback.clearPendingSubmission || apiErrorCode !== null) {
-        pendingSubmission.current = null;
-        window.sessionStorage.removeItem(PENDING_SUBMISSION_STORAGE_KEY);
-      }
       setSubmitFeedback(feedback);
       if (feedback.requiresConsent) {
         void queryClient.fetchQuery({
@@ -347,32 +291,6 @@ export function GenerationComposer({ sessionId, compact = false, onExpand,
     queueMicrotask(() => { if (active) setMode(storedMode); });
     return () => { active = false; };
   }, [initialDraft]);
-
-  useEffect(() => {
-    if (status !== "authenticated" || !user || recoveryCheckedUserId.current === user.id) return;
-    recoveryCheckedUserId.current = user.id;
-    const stored = readStoredPendingSubmission();
-    if (!stored) return;
-    if (stored.userId !== user.id || Date.now() - stored.createdAt > PENDING_SUBMISSION_MAX_AGE_MS) {
-      window.sessionStorage.removeItem(PENDING_SUBMISSION_STORAGE_KEY);
-      return;
-    }
-
-    pendingSubmission.current = { fingerprint: stored.fingerprint, idempotencyKey: stored.idempotencyKey };
-    void (async () => {
-      await Promise.resolve();
-      setSubmitFeedback({ message: "检测到未确认的生成请求，正在恢复任务状态。", retryable: false });
-      setIsPreparingStream(true);
-      const streamReady = await generationStream.ensureReady();
-      setIsPreparingStream(false);
-      if (!streamReady) {
-        setSubmitFeedback({ message: "无法建立实时连接，暂时无法确认上一项生成请求。", retryable: true });
-        return;
-      }
-      setMode(stored.submission.mode);
-      createTask.mutate({ submission: stored.submission, idempotencyKey: stored.idempotencyKey });
-    })();
-  }, [createTask, generationStream, status, user]);
 
   useEffect(() => {
     if (!showOptions && !openSelect && !referenceMenuOpen) return;
@@ -416,10 +334,6 @@ export function GenerationComposer({ sessionId, compact = false, onExpand,
       openAuthDialog();
       return;
     }
-    if (!user) {
-      return;
-    }
-
     if (consentQuery.isLoading) {
       setSubmitFeedback({ message: "正在检查生成规则，请稍候。", retryable: false });
       return;
@@ -437,12 +351,6 @@ export function GenerationComposer({ sessionId, compact = false, onExpand,
 
     const values = form.getValues();
     const inputAssetIds = referenceImages.map((image) => image.id);
-    const fingerprint = fingerprintOf(mode, values, inputAssetIds, sessionId,
-      agentAspectRatio, agentImageCount);
-    if (!pendingSubmission.current || pendingSubmission.current.fingerprint !== fingerprint) {
-      pendingSubmission.current = { fingerprint, idempotencyKey: createIdempotencyKey() };
-    }
-
     setSubmitFeedback(null);
     setIsPreparingStream(true);
     const streamReady = await generationStream.ensureReady();
@@ -453,14 +361,7 @@ export function GenerationComposer({ sessionId, compact = false, onExpand,
     }
     const submission = submissionOf(mode, values, inputAssetIds, sessionId,
       agentAspectRatio, agentImageCount);
-    window.sessionStorage.setItem(PENDING_SUBMISSION_STORAGE_KEY, JSON.stringify({
-      userId: user.id,
-      fingerprint,
-      idempotencyKey: pendingSubmission.current.idempotencyKey,
-      submission,
-      createdAt: Date.now(),
-    } satisfies StoredPendingSubmission));
-    createTask.mutate({ submission, idempotencyKey: pendingSubmission.current.idempotencyKey });
+    createTask.mutate(submission);
   }
 
   const isCheckingConsent = status === "authenticated" && consentQuery.isLoading;

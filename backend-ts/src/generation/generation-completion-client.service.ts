@@ -5,9 +5,9 @@ import type { Environment } from "../config/environment.js";
 import type { GenerationCompletion } from "./generation-completion.js";
 
 const responseSchema = z.object({
-  taskId: z.string().regex(/^\d+$/),
+  generationTaskId: z.string().regex(/^\d+$/),
   status: z.enum(["QUEUED", "GENERATING", "SAVING", "SUCCEEDED", "PARTIALLY_SUCCEEDED", "FAILED"]),
-  taskVersion: z.number().int().nonnegative(),
+  revision: z.number().int().nonnegative(),
   failureCode: z.string().nullable().optional(),
   assets: z.array(z.object({ assetId: z.string().regex(/^\d+$/), sourceIndex: z.number().int().nonnegative(),
     width: z.number().int().positive(), height: z.number().int().positive() })),
@@ -16,9 +16,9 @@ const responseSchema = z.object({
 export type GenerationCompletionResponse = z.infer<typeof responseSchema>;
 
 const phaseResponseSchema = z.object({
-  taskId: z.string().regex(/^\d+$/),
+  generationTaskId: z.string().regex(/^\d+$/),
   status: z.enum(["QUEUED", "GENERATING", "SAVING", "SUCCEEDED", "PARTIALLY_SUCCEEDED", "FAILED"]),
-  taskVersion: z.number().int().nonnegative(),
+  revision: z.number().int().nonnegative(),
 });
 export type GenerationPhaseResponse = z.infer<typeof phaseResponseSchema>;
 
@@ -35,7 +35,7 @@ export class GenerationCompletionClientService {
   }
 
   complete(completion: GenerationCompletion): Promise<GenerationCompletionResponse> {
-    return this.post("completion", completion);
+    return this.putCompletion(completion);
   }
 
   async getCompletion(taskId: bigint): Promise<GenerationCompletionResponse> {
@@ -62,15 +62,31 @@ export class GenerationCompletionClientService {
     return phaseResponseSchema.parse(await response.json());
   }
 
-  private async post(path: string, body: unknown): Promise<GenerationCompletionResponse> {
+  private async putCompletion(completion: GenerationCompletion): Promise<GenerationCompletionResponse> {
     if (!this.token) throw new Error("Generation worker token is not configured");
-    const response = await fetch(`${this.baseUrl}/internal/generation-worker/${path}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-AiVista-Worker-Token": this.token },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(this.timeoutMs),
-    });
-    if (!response.ok) throw new Error(`Java generation worker API returned HTTP ${response.status}`);
-    return responseSchema.parse(await response.json());
+    const url = `${this.baseUrl}/internal/generation-worker/tasks/${completion.generationTaskId}/completion`;
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      let response: Response;
+      try {
+        response = await fetch(url, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", "X-AiVista-Worker-Token": this.token },
+          body: JSON.stringify(completion),
+          signal: AbortSignal.timeout(this.timeoutMs),
+        });
+      } catch (error) {
+        if (attempt === 2) throw error;
+        lastError = error;
+        await new Promise((resolve) => setTimeout(resolve, 100 * (attempt + 1)));
+        continue;
+      }
+      if (response.ok) return responseSchema.parse(await response.json());
+      const error = new Error(`Java generation worker API returned HTTP ${response.status}`);
+      if (response.status < 500 || attempt === 2) throw error;
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 100 * (attempt + 1)));
+    }
+    throw lastError;
   }
 }

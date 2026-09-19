@@ -9,17 +9,14 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.superz.aivista.common.exception.BusinessException;
 import com.superz.aivista.common.exception.ErrorCode;
-import com.superz.aivista.common.idempotency.IdempotencyRecordMapper;
-import com.superz.aivista.common.idempotency.IdempotencyRecord;
 import com.superz.aivista.generation.config.GenerationTaskProperties;
 import com.superz.aivista.generation.dto.CreateAgentGenerationTaskRequest;
 import com.superz.aivista.generation.entity.CreationTask;
 import com.superz.aivista.generation.entity.GenerationTask;
-import com.superz.aivista.generation.mapper.CreationTaskMapper;
 import com.superz.aivista.generation.mapper.CreationTaskInputAssetMapper;
+import com.superz.aivista.generation.mapper.CreationTaskMapper;
 import com.superz.aivista.generation.mapper.GenerationTaskMapper;
 import com.superz.aivista.user.mapper.UserMapper;
 import java.time.Clock;
@@ -29,151 +26,79 @@ import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 
 class AgentGenerationTaskCreationServiceTests {
     private static final Instant NOW = Instant.parse("2026-09-09T02:00:00Z");
-    private static final String KEY = "b719c741-8607-4b0f-9a72-2dcbfdd6b6ee";
     private final CreationTaskMapper creations = mock(CreationTaskMapper.class);
     private final UserMapper users = mock(UserMapper.class);
-    private final CreationTaskInputAssetMapper creationInputAssets = mock(CreationTaskInputAssetMapper.class);
+    private final CreationTaskInputAssetMapper creationInputs = mock(CreationTaskInputAssetMapper.class);
     private final GenerationTaskMapper generationTasks = mock(GenerationTaskMapper.class);
-    private final IdempotencyRecordMapper idempotency = mock(IdempotencyRecordMapper.class);
     private final GenerationTaskProvisioningService provisioning = mock(GenerationTaskProvisioningService.class);
     private AgentGenerationTaskCreationService service;
 
     @BeforeEach
     void setUp() {
-        var properties = new GenerationTaskProperties(
-                "bailian/qwen-image-2.0", 4, 12, 1000, 500, 1, 6, Map.of("3:4", "1536*2048"));
-        service = new AgentGenerationTaskCreationService(creations, users, creationInputAssets, generationTasks, idempotency,
+        var properties = new GenerationTaskProperties("model", 4, 12, 1000, 500, 1, 6,
+                Map.of("3:4", "1536*2048"));
+        service = new AgentGenerationTaskCreationService(creations, users, creationInputs, generationTasks,
                 new GenerationTaskSpecificationValidator(properties), provisioning,
-                Clock.fixed(NOW, ZoneOffset.UTC), new ObjectMapper());
-    }
-
-    @Test
-    void createsTaskUnderExistingAgentCreationThroughSharedProvisioning() {
-        CreationTask creation = agentCreation();
+                Clock.fixed(NOW, ZoneOffset.UTC));
+        CreationTask creation = creation();
         when(creations.selectSnapshotById(151L)).thenReturn(creation);
         when(users.selectIdForUpdate(7L)).thenReturn(7L);
         when(creations.selectByIdForUpdate(151L)).thenReturn(creation);
-        when(creationInputAssets.selectAssetIdsByCreationTaskId(151L)).thenReturn(List.of(501L));
-        GenerationTask task = new GenerationTask();
-        task.setId(301L);
-        task.setSessionId(101L);
-        task.setStatus("QUEUED");
-        task.setTaskVersion(0);
-        task.setRequestedImageCount(1);
-        task.setCreatedAt(NOW);
-        when(provisioning.create(anyLong(), anyLong(), anyLong(), any(), any())).thenReturn(task);
-
-        var response = service.create(151L, KEY, new CreateAgentGenerationTaskRequest(
-                "IMAGE_TO_IMAGE", "改成蓝色海报", null, "3:4", true, 1, List.of("501")));
-
-        assertThat(response.taskId()).isEqualTo("301");
-        ArgumentCaptor<GenerationTaskSpecification> specification =
-                ArgumentCaptor.forClass(GenerationTaskSpecification.class);
-        verify(provisioning).create(org.mockito.Mockito.eq(7L), org.mockito.Mockito.eq(101L),
-                org.mockito.Mockito.eq(151L), specification.capture(), org.mockito.Mockito.eq(NOW));
-        assertThat(specification.getValue().inputAssetIds()).containsExactly(501L);
-        verify(idempotency).insertSelective(any());
+        when(creationInputs.selectAssetIdsByCreationTaskId(151L)).thenReturn(List.of());
     }
 
     @Test
-    void rejectsNormalCreationBeforeAnyBusinessWrite() {
-        CreationTask creation = agentCreation();
-        creation.setMode("NORMAL");
-        when(creations.selectSnapshotById(151L)).thenReturn(creation);
+    void createsWithTheToolCallIdentity() {
+        GenerationTask task = task();
+        when(provisioning.create(anyLong(), anyLong(), anyLong(),
+                org.mockito.ArgumentMatchers.eq("call-1"), any(), any())).thenReturn(task);
 
-        assertThatThrownBy(() -> service.create(151L, KEY, new CreateAgentGenerationTaskRequest(
-                "TEXT_TO_IMAGE", "海报", null, "3:4", true, 1, List.of())))
-                .isInstanceOfSatisfying(BusinessException.class,
-                        exception -> assertThat(exception.getErrorCode())
-                                .isEqualTo(ErrorCode.GENERATION_RESOURCE_NOT_FOUND));
-        verify(users, never()).selectIdForUpdate(anyLong());
-        verify(provisioning, never()).create(anyLong(), anyLong(), anyLong(), any(), any());
+        var response = service.create(151L, "call-1", request());
+
+        assertThat(response.generationTaskId()).isEqualTo("301");
+        verify(provisioning).create(org.mockito.ArgumentMatchers.eq(7L),
+                org.mockito.ArgumentMatchers.eq(101L), org.mockito.ArgumentMatchers.eq(151L),
+                org.mockito.ArgumentMatchers.eq("call-1"), any(), org.mockito.ArgumentMatchers.eq(NOW));
     }
 
     @Test
-    void rejectsOperationThatConflictsWithInputAssets() {
-        CreationTask creation = agentCreation();
-        when(creations.selectSnapshotById(151L)).thenReturn(creation);
-        when(users.selectIdForUpdate(7L)).thenReturn(7L);
-        when(creations.selectByIdForUpdate(151L)).thenReturn(creation);
-        when(creationInputAssets.selectAssetIdsByCreationTaskId(151L)).thenReturn(List.of(501L));
+    void returnsTheExistingTaskForAnIdenticalRequest() {
+        GenerationTask existing = task();
+        when(generationTasks.selectByCreationTaskIdAndToolCallIdForUpdate(151L, "call-1"))
+                .thenReturn(existing);
+        when(provisioning.matches(existing, specification())).thenReturn(true);
 
-        assertThatThrownBy(() -> service.create(151L, KEY, new CreateAgentGenerationTaskRequest(
-                "TEXT_TO_IMAGE", "修改图片", null, "3:4", true, 1, List.of("501"))))
-                .isInstanceOfSatisfying(BusinessException.class,
-                        exception -> assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.VALIDATION_ERROR));
-        verify(provisioning, never()).create(anyLong(), anyLong(), anyLong(), any(), any());
+        var response = service.create(151L, "call-1", request());
+
+        assertThat(response.generationTaskId()).isEqualTo("301");
+        verify(provisioning, never()).create(anyLong(), anyLong(), anyLong(), any(), any(), any());
     }
 
     @Test
-    void enforcesCreationLevelAspectRatioAndTotalImageCount() {
-        CreationTask creation = agentCreation();
-        creation.setRequestedAspectRatio("3:4");
-        creation.setRequestedImageCount(3);
-        when(creations.selectSnapshotById(151L)).thenReturn(creation);
-        when(users.selectIdForUpdate(7L)).thenReturn(7L);
-        when(creations.selectByIdForUpdate(151L)).thenReturn(creation);
-        when(creationInputAssets.selectAssetIdsByCreationTaskId(151L)).thenReturn(List.of());
+    void rejectsAReusedIdentityWithDifferentArguments() {
+        GenerationTask existing = task();
+        when(generationTasks.selectByCreationTaskIdAndToolCallIdForUpdate(151L, "call-1"))
+                .thenReturn(existing);
+        when(provisioning.matches(org.mockito.ArgumentMatchers.eq(existing), any())).thenReturn(false);
 
-        assertThatThrownBy(() -> service.create(151L, KEY, new CreateAgentGenerationTaskRequest(
-                "TEXT_TO_IMAGE", "海报", null, "1:1", true, 1, List.of())))
+        assertThatThrownBy(() -> service.create(151L, "call-1", request()))
                 .isInstanceOfSatisfying(BusinessException.class,
-                        exception -> assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.VALIDATION_ERROR));
-
-        when(generationTasks.sumEffectiveRequestedImagesByCreationTaskId(151L)).thenReturn(2);
-        assertThatThrownBy(() -> service.create(151L, KEY, new CreateAgentGenerationTaskRequest(
-                "TEXT_TO_IMAGE", "海报", null, "3:4", true, 2, List.of())))
-                .isInstanceOfSatisfying(BusinessException.class,
-                        exception -> assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.VALIDATION_ERROR));
-        verify(provisioning, never()).create(anyLong(), anyLong(), anyLong(), any(), any());
+                        error -> assertThat(error.getErrorCode()).isEqualTo(ErrorCode.AGENT_TOOL_CALL_CONFLICT));
     }
 
-    @Test
-    void rejectsCreatingANewTaskAfterTheAgentWasCancelled() {
-        CreationTask creation = agentCreation();
-        creation.setStatus("CANCELLED");
-        creation.setRevision(1L);
-        when(creations.selectSnapshotById(151L)).thenReturn(creation);
-        when(users.selectIdForUpdate(7L)).thenReturn(7L);
-        when(creations.selectByIdForUpdate(151L)).thenReturn(creation);
-
-        assertThatThrownBy(() -> service.create(151L, KEY, new CreateAgentGenerationTaskRequest(
-                "TEXT_TO_IMAGE", "海报", null, "3:4", true, 1, List.of())))
-                .isInstanceOfSatisfying(BusinessException.class,
-                        exception -> assertThat(exception.getErrorCode())
-                                .isEqualTo(ErrorCode.AGENT_CREATION_NOT_RUNNING));
-        verify(provisioning, never()).create(anyLong(), anyLong(), anyLong(), any(), any());
-        verify(idempotency, never()).selectByOwnerScopeAndKeyForUpdate(anyLong(), any(), any());
+    private static CreateAgentGenerationTaskRequest request() {
+        return new CreateAgentGenerationTaskRequest("TEXT_TO_IMAGE", "海报", null,
+                "3:4", true, 1, List.of());
     }
 
-    @Test
-    void returnsPersistedResponseForAnIdenticalRetry() {
-        CreationTask creation = agentCreation();
-        when(creations.selectSnapshotById(151L)).thenReturn(creation);
-        when(users.selectIdForUpdate(7L)).thenReturn(7L);
-        when(creations.selectByIdForUpdate(151L)).thenReturn(creation);
-        when(creationInputAssets.selectAssetIdsByCreationTaskId(151L)).thenReturn(List.of());
-        IdempotencyRecord record = new IdempotencyRecord();
-        record.setExpiresAt(NOW.plusSeconds(60));
-        record.setRequestFingerprint(GenerationRequestFingerprint.sha256(
-                7L, "151", "海报", null, "3:4", true, 1, List.of()));
-        record.setResponseBody("{\"taskId\":\"301\",\"sessionId\":\"101\",\"status\":\"QUEUED\","+
-                "\"taskVersion\":0,\"requestedImageCount\":1,\"createdAt\":\"2026-09-09T02:00:00Z\"}");
-        when(idempotency.selectByOwnerScopeAndKeyForUpdate(
-                7L, "AGENT_GENERATION_TASK_CREATE", KEY)).thenReturn(record);
-
-        var response = service.create(151L, KEY, new CreateAgentGenerationTaskRequest(
-                "TEXT_TO_IMAGE", "海报", null, "3:4", true, 1, List.of()));
-
-        assertThat(response.taskId()).isEqualTo("301");
-        verify(provisioning, never()).create(anyLong(), anyLong(), anyLong(), any(), any());
+    private static GenerationTaskSpecification specification() {
+        return new GenerationTaskSpecification("海报", null, "3:4", true, 1, List.of());
     }
 
-    private static CreationTask agentCreation() {
+    private static CreationTask creation() {
         CreationTask creation = new CreationTask();
         creation.setId(151L);
         creation.setUserId(7L);
@@ -184,5 +109,16 @@ class AgentGenerationTaskCreationServiceTests {
         creation.setStatus("RUNNING");
         creation.setRevision(0L);
         return creation;
+    }
+
+    private static GenerationTask task() {
+        GenerationTask task = new GenerationTask();
+        task.setId(301L);
+        task.setSessionId(101L);
+        task.setStatus("QUEUED");
+        task.setRevision(0);
+        task.setRequestedImageCount(1);
+        task.setCreatedAt(NOW);
+        return task;
     }
 }

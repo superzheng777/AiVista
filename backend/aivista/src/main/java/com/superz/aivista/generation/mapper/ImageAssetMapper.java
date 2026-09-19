@@ -84,6 +84,40 @@ public interface ImageAssetMapper extends BaseMapper<ImageAsset> {
             """)
     ImageAsset selectVisibleDetailByUserIdAndId(@Param("userId") long userId, @Param("assetId") long assetId);
 
+    /**
+     * Resolves only an owned image that has already appeared in this Generation Session:
+     * as the current/prior Creation input or as a successfully generated output.
+     */
+    @Select("""
+            SELECT a.*
+            FROM image_assets a
+            WHERE a.id = #{assetId}
+              AND a.user_id = #{userId}
+              AND a.deleted_at IS NULL
+              AND (a.expires_at IS NULL OR a.expires_at > CURRENT_TIMESTAMP(3))
+              AND (
+                  EXISTS (
+                      SELECT 1
+                      FROM creation_task_input_assets ci
+                      INNER JOIN creation_tasks c ON c.id = ci.creation_task_id
+                      WHERE ci.image_asset_id = a.id
+                        AND c.session_id = #{sessionId}
+                        AND c.user_id = #{userId}
+                  )
+                  OR EXISTS (
+                      SELECT 1
+                      FROM generation_tasks t
+                      WHERE t.id = a.origin_task_id
+                        AND t.session_id = #{sessionId}
+                        AND t.user_id = #{userId}
+                        AND t.status IN ('SUCCEEDED', 'PARTIALLY_SUCCEEDED')
+                  )
+              )
+            LIMIT 1
+            """)
+    ImageAsset selectReadableByAgentSession(@Param("assetId") long assetId,
+            @Param("userId") long userId, @Param("sessionId") long sessionId);
+
     @Select("""
             <script>
             SELECT a.* FROM image_assets a LEFT JOIN image_publications p ON p.asset_id = a.id

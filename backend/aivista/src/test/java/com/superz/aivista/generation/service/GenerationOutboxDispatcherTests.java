@@ -49,7 +49,7 @@ class GenerationOutboxDispatcherTests {
                 message.capture(), any(CorrelationData.class));
         assertThat(new ObjectMapper().readTree(message.getValue().getBody()))
                 .isEqualTo(new ObjectMapper().readTree(
-                        "{\"eventId\":12,\"creationTaskId\":301,\"revision\":3}"));
+                        "{\"creationId\":301,\"expectedRevision\":3}"));
     }
 
     @Test

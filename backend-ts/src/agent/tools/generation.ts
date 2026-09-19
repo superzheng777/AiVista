@@ -65,8 +65,8 @@ export type GenerationToolRequest = {
 };
 
 export type GenerationToolOutcome =
-  | { outcome: "SUCCEEDED"; taskId: string; imageAssetIds: string[] }
-  | { outcome: "FAILED"; taskId?: string; code: string; message: string; retryable: boolean };
+  | { outcome: "SUCCEEDED"; generationTaskId: string; imageAssetIds: string[] }
+  | { outcome: "FAILED"; generationTaskId?: string; code: string; message: string; retryable: boolean };
 
 export interface GenerationToolExecutor {
   execute(toolCallId: string, request: GenerationToolRequest, signal?: AbortSignal): Promise<GenerationToolOutcome>;
@@ -179,7 +179,7 @@ function resultOf(result: GenerationToolOutcome) {
     return {
       content: [{
         type: "text" as const,
-        text: `图片生成成功。任务 ID：${result.taskId}；图片资产 ID：${result.imageAssetIds.join(", ")}。`,
+        text: `图片生成成功。任务 ID：${result.generationTaskId}；图片资产 ID：${result.imageAssetIds.join(", ")}。`,
       }],
       details: result,
     };

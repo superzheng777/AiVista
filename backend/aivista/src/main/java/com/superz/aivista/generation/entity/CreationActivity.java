@@ -19,8 +19,7 @@ public class CreationActivity {
     private Long creationTaskId;
     private Integer sequenceNo;
     private String activityType;
-    private String activityKey;
-    private String state;
+    private String outcome;
     private String content;
     private String toolName;
     private Long generationTaskId;

@@ -7,7 +7,7 @@ describe("AgentEventNormalizer", () => {
   it("projects lifecycle events without leaking tool arguments or results", () => {
     const events: AgentRealtimeEvent[] = [];
     const normalizer = new AgentEventNormalizer({ emit: (event) => events.push(event) });
-    normalizer.start();
+    normalizer.accept({ type: "agent_start" });
     normalizer.accept({ type: "tool_start", toolCallId: "call-1", toolName: "text_to_image",
       args: { prompt: "secret" } });
     normalizer.accept({ type: "tool_progress", toolCallId: "call-1", toolName: "text_to_image",

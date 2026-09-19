@@ -1,15 +1,18 @@
 import type { AgentRuntimeEvent } from "./agent-runtime.js";
+import { selectedSkillName, skillLabel, toolLabel, toolOutcomeDetails,
+  userFacingPlan } from "./agent-event-utils.js";
 
 export interface AgentActivityItem {
-  activityKey: string;
   type: "NARRATION" | "SKILL" | "TOOL";
-  state: "RUNNING" | "COMPLETED" | "FAILED";
+  outcome: "COMPLETED" | "FAILED" | "CANCELLED";
   content: string;
   toolName: string | null;
   generationTaskId: string | null;
   startedAt: string;
-  completedAt: string | null;
+  completedAt: string;
 }
+
+type PendingToolActivity = Omit<AgentActivityItem, "outcome" | "completedAt">;
 
 /**
  * Projects Pi events into the small set of stable steps that may be persisted.
@@ -17,18 +20,18 @@ export interface AgentActivityItem {
  */
 export class AgentActivityCollector {
   private readonly pendingText: string[] = [];
-  private readonly tools = new Map<string, AgentActivityItem>();
+  private readonly tools = new Map<string, PendingToolActivity>();
   private readonly stable = new Map<string, AgentActivityItem>();
   private narrationSequence = 0;
-  private readonly skillCalls = new Map<string, string>();
+  private readonly skillCalls = new Map<string, { name: string; startedAt: string }>();
   private hasTurnNarration = false;
 
   constructor(private readonly now: () => Date = () => new Date()) {}
 
-  accept(event: AgentRuntimeEvent): AgentActivityItem[] {
+  accept(event: AgentRuntimeEvent): void {
     if (event.type === "turn_start") {
       this.hasTurnNarration = false;
-      return [];
+      return;
     }
     if (event.type === "text_end") {
       const text = event.text.trim();
@@ -36,71 +39,68 @@ export class AgentActivityCollector {
         this.hasTurnNarration = true;
         this.pendingText.push(limitCodePoints(text, 1_000));
       }
-      return [];
+      return;
     }
     if (event.type === "tool_start") {
+      const occurredAt = this.now().toISOString();
+      this.flushNarration(occurredAt);
       const skillName = selectedSkillName(event.toolName, event.args);
       if (skillName) {
-        this.skillCalls.set(event.toolCallId, skillName);
-        return [];
+        this.skillCalls.set(event.toolCallId, { name: skillName, startedAt: occurredAt });
+        return;
       }
-      const occurredAt = this.now().toISOString();
-      const emitted = this.flushNarration(occurredAt);
       if (!this.hasTurnNarration) {
         const plan = userFacingPlan(event.args);
         if (plan) {
           this.hasTurnNarration = true;
           this.pendingText.push(limitCodePoints(plan, 1_000));
-          emitted.push(...this.flushNarration(occurredAt));
+          this.flushNarration(occurredAt);
         }
       }
-      const activity: AgentActivityItem = {
-        activityKey: `tool:${event.toolCallId}`,
+      const activity: PendingToolActivity = {
         type: "TOOL",
-        state: "RUNNING",
         content: `正在执行${toolLabel(event.toolName)}。`,
         toolName: event.toolName,
         generationTaskId: null,
         startedAt: occurredAt,
-        completedAt: null,
       };
       this.tools.set(event.toolCallId, activity);
-      return this.record([...emitted, activity]);
+      return;
     }
     if (event.type === "tool_end") {
-      const skillName = this.skillCalls.get(event.toolCallId);
-      if (skillName) {
+      const skill = this.skillCalls.get(event.toolCallId);
+      if (skill) {
         this.skillCalls.delete(event.toolCallId);
-        if (event.isError) return [];
+        if (event.isError) return;
         const occurredAt = this.now().toISOString();
-        return this.record([{
-          activityKey: `skill:${skillName}`,
+        this.record(`skill:${skill.name}`, {
           type: "SKILL",
-          state: "COMPLETED",
-          content: `已启用${skillLabel(skillName)}。`,
+          outcome: "COMPLETED",
+          content: `已启用${skillLabel(skill.name)}。`,
           toolName: null,
           generationTaskId: null,
-          startedAt: occurredAt,
+          startedAt: skill.startedAt,
           completedAt: occurredAt,
-        }]);
+        });
+        return;
       }
       const existing = this.tools.get(event.toolCallId);
-      if (!existing) return [];
-      const details = outcomeDetails(event.result);
+      if (!existing) return;
+      const details = toolOutcomeDetails(event.result);
       const failed = event.isError || details.outcome === "FAILED";
       const completed: AgentActivityItem = {
         ...existing,
-        state: failed ? "FAILED" : "COMPLETED",
+        outcome: failed ? "FAILED" : "COMPLETED",
         content: failed
           ? `${toolLabel(event.toolName)}未完成。`
           : `${toolLabel(event.toolName)}已完成。`,
-        generationTaskId: details.taskId,
+        generationTaskId: details.generationTaskId,
         completedAt: this.now().toISOString(),
       };
-      this.tools.set(event.toolCallId, completed);
-      return this.record([completed]);
+      this.record(`tool:${event.toolCallId}`, completed);
+      return;
     }
-    return [];
+    return;
   }
 
   /** Final assistant text remains a conversation message, not a duplicate NARRATION activity. */
@@ -112,57 +112,24 @@ export class AgentActivityCollector {
     return [...this.stable.values()].map((activity) => ({ ...activity }));
   }
 
-  private flushNarration(occurredAt: string): AgentActivityItem[] {
-    return this.pendingText.splice(0).map((content) => ({
-      activityKey: `narration:${++this.narrationSequence}`,
-      type: "NARRATION" as const,
-      state: "COMPLETED" as const,
-      content,
-      toolName: null,
-      generationTaskId: null,
-      startedAt: occurredAt,
-      completedAt: occurredAt,
-    }));
+  private flushNarration(occurredAt: string): void {
+    for (const content of this.pendingText.splice(0)) {
+      const key = `narration:${++this.narrationSequence}`;
+      this.record(key, {
+        type: "NARRATION",
+        outcome: "COMPLETED",
+        content,
+        toolName: null,
+        generationTaskId: null,
+        startedAt: occurredAt,
+        completedAt: occurredAt,
+      });
+    }
   }
 
-  private record(items: AgentActivityItem[]): AgentActivityItem[] {
-    for (const item of items) this.stable.set(item.activityKey, item);
-    return items;
+  private record(key: string, item: AgentActivityItem): void {
+    this.stable.set(key, item);
   }
-}
-
-function userFacingPlan(args: unknown): string | null {
-  if (!args || typeof args !== "object") return null;
-  const value = Reflect.get(args, "userFacingPlan");
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function toolLabel(toolName: string): string {
-  if (toolName === "text_to_image") return "文生图";
-  if (toolName === "image_to_image") return "图生图";
-  return "创作工具";
-}
-
-export function selectedSkillName(toolName: string, args: unknown): string | null {
-  if (toolName !== "read" || !args || typeof args !== "object" || !("path" in args)
-      || typeof args.path !== "string") return null;
-  const normalized = args.path.replaceAll("\\", "/");
-  const match = normalized.match(/\/skills\/([a-z0-9-]+)\/SKILL\.md$/i);
-  return match?.[1]?.toLowerCase() ?? null;
-}
-
-function skillLabel(skillName: string): string {
-  return skillName === "poster-design" ? "海报设计能力" : "创作能力";
-}
-
-function outcomeDetails(result: unknown): { outcome?: string; taskId: string | null } {
-  if (!result || typeof result !== "object" || !("details" in result)) return { taskId: null };
-  const details = result.details;
-  if (!details || typeof details !== "object") return { taskId: null };
-  const outcome = "outcome" in details && typeof details.outcome === "string" ? details.outcome : undefined;
-  const taskId = "taskId" in details && typeof details.taskId === "string" && /^\d+$/.test(details.taskId)
-    ? details.taskId : null;
-  return outcome === undefined ? { taskId } : { outcome, taskId };
 }
 
 function limitCodePoints(value: string, limit: number): string {

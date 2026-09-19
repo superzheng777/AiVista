@@ -85,7 +85,7 @@ class GenerationQueuedTaskFailureServiceTests {
         task.setId(11L);
         task.setUserId(7L);
         task.setStatus("QUEUED");
-        task.setTaskVersion(3);
+        task.setRevision(3);
         task.setRequestedImageCount(2);
         task.setCreatedAt(Instant.parse("2026-07-29T01:00:00Z"));
         return task;

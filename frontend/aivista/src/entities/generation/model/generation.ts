@@ -55,15 +55,14 @@ export type GenerationTurn = {
 };
 
 export type CreationActivity = {
-  activityKey: string;
   sequenceNo: number;
   type: "NARRATION" | "SKILL" | "TOOL";
-  state: "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED";
+  outcome: "COMPLETED" | "FAILED" | "CANCELLED";
   content: string;
   toolName: string | null;
   generationTaskId: string | null;
   startedAt: string;
-  completedAt: string | null;
+  completedAt: string;
 };
 
 export type GenerationAsset = {

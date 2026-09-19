@@ -98,7 +98,7 @@ public class GenerationSessionQueryService {
             boolean hasActiveTask) {
         GenerationSessionLatestTaskResponse task = latestTask == null ? null
                 : new GenerationSessionLatestTaskResponse(String.valueOf(latestTask.getId()), latestTask.getStatus(),
-                        latestTask.getTaskVersion());
+                        latestTask.getRevision());
         return new GenerationSessionSummaryResponse(String.valueOf(session.getId()), session.getTitle(),
                 session.getLastMessageAt(), task, hasActiveTask);
     }

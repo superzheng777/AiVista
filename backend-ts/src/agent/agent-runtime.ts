@@ -4,12 +4,14 @@ import {
   createAgentSession,
   DefaultResourceLoader,
   SessionManager,
+  SettingsManager,
   type InlineExtension,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import type { AgentModelBinding } from "./providers/bailian.js";
 import type { ImageContent } from "@earendil-works/pi-ai";
 import type { AgentGenerationConstraints } from "./tools/generation.js";
+import { exportAgentContext, restoreAgentContext, type AgentSessionContext } from "./agent-context.js";
 
 export type AgentRuntimeEvent =
   | { type: "agent_start" }
@@ -19,8 +21,7 @@ export type AgentRuntimeEvent =
   | { type: "text_end"; contentIndex: number; text: string }
   | { type: "tool_start"; toolCallId: string; toolName: string; args: unknown }
   | { type: "tool_progress"; toolCallId: string; toolName: string; partialResult: unknown }
-  | { type: "tool_end"; toolCallId: string; toolName: string; result: unknown; isError: boolean }
-  | { type: "agent_settled" };
+  | { type: "tool_end"; toolCallId: string; toolName: string; result: unknown; isError: boolean };
 
 export interface RunAgentPromptOptions {
   binding: AgentModelBinding;
@@ -30,14 +31,14 @@ export interface RunAgentPromptOptions {
   images?: ImageContent[];
   authorizedInputAssetIds?: string[];
   generationConstraints?: AgentGenerationConstraints;
-  history?: Array<{ role: "USER" | "ASSISTANT"; content: string }>;
+  context?: AgentSessionContext | null;
   signal?: AbortSignal;
   onEvent?: (event: AgentRuntimeEvent) => void;
 }
 
 export interface AgentPromptResult {
   text: string;
-  turns: number;
+  context: AgentSessionContext;
 }
 
 export class AgentTurnLimitError extends Error {
@@ -53,6 +54,9 @@ export async function runAgentPrompt(options: RunAgentPromptOptions): Promise<Ag
   }
   // Keep Pi project-resource discovery independent from the shell launch directory.
   const cwd = resolve(fileURLToPath(new URL("../../", import.meta.url)));
+  const emit = (event: AgentRuntimeEvent) => {
+    try { options.onEvent?.(event); } catch { /* Product projection failures must not break Pi's loop. */ }
+  };
   let turns = 0;
   let turnLimitReached = false;
   const extension: InlineExtension = {
@@ -66,7 +70,7 @@ export async function runAgentPrompt(options: RunAgentPromptOptions): Promise<Ag
           return;
         }
         turns = event.turnIndex + 1;
-        options.onEvent?.({ type: "turn_start", turn: turns });
+        emit({ type: "turn_start", turn: turns });
       });
       pi.on("turn_end", (event, context) => {
         if (event.turnIndex + 1 >= options.maxTurns && event.toolResults.length > 0) {
@@ -96,7 +100,10 @@ export async function runAgentPrompt(options: RunAgentPromptOptions): Promise<Ag
   await resourceLoader.reload();
   const tools = options.tools ?? [];
   const sessionManager = SessionManager.inMemory(cwd);
-  appendHistory(sessionManager, options.history ?? [], options.binding);
+  restoreAgentContext(sessionManager, options.context);
+  const settingsManager = SettingsManager.inMemory({
+    compaction: { enabled: true, reserveTokens: 16_384, keepRecentTokens: 20_000 },
+  });
   const { session } = await createAgentSession({
     cwd,
     modelRuntime: options.binding.modelRuntime,
@@ -107,30 +114,33 @@ export async function runAgentPrompt(options: RunAgentPromptOptions): Promise<Ag
       : { tools: tools.map((tool) => tool.name), customTools: tools }),
     resourceLoader,
     sessionManager,
+    settingsManager,
   });
+  let resolveSettled!: () => void;
+  const settled = new Promise<void>((resolvePromise) => { resolveSettled = resolvePromise; });
   const unsubscribe = session.subscribe((event) => {
-    if (event.type === "agent_start") options.onEvent?.({ type: "agent_start" });
-    if (event.type === "agent_settled") options.onEvent?.({ type: "agent_settled" });
+    if (event.type === "agent_start") emit({ type: "agent_start" });
+    if (event.type === "agent_settled") resolveSettled();
     if (event.type === "tool_execution_start") {
-      options.onEvent?.({ type: "tool_start", toolCallId: event.toolCallId, toolName: event.toolName,
+      emit({ type: "tool_start", toolCallId: event.toolCallId, toolName: event.toolName,
         args: event.args });
     }
     if (event.type === "tool_execution_update") {
-      options.onEvent?.({ type: "tool_progress", toolCallId: event.toolCallId, toolName: event.toolName,
+      emit({ type: "tool_progress", toolCallId: event.toolCallId, toolName: event.toolName,
         partialResult: event.partialResult });
     }
     if (event.type === "tool_execution_end") {
-      options.onEvent?.({ type: "tool_end", toolCallId: event.toolCallId, toolName: event.toolName,
+      emit({ type: "tool_end", toolCallId: event.toolCallId, toolName: event.toolName,
         result: event.result, isError: event.isError });
     }
     if (event.type !== "message_update") return;
     const update = event.assistantMessageEvent;
     if (update.type === "text_start") {
-      options.onEvent?.({ type: "text_start", contentIndex: update.contentIndex });
+      emit({ type: "text_start", contentIndex: update.contentIndex });
     } else if (update.type === "text_delta") {
-      options.onEvent?.({ type: "text_delta", contentIndex: update.contentIndex, delta: update.delta });
+      emit({ type: "text_delta", contentIndex: update.contentIndex, delta: update.delta });
     } else if (update.type === "text_end") {
-      options.onEvent?.({ type: "text_end", contentIndex: update.contentIndex, text: update.content });
+      emit({ type: "text_end", contentIndex: update.contentIndex, text: update.content });
     }
   });
 
@@ -140,12 +150,13 @@ export async function runAgentPrompt(options: RunAgentPromptOptions): Promise<Ag
     options.signal?.throwIfAborted();
     options.signal?.addEventListener("abort", abort, { once: true });
     await session.prompt(options.prompt, options.images?.length ? { images: options.images } : undefined);
+    await settled;
     if (abortPromise) await abortPromise;
     options.signal?.throwIfAborted();
     if (turnLimitReached) throw new AgentTurnLimitError(options.maxTurns);
     const text = session.getLastAssistantText()?.trim();
     if (!text) throw new Error("Agent returned an empty final response");
-    return { text, turns };
+    return { text, context: exportAgentContext(sessionManager, options.authorizedInputAssetIds ?? []) };
   } finally {
     options.signal?.removeEventListener("abort", abort);
     if (abortPromise) await abortPromise;
@@ -168,19 +179,4 @@ function generationConstraintContext(constraints?: AgentGenerationConstraints): 
     ? "由你根据用户意图在 1 至 6 张中选择。"
     : `本轮最终目标为 ${constraints.imageCount} 张；多个生成 Tool 的 imageCount 总和不得超过该值。`;
   return [`## 本轮用户生成约束\n- 画幅比例：${aspectRatio}\n- 图片数量：${imageCount}`];
-}
-
-function appendHistory(sessionManager: SessionManager,
-    history: Array<{ role: "USER" | "ASSISTANT"; content: string }>, binding: AgentModelBinding): void {
-  for (const message of history) {
-    if (message.role === "USER") {
-      sessionManager.appendMessage({ role: "user", content: message.content, timestamp: Date.now() });
-      continue;
-    }
-    sessionManager.appendMessage({ role: "assistant", content: [{ type: "text", text: message.content }],
-      api: binding.model.api, provider: binding.model.provider, model: binding.model.id,
-      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
-      stopReason: "stop", timestamp: Date.now() });
-  }
 }

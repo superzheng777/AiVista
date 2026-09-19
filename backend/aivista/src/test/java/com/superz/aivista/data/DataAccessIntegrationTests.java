@@ -14,6 +14,7 @@ import com.superz.aivista.generation.mapper.OutboxEventMapper;
 import com.superz.aivista.generation.entity.OutboxEvent;
 import com.superz.aivista.generation.mapper.UserConsentMapper;
 import com.superz.aivista.generation.mapper.UserGenerationDailyUsageMapper;
+import com.superz.aivista.generation.mapper.AgentSessionContextMapper;
 import com.superz.aivista.user.entity.User;
 import com.superz.aivista.user.mapper.UserMapper;
 import java.nio.charset.StandardCharsets;
@@ -86,6 +87,9 @@ class DataAccessIntegrationIT {
     @Autowired
     private UserConsentMapper userConsentMapper;
 
+    @Autowired
+    private AgentSessionContextMapper agentSessionContextMapper;
+
     @BeforeEach
     void cleanDatabase() {
         jdbcTemplate.update("DELETE FROM outbox_events");
@@ -104,11 +108,11 @@ class DataAccessIntegrationIT {
                     'creation_tasks', 'creation_task_input_assets',
                     'generation_tasks', 'image_assets', 'generation_task_input_assets',
                     'image_publications', 'image_asset_likes', 'outbox_events',
-                    'user_generation_daily_usage', 'user_consents'
+                    'user_generation_daily_usage', 'user_consents', 'agent_session_contexts'
                   )
                 """, Integer.class);
 
-        assertThat(tableCount).isEqualTo(14);
+        assertThat(tableCount).isEqualTo(15);
     }
 
     @Test
@@ -122,6 +126,7 @@ class DataAccessIntegrationIT {
         assertThat(outboxEventMapper).isNotNull();
         assertThat(userGenerationDailyUsageMapper).isNotNull();
         assertThat(userConsentMapper).isNotNull();
+        assertThat(agentSessionContextMapper).isNotNull();
     }
 
     @Test

@@ -4,9 +4,9 @@ import java.util.List;
 
 /** Canonical Java-owned task state returned to the worker after an idempotent commit. */
 public record GenerationCompletionResponse(
-        String taskId,
+        String generationTaskId,
         String status,
-        int taskVersion,
+        int revision,
         String failureCode,
         List<CompletedAsset> assets) {
 

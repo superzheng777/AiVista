@@ -45,7 +45,7 @@ class GenerationAssetQueryServiceTests {
         assertThat(response.getFirst()).satisfies(item -> {
             assertThat(item.imageId()).isEqualTo("100");
             assertThat(item.imageUrls().thumbnail().url()).isEqualTo("https://oss.example/signed");
-            assertThat(item.imageUrls().thumbnail().expiresAt()).isEqualTo(NOW.plusSeconds(600));
+            assertThat(item.imageUrls().thumbnail().expiresAt()).isEqualTo(NOW.plus(Duration.ofDays(1)));
             assertThat(item.favorited()).isFalse();
             assertThat(item.finalPrompt()).isEqualTo("prompt-100");
             assertThat(item.finalNegativePrompt()).isEqualTo("negative-100");
@@ -58,7 +58,8 @@ class GenerationAssetQueryServiceTests {
         });
         ArgumentCaptor<java.util.Date> expiresAt = ArgumentCaptor.forClass(java.util.Date.class);
         verify(ossClient, times(4)).generatePresignedUrl(anyString(), anyString(), expiresAt.capture());
-        assertThat(expiresAt.getAllValues()).allSatisfy(value -> assertThat(value.toInstant()).isEqualTo(NOW.plusSeconds(600)));
+        assertThat(expiresAt.getAllValues()).allSatisfy(
+                value -> assertThat(value.toInstant()).isEqualTo(NOW.plus(Duration.ofDays(1))));
     }
 
     @Test
@@ -114,6 +115,24 @@ class GenerationAssetQueryServiceTests {
     }
 
     @Test
+    void signsOriginalDownloadsForTenMinutes() throws Exception {
+        ImageAssetMapper imageMapper = mock(ImageAssetMapper.class);
+        OSS ossClient = mock(OSS.class);
+        ImageAsset image = row(44L, NOW, null, null);
+        image.setOriginalObjectKey("users/7/images/44/original.png");
+        when(imageMapper.selectVisibleDetailByUserIdAndId(7L, 44L)).thenReturn(image);
+        when(ossClient.generatePresignedUrl(anyString(), anyString(), any()))
+                .thenReturn(new URL("https://oss.example/signed-original"));
+
+        var response = service(imageMapper, ossClient).originalDownload(7L, 44L);
+
+        assertThat(response.expiresAt()).isEqualTo(NOW.plus(Duration.ofMinutes(10)));
+        ArgumentCaptor<java.util.Date> expiresAt = ArgumentCaptor.forClass(java.util.Date.class);
+        verify(ossClient).generatePresignedUrl(anyString(), anyString(), expiresAt.capture());
+        assertThat(expiresAt.getValue().toInstant()).isEqualTo(NOW.plus(Duration.ofMinutes(10)));
+    }
+
+    @Test
     void hidesDeletedOrOtherUsersAssetAsNotFound() {
         assertThatThrownBy(() -> service(mock(ImageAssetMapper.class), mock(OSS.class)).get(7L, 41L))
                 .isInstanceOfSatisfying(BusinessException.class,
@@ -123,7 +142,7 @@ class GenerationAssetQueryServiceTests {
     private static GenerationAssetQueryService service(ImageAssetMapper imageMapper, OSS ossClient) {
         return new GenerationAssetQueryService(imageMapper, ossClient,
                 new GenerationOssProperties("oss.example", "private-bucket", "key-id", "key-secret", "users",
-                        Duration.ofMinutes(10), Duration.ofSeconds(5), Duration.ofSeconds(60)),
+                        Duration.ofDays(1), Duration.ofMinutes(10), Duration.ofSeconds(5), Duration.ofSeconds(60)),
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
