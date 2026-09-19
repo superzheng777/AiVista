@@ -17,12 +17,14 @@ export function usePublicImageDetail() {
   const [openError, setOpenError] = useState<string | null>(null);
   const pushedHistoryEntryRef = useRef(false);
   const imageRef = useRef<GenerationAsset | null>(null);
+  const requestSequenceRef = useRef(0);
 
   useEffect(() => {
     imageRef.current = image;
   }, [image]);
 
   const close = useCallback(() => {
+    requestSequenceRef.current += 1;
     setImage(null);
     setOpeningImageId(null);
     if (pushedHistoryEntryRef.current) {
@@ -47,36 +49,52 @@ export function usePublicImageDetail() {
         setImage(imageRef.current);
         return;
       }
+      const requestSequence = ++requestSequenceRef.current;
       setOpeningImageId(imageId);
-      void getInspiration(imageId).then(setImage).catch(() => {
+      void getInspiration(imageId).then((detail) => {
+        if (requestSequence === requestSequenceRef.current) setImage(detail);
+      }).catch(() => {
+        if (requestSequence !== requestSequenceRef.current) return;
         pushedHistoryEntryRef.current = false;
         setOpenError("该作品已撤销或暂时不可访问。");
-      }).finally(() => setOpeningImageId(null));
+      }).finally(() => {
+        if (requestSequence === requestSequenceRef.current) setOpeningImageId(null);
+      });
     };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
 
-  const open = useCallback(async (listImage: GenerationAsset) => {
+  const show = useCallback(async (listImage: GenerationAsset, historyMode: "push" | "replace") => {
+    const requestSequence = ++requestSequenceRef.current;
     setOpenError(null);
-    if (!needsImageUrlRefresh(listImage.imageUrls.display)) {
-      window.history.pushState({ aivistaPublicImageDetail: true, imageId: listImage.id }, "", buildPublicImagePath(listImage.id));
+    const commit = (detail: GenerationAsset) => {
+      if (requestSequence !== requestSequenceRef.current) return;
+      const state = { aivistaPublicImageDetail: true, imageId: detail.id };
+      if (historyMode === "push") window.history.pushState(state, "", buildPublicImagePath(detail.id));
+      else window.history.replaceState(state, "", buildPublicImagePath(detail.id));
       pushedHistoryEntryRef.current = true;
-      setImage(listImage);
+      setImage(detail);
+    };
+    if (!needsImageUrlRefresh(listImage.imageUrls.display)) {
+      commit(listImage);
       return;
     }
     setOpeningImageId(listImage.id);
     try {
-      const detail = await getInspiration(listImage.id);
-      window.history.pushState({ aivistaPublicImageDetail: true, imageId: detail.id }, "", buildPublicImagePath(detail.id));
-      pushedHistoryEntryRef.current = true;
-      setImage(detail);
+      commit(await getInspiration(listImage.id));
     } catch {
-      setOpenError("该作品已撤销或暂时不可访问。");
+      if (requestSequence === requestSequenceRef.current) setOpenError("该作品已撤销或暂时不可访问。");
     } finally {
-      setOpeningImageId(null);
+      if (requestSequence === requestSequenceRef.current) setOpeningImageId(null);
     }
   }, []);
 
-  return { image, openingImageId, openError, open, close, updateImage: setImage, dismissOpenError: () => setOpenError(null) };
+  const open = useCallback((listImage: GenerationAsset) => show(listImage, "push"), [show]);
+  const navigate = useCallback((listImage: GenerationAsset) => show(listImage, "replace"), [show]);
+  const updateImage = useCallback((nextImage: GenerationAsset) => {
+    setImage((current) => current?.id === nextImage.id ? nextImage : current);
+  }, []);
+
+  return { image, openingImageId, openError, open, navigate, close, updateImage, dismissOpenError: () => setOpenError(null) };
 }

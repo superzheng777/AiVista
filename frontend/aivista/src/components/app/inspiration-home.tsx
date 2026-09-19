@@ -6,6 +6,7 @@ import { useEffect, useRef } from "react";
 
 import { useAuthDialog } from "@/features/auth/model/auth-dialog-provider";
 import { useSession } from "@/features/auth/model/session-provider";
+import { useImageDetailNavigation } from "@/entities/generation/model/use-image-detail-navigation";
 import {
   inspirationQueryKeys,
   listFollowingInspirations,
@@ -47,6 +48,16 @@ export function InspirationHome({ view = "discovery" }: { view?: InspirationFeed
     enabled: following && status === "authenticated" && inspirations.isSuccess && images.length === 0 && Boolean(user),
   });
   const { fetchNextPage, hasNextPage, isFetchingNextPage, isFetchNextPageError } = inspirations;
+  const detailNavigation = useImageDetailNavigation({
+    items: images,
+    currentImageId: detail.image?.id ?? null,
+    onSelect: detail.navigate,
+    hasNextPage: Boolean(hasNextPage),
+    loadNextPage: async () => {
+      const result = await fetchNextPage();
+      return result.data?.pages.flatMap((page) => page.items) ?? images;
+    },
+  });
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => window.scrollTo({ top: scrollPositions[view] }));
@@ -112,7 +123,7 @@ export function InspirationHome({ view = "discovery" }: { view?: InspirationFeed
           {isFetchNextPageError ? <button type="button" onClick={() => void fetchNextPage()} className="mx-auto mt-4 block text-sm font-medium underline">继续加载失败，点击重试</button> : null}
         </div>
       ) : null}
-    {detail.image ? <PublicImageDetailOverlay image={detail.image} onClose={detail.close} onImageChange={detail.updateImage} /> : null}
+    {detail.image ? <PublicImageDetailOverlay image={detail.image} onClose={detail.close} onImageChange={detail.updateImage} navigation={detailNavigation} /> : null}
     {detail.openError ? <PublicImageOpenError message={detail.openError} onDismiss={detail.dismissOpenError} /> : null}
       </div></main>
   );

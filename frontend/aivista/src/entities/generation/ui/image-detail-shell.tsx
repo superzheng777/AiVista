@@ -1,10 +1,11 @@
 "use client";
 
-import { Clipboard, Download, X } from "lucide-react";
+import { ChevronDown, ChevronUp, Clipboard, Download, X } from "lucide-react";
 import { useRef, useState } from "react";
 import type { ReactNode } from "react";
 
 import { needsImageUrlRefresh, type GenerationAsset } from "@/entities/generation/model/generation";
+import type { ImageDetailNavigation } from "@/entities/generation/model/use-image-detail-navigation";
 import { downloadOriginalGenerationImage } from "@/features/assets/lib/original-image-download";
 import { useAuthDialog } from "@/features/auth/model/auth-dialog-provider";
 import { useSession } from "@/features/auth/model/session-provider";
@@ -18,13 +19,18 @@ type ImageDetailShellProps = {
   timeLabel?: string;
   timeValue?: string | null;
   refreshImage?: (imageId: string) => Promise<GenerationAsset>;
+  navigation?: ImageDetailNavigation;
 };
 
 function createdAtText(value: string): string {
   return new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(value));
 }
 
-export function ImageDetailShell({ image, onClose, actions, author, allowCopy = false, timeLabel = "生成时间", timeValue = image.createdAt, refreshImage }: ImageDetailShellProps) {
+export function ImageDetailShell(props: ImageDetailShellProps) {
+  return <ImageDetailShellContent key={props.image.id} {...props} />;
+}
+
+function ImageDetailShellContent({ image, onClose, actions, author, allowCopy = false, timeLabel = "生成时间", timeValue = image.createdAt, refreshImage, navigation }: ImageDetailShellProps) {
   const { status, user } = useSession();
   const { open: openAuthDialog } = useAuthDialog();
   const [imageUnavailable, setImageUnavailable] = useState(false);
@@ -95,7 +101,12 @@ export function ImageDetailShell({ image, onClose, actions, author, allowCopy = 
   }
 
   return <section className="grid min-h-screen grid-cols-[minmax(0,1fr)_380px] bg-muted/35">
-    <div onClick={(event) => { if (event.target === event.currentTarget) onClose(); }} className="flex min-w-0 items-center justify-center p-10">
+    <div onClick={(event) => { if (event.target === event.currentTarget) onClose(); }} className="relative flex min-w-0 items-center justify-center p-10">
+      {navigation ? <nav aria-label="作品浏览" className="absolute right-4 top-1/2 z-10 flex -translate-y-1/2 flex-col overflow-hidden rounded-[7px] border border-white/20 bg-[var(--primary)]/85 text-[var(--surface-bg)] shadow-xl backdrop-blur-sm">
+        <button type="button" aria-label="上一张作品" disabled={!navigation.hasPrevious || navigation.pending} onClick={navigation.previous} className="grid size-11 place-items-center transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white disabled:cursor-not-allowed disabled:opacity-35"><ChevronUp className="size-5" /></button>
+        <span aria-hidden="true" className="h-px bg-white/15" />
+        <button type="button" aria-label="下一张作品" disabled={!navigation.hasNext || navigation.pending} onClick={navigation.next} className="grid size-11 place-items-center transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white disabled:cursor-not-allowed disabled:opacity-35"><ChevronDown className="size-5" /></button>
+      </nav> : null}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       {imageUnavailable || !image.imageUrls.display ? <p className="rounded-xl bg-muted px-5 py-4 text-sm text-muted-foreground">作品图片已不可用。</p> : <img src={image.imageUrls.display.url} alt={image.title ?? "作品详情"} referrerPolicy="no-referrer" onError={() => void retryImageAfterError()} className="max-h-[calc(100vh-5rem)] max-w-full rounded-2xl bg-muted object-contain shadow-xl" />}
     </div>

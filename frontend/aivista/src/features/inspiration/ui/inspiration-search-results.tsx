@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { GenerationAsset } from "@/entities/generation/model/generation";
+import { useImageDetailNavigation } from "@/entities/generation/model/use-image-detail-navigation";
 import { inspirationQueryKeys, searchInspirations } from "@/features/inspiration/api/inspiration-api";
 import { searchQueryKey, validateSearchInput } from "@/features/inspiration/model/search-query";
 import { InspirationSearchForm } from "@/features/inspiration/ui/inspiration-search-form";
@@ -33,6 +34,16 @@ export function InspirationSearchResults({ keyword }: { keyword: string }) {
   });
   const images = useMemo(() => deduplicate(search.data?.pages.flatMap((page) => page.items) ?? []), [search.data]);
   const { fetchNextPage, hasNextPage, isFetchingNextPage, isFetchNextPageError } = search;
+  const detailNavigation = useImageDetailNavigation({
+    items: images,
+    currentImageId: detail.image?.id ?? null,
+    onSelect: detail.navigate,
+    hasNextPage: Boolean(hasNextPage),
+    loadNextPage: async () => {
+      const result = await fetchNextPage();
+      return deduplicate(result.data?.pages.flatMap((page) => page.items) ?? images);
+    },
+  });
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => window.scrollTo({ top: scrollPositions.get(queryKey) ?? 0 }));
@@ -73,7 +84,7 @@ export function InspirationSearchResults({ keyword }: { keyword: string }) {
         {isFetchNextPageError && images.length > 0 ? <LoadMoreError key={search.errorUpdatedAt} error={search.error} onRetry={() => void fetchNextPage()} /> : null}
         {search.isSuccess && images.length > 0 && !hasNextPage ? <p className="pt-5 text-center text-xs text-muted-foreground">已展示当前关键词可查看的全部结果</p> : null}
       </div>
-    {detail.image ? <PublicImageDetailOverlay image={detail.image} onClose={detail.close} onImageChange={detail.updateImage} /> : null}
+    {detail.image ? <PublicImageDetailOverlay image={detail.image} onClose={detail.close} onImageChange={detail.updateImage} navigation={detailNavigation} /> : null}
     {detail.openError ? <PublicImageOpenError message={detail.openError} onDismiss={detail.dismissOpenError} /> : null}
     </main>
   );

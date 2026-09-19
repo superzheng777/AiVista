@@ -9,6 +9,7 @@ import { useRouter } from "next/navigation";
 import { type FormEvent, useEffect, useState } from "react";
 
 import { needsImageUrlRefresh, type GenerationAsset } from "@/entities/generation/model/generation";
+import { useImageDetailNavigation, type ImageDetailNavigation } from "@/entities/generation/model/use-image-detail-navigation";
 import { ImageDetailShell } from "@/entities/generation/ui/image-detail-shell";
 import { getGenerationAsset } from "@/features/assets/api/asset-api";
 import { useAuthDialog } from "@/features/auth/model/auth-dialog-provider";
@@ -183,6 +184,23 @@ export function PublicUserPage({ userId }: { userId: string }) {
     }
   }
 
+  const publicDetailItems = activeView === "likes"
+    ? likes.data ?? []
+    : works.filter((asset) => asset.publicationReviewStatus === "APPROVED");
+  const pendingDetailItems = activeView === "works"
+    ? works.filter((asset) => asset.publicationReviewStatus !== "APPROVED")
+    : [];
+  const publicDetailNavigation = useImageDetailNavigation({
+    items: publicDetailItems,
+    currentImageId: detail.image?.id ?? null,
+    onSelect: detail.navigate,
+  });
+  const pendingDetailNavigation = useImageDetailNavigation({
+    items: pendingDetailItems,
+    currentImageId: pendingDetail?.id ?? null,
+    onSelect: openWork,
+  });
+
   if (profile.isLoading) return <main className="min-h-screen bg-[var(--page-bg)] p-10 text-sm text-[var(--text-secondary)]">加载作者资料中…</main>;
   if (profile.isError || !profile.data) return <main className="min-h-screen bg-[var(--page-bg)] p-10 text-sm text-[var(--accent)]">作者不存在或暂时不可用。</main>;
 
@@ -210,9 +228,9 @@ export function PublicUserPage({ userId }: { userId: string }) {
     </div>
 
     <LogoutConfirmDialog isOpen={logoutOpen} onClose={() => setLogoutOpen(false)} onConfirm={confirmLogout} />
-    {pendingDetail ? <PendingWorkDetail asset={pendingDetail} isDeleting={removePublicationMutation.isPending} onClose={() => setPendingDetailId(null)} onDelete={() => setRemoveTarget(pendingDetail)} refreshImage={refreshPendingImage} /> : null}
+    {pendingDetail ? <PendingWorkDetail asset={pendingDetail} navigation={pendingDetailNavigation} isDeleting={removePublicationMutation.isPending} onClose={() => setPendingDetailId(null)} onDelete={() => setRemoveTarget(pendingDetail)} refreshImage={refreshPendingImage} /> : null}
     {removeTarget ? <RemovePendingDialog isDeleting={removePublicationMutation.isPending} onCancel={() => setRemoveTarget(null)} onConfirm={() => removePublicationMutation.mutate(removeTarget.id)} /> : null}
-    {detail.image ? <PublicImageDetailOverlay image={detail.image} onClose={detail.close} onImageChange={detail.updateImage} /> : null}
+    {detail.image ? <PublicImageDetailOverlay image={detail.image} onClose={detail.close} onImageChange={detail.updateImage} navigation={publicDetailNavigation} /> : null}
     {detail.openError ? <PublicImageOpenError message={detail.openError} onDismiss={detail.dismissOpenError} /> : null}
   </main>;
 }
@@ -329,8 +347,8 @@ function ArchiveFooter() {
   return <div aria-hidden className="mt-auto flex items-center gap-3 pb-8 pt-8"><span className="size-2 shrink-0 bg-[var(--text-secondary)]" /><span className="h-px flex-1 bg-[var(--border-strong)]" /><span className="hidden shrink-0 whitespace-nowrap text-[10px] tracking-[0.18em] text-[var(--text-secondary)] sm:block">YOUR CREATIVE ARCHIVE STARTS HERE</span><span className="size-2 shrink-0 bg-[var(--accent)]" /></div>;
 }
 
-function PendingWorkDetail({ asset, refreshImage, isDeleting, onClose, onDelete }: { asset: GenerationAsset; refreshImage: (imageId: string) => Promise<GenerationAsset>; isDeleting: boolean; onClose: () => void; onDelete: () => void }) {
-  return <ImageDetailShell image={asset} refreshImage={refreshImage} onClose={onClose} actions={<section><p className="text-xs font-medium tracking-wide text-muted-foreground">发布操作</p><div className="mt-3 rounded-xl bg-muted/60 px-3 py-2.5 text-sm text-muted-foreground">作品正在等待审核</div><button type="button" onClick={onDelete} disabled={isDeleting} className="mt-3 inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-destructive/10 text-sm font-medium text-destructive hover:bg-destructive/20 disabled:opacity-50"><X className="size-4" />取消审核</button><dl className="mt-5 space-y-3 border-t border-border pt-5 text-sm"><div><dt className="text-xs text-muted-foreground">提交时间</dt><dd className="mt-1 font-medium">{createdAtText(asset.createdAt)}</dd></div></dl></section>} />;
+function PendingWorkDetail({ asset, refreshImage, navigation, isDeleting, onClose, onDelete }: { asset: GenerationAsset; refreshImage: (imageId: string) => Promise<GenerationAsset>; navigation?: ImageDetailNavigation; isDeleting: boolean; onClose: () => void; onDelete: () => void }) {
+  return <ImageDetailShell image={asset} refreshImage={refreshImage} navigation={navigation} onClose={onClose} actions={<section><p className="text-xs font-medium tracking-wide text-muted-foreground">发布操作</p><div className="mt-3 rounded-xl bg-muted/60 px-3 py-2.5 text-sm text-muted-foreground">作品正在等待审核</div><button type="button" onClick={onDelete} disabled={isDeleting} className="mt-3 inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-destructive/10 text-sm font-medium text-destructive hover:bg-destructive/20 disabled:opacity-50"><X className="size-4" />取消审核</button><dl className="mt-5 space-y-3 border-t border-border pt-5 text-sm"><div><dt className="text-xs text-muted-foreground">提交时间</dt><dd className="mt-1 font-medium">{createdAtText(asset.createdAt)}</dd></div></dl></section>} />;
 }
 
 function RemovePendingDialog({ isDeleting, onCancel, onConfirm }: { isDeleting: boolean; onCancel: () => void; onConfirm: () => void }) {

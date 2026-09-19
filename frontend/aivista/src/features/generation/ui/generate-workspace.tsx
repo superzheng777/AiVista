@@ -35,6 +35,7 @@ import {
   type GenerationTask,
   type GenerationTurn,
 } from "@/entities/generation/model/generation";
+import { useImageDetailNavigation } from "@/entities/generation/model/use-image-detail-navigation";
 import { ImageDetailShell } from "@/entities/generation/ui/image-detail-shell";
 import {
   assetQueryKeys,
@@ -337,6 +338,21 @@ function ConversationPanel({
       setActionNotice("图片访问地址刷新失败，请稍后重试。 ");
     }
   }
+  const conversationImages = turns?.flatMap((turn) =>
+    turn.generations.flatMap((task) => task.images)) ?? [];
+  const detailNavigation = useImageDetailNavigation({
+    items: conversationImages,
+    currentImageId: detailAsset?.id ?? null,
+    onSelect: openAsset,
+    hasPreviousPage: Boolean(turnsQuery.hasNextPage),
+    loadPreviousPage: async () => {
+      const result = await turnsQuery.fetchNextPage();
+      const loadedTurns = result.data
+        ? [...result.data.pages].reverse().flatMap((page) => page.items)
+        : turns ?? [];
+      return loadedTurns.flatMap((turn) => turn.generations.flatMap((task) => task.images));
+    },
+  });
   function requestPublish(asset: GenerationAsset): void {
     if (asset.publicationReviewStatus === "PENDING")
       return setActionNotice("该图片正在审核中。");
@@ -381,6 +397,7 @@ function ConversationPanel({
         <ImageDetailShell
           image={detailAsset}
           refreshImage={refreshAsset}
+          navigation={detailNavigation}
           allowCopy={detailAsset.publicationReviewStatus === "NONE"}
           onClose={() => setDetailAsset(null)}
           actions={
