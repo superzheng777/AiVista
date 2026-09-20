@@ -94,7 +94,7 @@ Generation 与 Agent Completion 都最多重试 3 次网络错误或 5xx。仍�
 
 - 主模型为百炼 `qwen3.8-flash`，关闭 Thinking；图片生成模型为 `qwen-image-2.0`。
 - 中文系统提示词位于 `backend-ts/.pi/SYSTEM.md`。
-- 内置 `poster-design`、`brand-design`、`cinematic-still`、`impasto-diorama` 与 `monumental-scale-poster` 分别位于 `backend-ts/.pi/skills/<name>/SKILL.md`。
+- 内置 `poster-design`、`brand-design`、`cinematic-still`、`impasto-diorama`、`monumental-scale-poster`、`portrait-face-director`、`japanese-life-fragments` 与 `series-image-director` 分别位于 `backend-ts/.pi/skills/<name>/SKILL.md`。
 - Pi 先看到 Skill 的 `name/description/location`，命中后使用受限 `read` 渐进读取正文。
 - `read` 保留 Pi 官方 Tool 形态，但执行器只允许规范化后仍位于 `.pi/skills` 根目录内的路径。
 - `poster-design` 只承载海报领域方法：任务门禁、不可改写事实、图片路径、视觉原型、Prompt 编译与质量检查。通用回复规范由系统提示词负责，参数和权限由 Tool Schema/Harness 负责，避免规则重复与漂移。
@@ -105,6 +105,9 @@ Generation 与 Agent Completion 都最多重试 3 次网络错误或 5xx。仍�
 - 当前生成 Tool 不支持 `21:9`。电影 Skill 在自动画幅下优先 `16:9`，不得传入非法比例或用画内黑边伪造宽银幕；镜头语言库放在 Skill 的 `references/shot-language.md` 中按需读取。
 - `impasto-diorama` 负责把当前请求已授权的照片逐张转译为摄影与油彩厚涂立体微景观作品。每张照片独立调用一次 `image_to_image` 且 `imageCount=1`，不增加专用 Tool、表或接口；自动画幅下采用 `3:4` 上下双联，用户画幅硬约束只改变成品容器，不改变照片保真与厚涂转译原则。
 - `monumental-scale-poster` 负责“上方巨物压近、中部明亮呼吸带、微小尺度标记、下方透明反射介质”的单画布清透海报。主题缺失时复用 `request_user_input`；画幅与数量继续服从 Creation 约束，不增加专用 Tool、表或接口。
+- `portrait-face-director` 负责把猫系、狐系、清冷等脸谱简称拆成脸型、三庭五眼、眼鼻唇、面部折叠度、气质、妆容与真实皮肤。它通常先用一张表单确认成年年龄段、性别表达、气质和成品方向，再用第二张表单让用户覆盖脸谱库提供的五官默认值；两次暂停复用现有 Creation 表单恢复链路，不新增专用 Tool、表或队列。Prompt 或生图路径继续复用 `text_to_image`、`image_to_image` 与 `inspect_image`，并禁止明星仿脸、未授权真人复刻、医学诊断和面相判断。
+- `japanese-life-fragments` 负责把当前请求已授权的照片逐张转译为“上半真实摄影、下半亚克力生活碎片 Scene Map”的独立海报。每张照片独立调用一次 `image_to_image`、只绑定一个 Asset 且 `imageCount=1`；自动画幅使用 `3:4`，上下区域各占 `50%`。它不新增专用 Tool、表或接口，也不把多张照片拼接或把图生图能力表述成像素级原图合成。
+- `series-image-director` 负责把母版提示词、参考图、产品、角色、Logo、IP 或品牌资料整理为 Series Lock 和逐图 Variation Matrix，再用独立 Prompt 生成统一但不重复的系列套图。数量与画幅只读取 Creation 约束，缺口按需使用现有表单；生成后可用 `inspect_image` 回看本轮 Asset 做视觉质检。当前没有独立联网检索、前景分割、超分和成功结果替换能力，Skill 不调用或伪装这些能力。
 - 显式业务 Tool 为 `text_to_image`、`image_to_image`、`inspect_image` 与 `request_user_input`，使用 Pi `defineTool` 和 TypeBox。
 - Harness 校验 Tool 白名单、参数语义、Creation 级比例/数量约束、Asset 授权、20 Turn、超时与 `AbortSignal`。
 - Skill 是提示与步骤，不是权限来源；系统规则和 Harness 始终优先。
@@ -137,7 +140,7 @@ Java Execution Snapshot V3 返回当前 USER prompt、当前会话唯一的 `age
 - `compaction` 保存 Pi 原生自动压缩产生的摘要、`tokensBefore` 及可选元数据；Runtime 使用 `SettingsManager.inMemory` 开启 Pi 的阈值判断和自动压缩。
 - 每轮启动时 Codec 将 Context 恢复到新的 `SessionManager.inMemory`；Pi 稳定结束后导出当前 active branch。
 - 当前明确引用的图片作为本轮 `ImageContent` 注入；导出时图片二进制替换为 Asset ID 文本引用，绝不落库 Base64/Data URI。
-- 历史图片默认只以 Asset ID 留在 Context。模型确需理解画面时调用 `inspect_image`；Java只允许读取当前用户在同一 Generation Session 中使用或成功生成、仍然有效的资产，并校验活动 Creation 的 revision。TS从私有 OSS恢复的 `ImageContent` 只存在于当前 Loop；Tool Result导出时再次删除 Base64并保留准确 Asset ID。历史图片若要作为图生图输入，仍应由用户在当前请求中明确选择。
+- 历史图片默认只以 Asset ID 留在 Context。模型确需理解历史画面或质检本轮生成结果时调用 `inspect_image`；Java只允许读取当前用户在同一 Generation Session 中使用或成功生成、仍然有效的资产，并校验活动 Creation 的 revision。TS从私有 OSS恢复的 `ImageContent` 只存在于当前 Loop；Tool Result导出时再次删除 Base64并保留准确 Asset ID。历史图片若要作为图生图输入，仍应由用户在当前请求中明确选择。
 - 成功 Completion 才携带新 Context；Java从 Creation 获取可信 `sessionId`，并在同一事务内写 Context、最终消息、Activity 和 Creation 终态。失败或取消不覆盖上一次成功 Context。
 - `conversation_messages` 继续只负责前端长期展示，`agent_session_contexts` 负责下一轮模型输入；不增加消息游标、租约、版本列或另一套逐消息表。
 

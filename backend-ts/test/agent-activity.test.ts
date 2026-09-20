@@ -88,6 +88,36 @@ describe("AgentActivityCollector", () => {
       outcome: "COMPLETED", content: "已启用巨物尺度清透海报能力。" })]);
   });
 
+  it("uses the public label for the portrait-face-director Skill", () => {
+    const collector = new AgentActivityCollector(() => new Date("2026-09-09T01:00:00Z"));
+    collector.accept({ type: "tool_start", toolCallId: "read-portrait-face", toolName: "read",
+      args: { path: "C:/app/.pi/skills/portrait-face-director/SKILL.md" } });
+    collector.accept({ type: "tool_end", toolCallId: "read-portrait-face", toolName: "read",
+      result: { content: [{ type: "text", text: "skill body" }] }, isError: false });
+    expect(collector.snapshot()).toEqual([expect.objectContaining({ type: "SKILL",
+      outcome: "COMPLETED", content: "已启用人像捏脸能力。" })]);
+  });
+
+  it("uses the public label for the japanese-life-fragments Skill", () => {
+    const collector = new AgentActivityCollector(() => new Date("2026-09-09T01:00:00Z"));
+    collector.accept({ type: "tool_start", toolCallId: "read-life-fragments", toolName: "read",
+      args: { path: "C:/app/.pi/skills/japanese-life-fragments/SKILL.md" } });
+    collector.accept({ type: "tool_end", toolCallId: "read-life-fragments", toolName: "read",
+      result: { content: [{ type: "text", text: "skill body" }] }, isError: false });
+    expect(collector.snapshot()).toEqual([expect.objectContaining({ type: "SKILL",
+      outcome: "COMPLETED", content: "已启用日系生活碎片能力。" })]);
+  });
+
+  it("uses the public label for the series-image-director Skill", () => {
+    const collector = new AgentActivityCollector(() => new Date("2026-09-09T01:00:00Z"));
+    collector.accept({ type: "tool_start", toolCallId: "read-series-director", toolName: "read",
+      args: { path: "C:/app/.pi/skills/series-image-director/SKILL.md" } });
+    collector.accept({ type: "tool_end", toolCallId: "read-series-director", toolName: "read",
+      result: { content: [{ type: "text", text: "skill body" }] }, isError: false });
+    expect(collector.snapshot()).toEqual([expect.objectContaining({ type: "SKILL",
+      outcome: "COMPLETED", content: "已启用系列套图能力。" })]);
+  });
+
   it("keeps narration before a subsequently selected Skill in persisted order", () => {
     const collector = new AgentActivityCollector(() => new Date("2026-09-19T00:00:00Z"));
     collector.accept({ type: "turn_start", turn: 1 });

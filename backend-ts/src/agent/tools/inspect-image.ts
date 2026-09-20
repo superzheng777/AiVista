@@ -6,7 +6,7 @@ import { JavaGenerationApiError } from "../adapters/java-generation-client.js";
 const parameters = Type.Object({
   assetId: Type.String({
     pattern: "^[1-9]\\d*$",
-    description: "对话历史中需要重新查看的图片资产 ID。",
+    description: "当前会话中需要重新查看或质检的图片资产 ID。",
   }),
 }, { additionalProperties: false });
 
@@ -23,12 +23,12 @@ type InspectImageDetails =
   | { outcome: "SUCCEEDED"; assetId: string }
   | { outcome: "FAILED"; assetId: string; code: string; message: string; retryable: boolean };
 
-/** Restores one authorized historical Asset ID as model-visible Pi ImageContent. */
+/** Restores one authorized session Asset ID as model-visible Pi ImageContent. */
 export function createInspectImageTool(options: InspectImageToolOptions): ToolDefinition {
   return defineTool<typeof parameters, InspectImageDetails>({
     name: "inspect_image",
     label: "查看图片",
-    description: "读取当前会话历史中仅以 Asset ID 保留的图片内容。当前请求已直接附带图片时无需调用。",
+    description: "读取当前会话中已授权的历史图片或本轮生成结果。当前请求直接附带的输入图片无需调用。",
     parameters,
     async execute(_toolCallId, params, signal) {
       try {

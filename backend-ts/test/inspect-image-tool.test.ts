@@ -12,6 +12,7 @@ describe("inspect_image Tool", () => {
     const tool = createInspectImageTool({ inspect });
 
     expect(tool.name).toBe("inspect_image");
+    expect(tool.description).toContain("本轮生成结果");
     expect(Value.Check(tool.parameters, { assetId: "701" })).toBe(true);
     expect(Value.Check(tool.parameters, { assetId: "../secret" })).toBe(false);
     const result = await tool.execute("call-inspect", { assetId: "701" }, undefined, undefined, {} as never);

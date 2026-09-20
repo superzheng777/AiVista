@@ -27,6 +27,9 @@ export function skillLabel(skillName: string): string {
   if (skillName === "cinematic-still") return "电影感摄影能力";
   if (skillName === "impasto-diorama") return "油彩立体厚涂能力";
   if (skillName === "monumental-scale-poster") return "巨物尺度清透海报能力";
+  if (skillName === "portrait-face-director") return "人像捏脸能力";
+  if (skillName === "japanese-life-fragments") return "日系生活碎片能力";
+  if (skillName === "series-image-director") return "系列套图能力";
   return "创作能力";
 }
 
