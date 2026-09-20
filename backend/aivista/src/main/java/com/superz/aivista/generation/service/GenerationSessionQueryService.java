@@ -9,6 +9,7 @@ import com.superz.aivista.generation.entity.GenerationSession;
 import com.superz.aivista.generation.entity.GenerationTask;
 import com.superz.aivista.generation.mapper.GenerationSessionMapper;
 import com.superz.aivista.generation.mapper.GenerationTaskMapper;
+import com.superz.aivista.generation.mapper.CreationTaskMapper;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Base64;
@@ -27,6 +28,7 @@ public class GenerationSessionQueryService {
 
     private final GenerationSessionMapper sessionMapper;
     private final GenerationTaskMapper taskMapper;
+    private final CreationTaskMapper creationTaskMapper;
 
     /**
      * 注入会话分页查询器和最新任务批量查询器。
@@ -34,9 +36,11 @@ public class GenerationSessionQueryService {
      * @param sessionMapper 按用户及游标读取会话的 Mapper
      * @param taskMapper 批量读取会话最新任务的 Mapper
      */
-    public GenerationSessionQueryService(GenerationSessionMapper sessionMapper, GenerationTaskMapper taskMapper) {
+    public GenerationSessionQueryService(GenerationSessionMapper sessionMapper, GenerationTaskMapper taskMapper,
+            CreationTaskMapper creationTaskMapper) {
         this.sessionMapper = sessionMapper;
         this.taskMapper = taskMapper;
+        this.creationTaskMapper = creationTaskMapper;
     }
 
     /**
@@ -63,7 +67,7 @@ public class GenerationSessionQueryService {
                 : taskMapper.selectLatestBySessionIds(sessions.stream().map(GenerationSession::getId).toList()).stream()
                         .collect(java.util.stream.Collectors.toMap(GenerationTask::getSessionId, Function.identity()));
         java.util.Set<Long> activeSessionIds = sessions.isEmpty() ? java.util.Set.of()
-                : new HashSet<>(taskMapper.selectActiveSessionIds(
+                : new HashSet<>(creationTaskMapper.selectActiveSessionIds(
                         sessions.stream().map(GenerationSession::getId).toList()));
         List<GenerationSessionSummaryResponse> items = sessions.stream()
                 .map(session -> summary(session, latestTasks.get(session.getId()), activeSessionIds.contains(session.getId())))

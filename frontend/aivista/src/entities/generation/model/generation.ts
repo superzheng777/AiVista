@@ -44,7 +44,7 @@ export type ConversationMessage = {
 export type GenerationTurn = {
   id: string;
   mode: "NORMAL" | "AGENT";
-  status: "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELLED";
+  status: "RUNNING" | "WAITING_INPUT" | "SUCCEEDED" | "FAILED" | "CANCELLED";
   failureCode: string | null;
   revision: number;
   userMessage: ConversationMessage;
@@ -52,6 +52,25 @@ export type GenerationTurn = {
   normalGenerationRequest: { negativePrompt: string | null } | null;
   generations: GenerationTask[];
   activities: CreationActivity[];
+  forms: CreationForm[];
+};
+
+export type AgentInputFormOption = { value: string; label: string };
+export type AgentInputFormField =
+  | { id: string; type: "TEXT"; label: string; required: boolean;
+      initialValue?: string; placeholder?: string }
+  | { id: string; type: "SINGLE_SELECT"; label: string; required: boolean;
+      initialValue?: string; options: AgentInputFormOption[]; allowCustom: boolean;
+      customLabel?: string; customInitialValue?: string };
+export type AgentInputForm = { schemaVersion: 1; title: string; fields: AgentInputFormField[] };
+export type AgentFormAnswer = { kind: "TEXT" | "OPTION" | "CUSTOM"; value: string };
+export type CreationForm = {
+  id: string;
+  status: "PENDING" | "SUBMITTED" | "SKIPPED";
+  form: AgentInputForm;
+  answers: Record<string, AgentFormAnswer> | null;
+  requestedAt: string;
+  resolvedAt: string | null;
 };
 
 export type CreationActivity = {

@@ -7,10 +7,13 @@ import com.superz.aivista.common.response.ResponseUtils;
 import com.superz.aivista.generation.dto.CreateAgentCreationRequest;
 import com.superz.aivista.generation.dto.CreateAgentCreationResponse;
 import com.superz.aivista.generation.dto.CancelAgentCreationResponse;
+import com.superz.aivista.generation.dto.ResolveCreationFormRequest;
+import com.superz.aivista.generation.dto.ResolveCreationFormResponse;
 import com.superz.aivista.generation.service.AgentCancellationService;
 import com.superz.aivista.generation.service.AgentRealtimeProjectionService;
 import com.superz.aivista.generation.service.AgentRuntimeCommandGateway;
 import com.superz.aivista.generation.service.AgentCreationService;
+import com.superz.aivista.generation.service.AgentFormService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -18,6 +21,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -35,13 +39,27 @@ public class AgentCreationController {
     private final AgentCancellationService cancellation;
     private final AgentRealtimeProjectionService realtime;
     private final AgentRuntimeCommandGateway runtimeCommands;
+    private final AgentFormService forms;
 
     public AgentCreationController(AgentCreationService service, AgentCancellationService cancellation,
-            AgentRealtimeProjectionService realtime, AgentRuntimeCommandGateway runtimeCommands) {
+            AgentRealtimeProjectionService realtime, AgentRuntimeCommandGateway runtimeCommands,
+            AgentFormService forms) {
         this.service = service;
         this.cancellation = cancellation;
         this.realtime = realtime;
         this.runtimeCommands = runtimeCommands;
+        this.forms = forms;
+    }
+
+    @Operation(summary = "提交或跳过 Agent 需求确认表单")
+    @PutMapping("/{creationId}/forms/{formId}/response")
+    public ResponseEntity<ApiResponse<ResolveCreationFormResponse>> resolveForm(Authentication authentication,
+            @PathVariable long creationId, @PathVariable long formId,
+            @RequestBody ResolveCreationFormRequest request) {
+        var result = forms.resolve(currentUserId(authentication), creationId, formId, request);
+        if (result.transitioned()) realtime.publishFormResolved(creationId, result.response());
+        return ResponseEntity.status(result.transitioned() ? HttpStatus.CREATED : HttpStatus.OK)
+                .body(ResponseUtils.success(result.response()));
     }
 
     @Operation(summary = "取消正在执行的 Agent 创作")

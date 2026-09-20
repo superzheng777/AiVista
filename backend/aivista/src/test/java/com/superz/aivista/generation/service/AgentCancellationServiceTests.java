@@ -26,7 +26,7 @@ class AgentCancellationServiceTests {
     void atomicallyCancelsTheOwnedRunningAgent() {
         CreationTask creation = creation(7L, "RUNNING", 4L);
         when(creations.selectByIdForUpdate(31L)).thenReturn(creation);
-        when(creations.completeRunning(31L, 4L, "CANCELLED", null, NOW)).thenReturn(1);
+        when(creations.cancelActive(31L, 4L, NOW)).thenReturn(1);
 
         var result = service.cancel(7L, 31L);
         var response = result.response();
@@ -36,7 +36,21 @@ class AgentCancellationServiceTests {
         assertThat(response.completedAt()).isEqualTo(NOW);
         assertThat(result.transitioned()).isTrue();
         assertThat(result.executionRevision()).isEqualTo(4L);
-        verify(creations).completeRunning(31L, 4L, "CANCELLED", null, NOW);
+        verify(creations).cancelActive(31L, 4L, NOW);
+    }
+
+    @Test
+    void cancelsAnAgentWaitingForFormInput() {
+        CreationTask creation = creation(7L, "WAITING_INPUT", 5L);
+        when(creations.selectByIdForUpdate(31L)).thenReturn(creation);
+        when(creations.cancelActive(31L, 5L, NOW)).thenReturn(1);
+
+        var result = service.cancel(7L, 31L);
+
+        assertThat(result.response().status()).isEqualTo("CANCELLED");
+        assertThat(result.response().revision()).isEqualTo(6L);
+        assertThat(result.executionRevision()).isEqualTo(5L);
+        verify(creations).cancelActive(31L, 5L, NOW);
     }
 
     @Test
@@ -48,7 +62,7 @@ class AgentCancellationServiceTests {
         var result = service.cancel(7L, 31L);
         assertThat(result.response().revision()).isEqualTo(5L);
         assertThat(result.transitioned()).isFalse();
-        verify(creations, never()).completeRunning(31L, 5L, "CANCELLED", null, NOW);
+        verify(creations, never()).cancelActive(31L, 5L, NOW);
     }
 
     @Test

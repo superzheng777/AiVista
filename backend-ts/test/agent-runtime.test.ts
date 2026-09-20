@@ -9,7 +9,7 @@ import {
 } from "../src/agent/agent-runtime.js";
 import type { AgentModelBinding } from "../src/agent/providers/bailian.js";
 import { createGenerationTools, createInspectImageTool,
-  type GenerationToolRequest } from "../src/agent/tools/index.js";
+  createRequestUserInputTool, type GenerationToolRequest } from "../src/agent/tools/index.js";
 
 const cleanup: Array<() => void> = [];
 
@@ -30,7 +30,7 @@ describe("Agent runtime", () => {
       onEvent: (event) => events.push(event),
     });
 
-    expect(result.text).toBe("你好，我是 AiVista。");
+    expect(result).toMatchObject({ outcome: "COMPLETED", text: "你好，我是 AiVista。" });
     expect(result.context).toMatchObject({ schemaVersion: 1, compaction: null });
     expect(events[0]).toEqual({ type: "agent_start" });
     expect(events).toContainEqual({ type: "turn_start", turn: 1 });
@@ -126,6 +126,8 @@ describe("Agent runtime", () => {
       onEvent: (event) => events.push(event),
     });
 
+    expect(result.outcome).toBe("COMPLETED");
+    if (result.outcome !== "COMPLETED") throw new Error("expected a completed run");
     expect(result.text).toBe("海报已经生成。");
     expect(requests).toHaveLength(1);
     expect(events).toContainEqual(expect.objectContaining({
@@ -205,7 +207,99 @@ describe("Agent runtime", () => {
     expect(correctionContext).toContain("本轮允许的图片资产 ID：101");
     expect(requests).toHaveLength(1);
     expect(requests[0]?.inputAssetIds).toEqual(["101"]);
-    expect(result.text).toBe("已使用获授权的参考图重新生成。");
+    expect(result).toMatchObject({ outcome: "COMPLETED", text: "已使用获授权的参考图重新生成。" });
+  });
+
+  it("persists the form Tool Result and settles without a second model call", async () => {
+    const { binding, faux } = await createFauxBinding();
+    faux.setResponses([
+      fauxAssistantMessage(fauxToolCall("request_user_input", {
+        title: "电影感摄影图定制",
+        fields: [{ id: "story", type: "TEXT", label: "主题或故事", required: true,
+          initialValue: "深夜车站，等不到末班车的人" }],
+      }), { stopReason: "toolUse" }),
+    ]);
+    let settledCount = 0;
+
+    const result = await runAgentPrompt({ binding, prompt: "帮我生成电影剧照", maxTurns: 20,
+      tools: [createRequestUserInputTool()], onEvent: (event) => {
+        if (event.type === "agent_start") settledCount += 1;
+      } });
+
+    expect(result).toMatchObject({
+      outcome: "WAITING_FOR_USER",
+      request: { form: { schemaVersion: 1, title: "电影感摄影图定制" } },
+    });
+    expect(faux.state.callCount).toBe(1);
+    expect(settledCount).toBe(1);
+    expect(result.context.messages.at(-1)).toMatchObject({
+      role: "toolResult", toolName: "request_user_input", isError: false,
+      details: { outcome: "WAITING_FOR_USER" },
+    });
+  });
+
+  it("blocks every tool in a mixed form batch before any side effect runs", async () => {
+    const { binding, faux } = await createFauxBinding();
+    faux.setResponses([
+      fauxAssistantMessage([
+        fauxToolCall("request_user_input", {
+          title: "确认海报信息",
+          fields: [{ id: "theme", type: "TEXT", label: "主题", required: true }],
+        }),
+        fauxToolCall("text_to_image", {
+          userFacingPlan: "先生成图片。", prompt: "测试", aspectRatio: "1:1", imageCount: 1,
+        }),
+      ], { stopReason: "toolUse" }),
+      fauxAssistantMessage(fauxToolCall("request_user_input", {
+        title: "确认海报信息",
+        fields: [{ id: "theme", type: "TEXT", label: "主题", required: true }],
+      }), { stopReason: "toolUse" }),
+    ]);
+    let generationCalls = 0;
+    const events: AgentRuntimeEvent[] = [];
+    const tools = [createRequestUserInputTool(), ...createGenerationTools({
+      constraints: { aspectRatio: "AUTO", imageCount: 0 },
+      authorizedInputAssetIds: new Set(),
+      executor: { async execute() {
+        generationCalls += 1;
+        return { outcome: "SUCCEEDED" as const, generationTaskId: "1", imageAssetIds: ["2"] };
+      } },
+    })];
+
+    const result = await runAgentPrompt({ binding, prompt: "做海报", maxTurns: 20, tools,
+      onEvent: (event) => events.push(event) });
+
+    expect(generationCalls).toBe(0);
+    expect(events.filter((event) => event.type === "tool_start" || event.type === "tool_end"))
+      .toEqual([
+        expect.objectContaining({ type: "tool_start", toolName: "request_user_input" }),
+        expect.objectContaining({ type: "tool_end", toolName: "request_user_input" }),
+      ]);
+    expect(faux.state.callCount).toBe(2);
+    expect(result).toMatchObject({ outcome: "WAITING_FOR_USER" });
+  });
+
+  it("resumes a paused form context with a new user response", async () => {
+    const first = await createFauxBinding();
+    first.faux.setResponses([fauxAssistantMessage(fauxToolCall("request_user_input", {
+      title: "确认海报信息",
+      fields: [{ id: "theme", type: "TEXT", label: "主题", required: true }],
+    }), { stopReason: "toolUse" })]);
+    const paused = await runAgentPrompt({ binding: first.binding, prompt: "做一张海报", maxTurns: 20,
+      tools: [createRequestUserInputTool()] });
+    expect(paused.outcome).toBe("WAITING_FOR_USER");
+
+    first.faux.setResponses([(context) => {
+      expect(context.messages.map((message) => message.role)).toEqual([
+        "user", "assistant", "toolResult", "user",
+      ]);
+      return fauxAssistantMessage("信息已确认，继续创作。");
+    }]);
+    const resumed = await runAgentPrompt({ binding: first.binding,
+      prompt: "[用户创作需求表单响应]\n主题：关爱动物", maxTurns: 20,
+      context: paused.context, tools: [createRequestUserInputTool()] });
+
+    expect(resumed).toMatchObject({ outcome: "COMPLETED", text: "信息已确认，继续创作。" });
   });
 
   it("aborts without completing a turn beyond the twentieth", async () => {

@@ -8,6 +8,13 @@ import org.apache.ibatis.annotations.Select;
 
 public interface CreationActivityMapper extends BaseMapper<CreationActivity> {
     @Select("""
+            SELECT COALESCE(MAX(sequence_no), 0)
+            FROM creation_activities
+            WHERE creation_task_id = #{creationTaskId}
+            """)
+    int selectMaxSequenceNo(@Param("creationTaskId") long creationTaskId);
+
+    @Select("""
             <script>
             SELECT id, creation_task_id, sequence_no, activity_type, outcome,
                    content, tool_name, generation_task_id, started_at, completed_at

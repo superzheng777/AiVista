@@ -22,6 +22,8 @@ import com.superz.aivista.generation.mapper.GenerationSessionMapper;
 import com.superz.aivista.generation.mapper.GenerationTaskMapper;
 import com.superz.aivista.generation.mapper.ImageAssetMapper;
 import com.superz.aivista.generation.mapper.CreationActivityMapper;
+import com.superz.aivista.generation.mapper.CreationFormMapper;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -36,6 +38,7 @@ class GenerationSessionTurnQueryServiceTests {
         ImageAssetMapper imageMapper = mock(ImageAssetMapper.class);
         GenerationTaskQueryService taskQueryService = mock(GenerationTaskQueryService.class);
         CreationActivityMapper activityMapper = mock(CreationActivityMapper.class);
+        CreationFormMapper formMapper = mock(CreationFormMapper.class);
         when(sessionMapper.selectOwnedById(201L, 7L)).thenReturn(new GenerationSession());
         when(creationTaskMapper.selectPageBySessionId(201L, null, 3))
                 .thenReturn(List.of(agentCreationTask(23), creationTask(22), creationTask(21)));
@@ -53,13 +56,14 @@ class GenerationSessionTurnQueryServiceTests {
         activity.setOutcome("COMPLETED");
         activity.setContent("文生图已完成。");
         when(activityMapper.selectByCreationTaskIds(List.of(22L, 23L))).thenReturn(List.of(activity));
+        when(formMapper.selectByCreationTaskIds(List.of(22L, 23L))).thenReturn(List.of());
         when(imageMapper.selectByOriginTaskIds(List.of(302L, 303L, 304L))).thenReturn(List.of());
         when(taskQueryService.snapshot(eq(task2), anyList())).thenReturn(snapshot("302"));
         when(taskQueryService.snapshot(eq(task3), anyList())).thenReturn(snapshot("303"));
         when(taskQueryService.snapshot(eq(task4), anyList())).thenReturn(snapshot("304"));
 
         var response = service(sessionMapper, messageMapper, creationTaskMapper, taskMapper, imageMapper,
-                taskQueryService, activityMapper).list(7L, 201L, null, 2);
+                taskQueryService, activityMapper, formMapper).list(7L, 201L, null, 2);
 
         assertThat(response.hasMore()).isTrue();
         assertThat(response.nextBefore()).isEqualTo("MjI");
@@ -83,7 +87,8 @@ class GenerationSessionTurnQueryServiceTests {
         GenerationSessionTurnQueryService service = service(sessionMapper,
                 mock(ConversationMessageMapper.class), mock(CreationTaskMapper.class),
                 mock(GenerationTaskMapper.class), mock(ImageAssetMapper.class),
-                mock(GenerationTaskQueryService.class), mock(CreationActivityMapper.class));
+                mock(GenerationTaskQueryService.class), mock(CreationActivityMapper.class),
+                mock(CreationFormMapper.class));
 
         assertThatThrownBy(() -> service.list(7L, 201L, null, 20))
                 .isInstanceOfSatisfying(BusinessException.class,
@@ -98,9 +103,10 @@ class GenerationSessionTurnQueryServiceTests {
     private static GenerationSessionTurnQueryService service(GenerationSessionMapper sessionMapper,
             ConversationMessageMapper messageMapper, CreationTaskMapper creationTaskMapper,
             GenerationTaskMapper taskMapper, ImageAssetMapper imageMapper,
-            GenerationTaskQueryService taskQueryService, CreationActivityMapper activityMapper) {
+            GenerationTaskQueryService taskQueryService, CreationActivityMapper activityMapper,
+            CreationFormMapper formMapper) {
         return new GenerationSessionTurnQueryService(sessionMapper, messageMapper, creationTaskMapper,
-                taskMapper, imageMapper, taskQueryService, activityMapper);
+                taskMapper, imageMapper, taskQueryService, activityMapper, formMapper, new ObjectMapper());
     }
 
     private static CreationTask creationTask(long id) {

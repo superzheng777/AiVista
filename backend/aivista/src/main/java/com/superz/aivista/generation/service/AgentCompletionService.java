@@ -58,7 +58,7 @@ public class AgentCompletionService {
             throw new IllegalArgumentException("Agent completion revision is stale");
         }
         Instant now = clock.instant();
-        activities.persistFinalLocked(creationTaskId, command.activities());
+        activities.persistLocked(creationTaskId, command.activities());
         String finalMessage = normalized(command.finalMessage());
         if (finalMessage != null) insertAssistant(creation, finalMessage, now);
         String status = expectedStatus(command.outcome());

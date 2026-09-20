@@ -7,6 +7,7 @@ import { generationQueryKeys } from "@/features/generation/api/generation-api";
 import { useAuthStore } from "@/features/auth/model/auth-store";
 import {
   applyGenerationTaskUpdateToTurns,
+  applyAgentFormUpdateToTurns,
   type GenerationTurnPage,
 } from "@/features/generation/model/generation-turn-cache";
 import {
@@ -19,6 +20,7 @@ import {
   applyAgentRealtimeEvent,
   type AgentLiveRun,
   type AgentRealtimeEvent,
+  agentFormFromEvent,
 } from "@/features/generation/model/generation-event-stream-parsing";
 
 export type { GenerationSessionIndicator } from "@/features/generation/model/generation-event-stream-parsing";
@@ -122,6 +124,15 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
         delete next[event.creationId];
         return next;
       }));
+      return;
+    }
+    const form = agentFormFromEvent(event);
+    if (form) {
+      queryClient.setQueryData<InfiniteData<GenerationTurnPage>>(
+        generationQueryKeys.turns(event.sessionId),
+        (current) => applyAgentFormUpdateToTurns(current, event.creationId, event.revision, form,
+          event.eventType === "FORM_REQUESTED" ? "WAITING_INPUT" : "RUNNING"),
+      );
       return;
     }
     setAgentRuns((current) => {

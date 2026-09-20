@@ -6,6 +6,7 @@ import {
   isTaskUpdateEvent,
   applyAgentRealtimeEvent,
   isAgentRealtimeEvent,
+  agentFormFromEvent,
   isTerminalStatus,
   parseSseBlock,
   reconnectDelayMs,
@@ -122,6 +123,16 @@ describe("Agent realtime projection", () => {
       payload: { status: "CANCELLED" } })).toBe(true);
   });
 
+  it("extracts the complete persistent form projection from a form event", () => {
+    const event = { ...base, revision: 5, streamId: "form-31", eventType: "FORM_REQUESTED" as const,
+      payload: { form: { formId: "701", status: "PENDING", form: { schemaVersion: 1,
+        title: "确认海报方向", fields: [] }, answers: null,
+        requestedAt: "2026-09-20T01:00:00Z", resolvedAt: null } } };
+    expect(isAgentRealtimeEvent(event)).toBe(true);
+    expect(agentFormFromEvent(event)).toMatchObject({ id: "701", status: "PENDING",
+      form: { title: "确认海报方向" } });
+  });
+
   it("projects safe Tool lifecycle state", () => {
     let run = applyAgentRealtimeEvent(undefined, base);
     run = applyAgentRealtimeEvent(run, { ...base, sequence: 2, eventType: "TOOL_STARTED",
@@ -138,6 +149,18 @@ describe("Agent realtime projection", () => {
       ] } });
     expect(run).toMatchObject({ sequence: 6, text: "正在生成", skills: ["poster-design"],
       tools: [{ toolCallId: "call-1", toolName: "text_to_image", state: "RUNNING" }] });
+  });
+
+  it("preserves the visible first segment when a submitted form resumes the same Creation", () => {
+    let run = applyAgentRealtimeEvent(undefined, base);
+    run = applyAgentRealtimeEvent(run, { ...base, sequence: 2, eventType: "TEXT_DELTA",
+      payload: { delta: "我先确认一下设计方向。" } });
+    run = applyAgentRealtimeEvent(run, { ...base, revision: 6, streamId: "stream-2", sequence: 1,
+      eventType: "RUN_STARTED", payload: {} });
+    run = applyAgentRealtimeEvent(run, { ...base, revision: 6, streamId: "stream-2", sequence: 2,
+      eventType: "TEXT_DELTA", payload: { delta: "现在开始生成。" } });
+
+    expect(run.text).toBe("我先确认一下设计方向。现在开始生成。");
   });
 });
 

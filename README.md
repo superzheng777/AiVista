@@ -16,7 +16,7 @@ AiVista 是由 [superzheng777](https://github.com/superzheng777) 独立完成的
 ## 项目亮点
 
 - 串联灵感浏览、文生图、图生图、结果管理与社区发布，形成完整创作闭环。
-- 提供 Agent 模式，由模型结合对话上下文、受限 Skill 与生成工具协作完成创作。
+- 提供 Agent 模式，由模型结合对话上下文、受限 Skill 与生成工具协作完成创作；信息不足时可生成持久化确认表单，用户确认或跳过后继续原执行上下文。
 - 支持个人资产、收藏、关注、点赞、通知、创作者主页和关键词搜索。
 - 使用事务 Outbox、RabbitMQ 与独立 AI Worker 承载耗时生成任务，并以幂等完成接口收敛状态。
 - 原始图片保存在私有 OSS，通过缩略图、展示图、原图变体和短期签名 URL 按用途访问。
@@ -52,7 +52,7 @@ flowchart LR
     core --> meili[(Meilisearch)]
     core -->|"事务 Outbox"| rabbit["RabbitMQ<br/>Quorum Queues"]
     rabbit --> worker["TypeScript AI Runtime<br/>NestJS + Pi Agent"]
-    worker -->|"Agent completion ledger"| mysql
+    worker -->|"Agent pause/completion ledger"| mysql
     worker --> bailian["Bailian Models"]
     worker --> oss["Aliyun OSS"]
     worker -->|"幂等完成回调"| core
@@ -71,6 +71,7 @@ Java Core 持有认证、业务状态、事务、配额和资产等权威数据�
 | 实时连接可能中断或丢失瞬时事件 | Worker 经 WebSocket 推送到 Java，再由 SSE 投影到浏览器；运行中可重放 Java 内存 `RUN_SNAPSHOT`，终态由 REST 恢复 | 中间过程不写库，实时体验与最终业务事实分离 |
 | Agent 需要可控地使用业务能力 | 限定 Tool 白名单、授权输入资产、最大 Turn 数，并将取消信号贯穿执行链路 | 约束工具权限、资源范围和执行生命周期 |
 | Agent 多轮上下文需要兼顾完整性与窗口上限 | 每轮恢复 Pi 逻辑上下文，使用 Pi 原生 Compaction；历史图片仅保留 Asset ID，需要理解画面时由受控 `inspect_image` 临时恢复 | 保留 Tool Call/Result 与图片语义，又不复制产品消息表或落库图片二进制 |
+| Agent 需要补充用户意图但不能长期占用 Worker | `request_user_input` 在 Pi 的 `terminate` 边界保存暂停 Context；Java持久化固定 Schema 表单，提交或跳过后复用原 `AGENT_EXECUTE` 恢复 | 表单可刷新恢复，不新增等待线程、队列或第二套消息模型 |
 | 私有图片需要适配不同展示场景 | OSS 保存私有对象，派生缩略图、展示图和原图，并签发短期访问 URL | 浏览器只获得当前用途所需的临时访问地址 |
 
 ## 技术栈

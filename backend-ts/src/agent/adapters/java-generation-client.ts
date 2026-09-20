@@ -4,6 +4,11 @@ import { z } from "zod";
 import type { Environment } from "../../config/environment.js";
 import type { GenerationToolRequest } from "../tools/index.js";
 import { agentSessionContextSchema } from "../agent-context.js";
+import { creationFormResponseSchema } from "../agent-form-contract.js";
+import { JavaWorkerApiError as JavaGenerationApiError, javaWorkerError,
+  putJavaWorker } from "../../common/java-worker-http.js";
+
+export { JavaWorkerApiError as JavaGenerationApiError } from "../../common/java-worker-http.js";
 
 const responseSchema = z.object({
   generationTaskId: z.string().regex(/^\d+$/),
@@ -24,10 +29,10 @@ const agentImageAssetSchema = z.object({
 });
 
 const agentExecutionSchema = z.object({
-  contractVersion: z.literal(2),
+  contractVersion: z.literal(3),
   creationId: z.string().regex(/^\d+$/),
   revision: z.number().int().nonnegative(),
-  status: z.enum(["RUNNING", "SUCCEEDED", "FAILED", "CANCELLED"]),
+  status: z.enum(["RUNNING", "WAITING_INPUT", "SUCCEEDED", "FAILED", "CANCELLED"]),
   sessionId: z.string().regex(/^\d+$/),
   prompt: z.string().min(1),
   agentContext: agentSessionContextSchema.nullable(),
@@ -36,23 +41,12 @@ const agentExecutionSchema = z.object({
     aspectRatio: z.enum(["AUTO", "1:1", "4:3", "3:4", "16:9", "9:16"]),
     imageCount: z.number().int().min(0).max(6),
   }),
+  formResponse: creationFormResponseSchema.nullable(),
 });
-
-const errorSchema = z.object({
-  code: z.number().int(),
-  message: z.string(),
-}).passthrough();
 
 export type AgentGenerationTaskResponse = z.infer<typeof responseSchema>;
 export type AgentExecutionSnapshot = z.infer<typeof agentExecutionSchema>;
 export type AgentImageAssetSnapshot = z.infer<typeof agentImageAssetSchema>;
-
-export class JavaGenerationApiError extends Error {
-  constructor(readonly status: number, readonly code: number | undefined, message: string) {
-    super(message);
-    this.name = "JavaGenerationApiError";
-  }
-}
 
 @Injectable()
 export class JavaGenerationClient {
@@ -74,31 +68,9 @@ export class JavaGenerationClient {
     }
     const url = `${this.baseUrl}/internal/generation-worker/agent-creations/${creationId}`
       + `/generation-tasks/${encodeURIComponent(toolCallId)}`;
-    let lastError: unknown;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      signal?.throwIfAborted();
-      let response: Response;
-      try {
-        const timeout = AbortSignal.timeout(this.timeoutMs);
-        response = await fetch(url, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json", "X-AiVista-Worker-Token": this.token },
-          body: JSON.stringify(request),
-          signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
-        });
-      } catch (error) {
-        if (signal?.aborted || attempt === 2) throw error;
-        lastError = error;
-        await abortableDelay(100 * (attempt + 1), signal);
-        continue;
-      }
-      if (response.ok) return responseSchema.parse(await response.json());
-      const error = await apiError(response);
-      if (response.status < 500 || attempt === 2) throw error;
-      lastError = error;
-      await abortableDelay(100 * (attempt + 1), signal);
-    }
-    throw lastError;
+    const response = await putJavaWorker({ url, token: this.token!, body: request,
+      timeoutMs: this.timeoutMs, signal, fallbackError: "Java generation worker API request failed" });
+    return responseSchema.parse(await response.json());
   }
 
   async getAgentExecution(creationId: string, signal?: AbortSignal): Promise<AgentExecutionSnapshot> {
@@ -111,7 +83,8 @@ export class JavaGenerationClient {
         signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
       },
     );
-    if (!response.ok) throw await apiError(response);
+    if (!response.ok) throw await javaWorkerError(response,
+      `Java generation worker API returned HTTP ${response.status}`);
     return agentExecutionSchema.parse(await response.json());
   }
 
@@ -131,7 +104,8 @@ export class JavaGenerationClient {
         signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
       },
     );
-    if (!response.ok) throw await apiError(response);
+    if (!response.ok) throw await javaWorkerError(response,
+      `Java generation worker API returned HTTP ${response.status}`);
     return agentImageAssetSchema.parse(await response.json());
   }
 
@@ -141,27 +115,4 @@ export class JavaGenerationClient {
       throw new TypeError("creationId must be a positive integer ID");
     }
   }
-}
-
-async function abortableDelay(milliseconds: number, signal?: AbortSignal): Promise<void> {
-  signal?.throwIfAborted();
-  await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => { cleanup(); resolve(); }, milliseconds);
-    const aborted = () => { clearTimeout(timer); cleanup(); reject(signal?.reason); };
-    const cleanup = () => signal?.removeEventListener("abort", aborted);
-    signal?.addEventListener("abort", aborted, { once: true });
-  });
-}
-
-async function apiError(response: Response): Promise<JavaGenerationApiError> {
-  try {
-    const parsed = errorSchema.safeParse(await response.json());
-    if (parsed.success) {
-      return new JavaGenerationApiError(response.status, parsed.data.code, parsed.data.message);
-    }
-  } catch {
-    // Normalize non-JSON infrastructure responses without exposing their body.
-  }
-  return new JavaGenerationApiError(response.status, undefined,
-    `Java generation worker API returned HTTP ${response.status}`);
 }

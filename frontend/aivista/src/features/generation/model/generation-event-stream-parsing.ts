@@ -1,4 +1,5 @@
 import type { GenerationTaskStatus, PublicationReviewStatus } from "@/entities/generation/model/generation";
+import type { CreationForm } from "@/entities/generation/model/generation";
 
 export type GenerationStreamStatus = "DISCONNECTED" | "CONNECTING" | "SYNCING" | "READY" | "RECONNECTING";
 
@@ -28,7 +29,7 @@ export type AgentRealtimeEvent = {
   sequence: number;
   eventType: "RUN_STARTED" | "RUN_SNAPSHOT" | "TEXT_STARTED" | "TEXT_DELTA" | "TEXT_FINISHED"
     | "NARRATION" | "SKILL_SELECTED" | "TOOL_STARTED" | "TOOL_PROGRESS" | "TOOL_FINISHED"
-    | "RUN_FINISHED" | "RUN_FAILED" | "RUN_CANCELLED";
+    | "FORM_REQUESTED" | "FORM_RESOLVED" | "RUN_FINISHED" | "RUN_FAILED" | "RUN_CANCELLED";
   payload: Record<string, unknown>;
 };
 
@@ -78,17 +79,41 @@ export function isAgentRealtimeEvent(value: unknown): value is AgentRealtimeEven
 
 const AGENT_EVENT_TYPES: ReadonlySet<string> = new Set(["RUN_STARTED", "RUN_SNAPSHOT", "TEXT_STARTED", "TEXT_DELTA",
   "TEXT_FINISHED", "NARRATION", "SKILL_SELECTED", "TOOL_STARTED", "TOOL_PROGRESS", "TOOL_FINISHED",
-  "RUN_FINISHED", "RUN_FAILED", "RUN_CANCELLED"]);
+  "FORM_REQUESTED", "FORM_RESOLVED", "RUN_FINISHED", "RUN_FAILED", "RUN_CANCELLED"]);
+
+export function agentFormFromEvent(event: AgentRealtimeEvent): CreationForm | null {
+  if (event.eventType !== "FORM_REQUESTED" && event.eventType !== "FORM_RESOLVED") return null;
+  const value = event.payload.form;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  const definition = raw.form as CreationForm["form"] | undefined;
+  if (typeof raw.formId !== "string" || !["PENDING", "SUBMITTED", "SKIPPED"].includes(String(raw.status))
+      || !definition || typeof definition !== "object" || definition.schemaVersion !== 1
+      || typeof definition.title !== "string" || !Array.isArray(definition.fields)
+      || typeof raw.requestedAt !== "string"
+      || !(raw.resolvedAt === null || typeof raw.resolvedAt === "string")
+      || !(raw.answers === null || (typeof raw.answers === "object" && !Array.isArray(raw.answers)))) return null;
+  return { id: raw.formId, status: raw.status as CreationForm["status"], form: definition,
+    answers: raw.answers as CreationForm["answers"], requestedAt: raw.requestedAt,
+    resolvedAt: raw.resolvedAt as string | null };
+}
 
 export function applyAgentRealtimeEvent(current: AgentLiveRun | undefined,
     event: AgentRealtimeEvent): AgentLiveRun {
   if (current && event.revision < current.revision) return current;
   if (current && event.streamId === current.streamId && event.sequence <= current.sequence) return current;
+  const resumesPausedRun = !!current && event.eventType === "RUN_STARTED"
+    && event.revision > current.revision;
   const next = !current || event.streamId !== current.streamId
-    ? { streamId: event.streamId, revision: event.revision, sequence: 0, text: "", skills: [], tools: [] }
+    ? { streamId: event.streamId, revision: event.revision, sequence: 0,
+      text: resumesPausedRun ? current.text : "",
+      skills: resumesPausedRun ? [...current.skills] : [],
+      tools: resumesPausedRun ? [...current.tools] : [] }
     : { ...current, skills: [...current.skills], tools: [...current.tools] };
   next.sequence = event.sequence;
-  if (event.eventType === "RUN_STARTED") return { ...next, text: "", skills: [], tools: [] };
+  if (event.eventType === "RUN_STARTED") return resumesPausedRun
+    ? next
+    : { ...next, text: "", skills: [], tools: [] };
   if (event.eventType === "RUN_SNAPSHOT" && snapshotPayload(event.payload)) {
     return { ...next, text: event.payload.text, skills: [...event.payload.skills],
       tools: event.payload.tools.map((tool) => ({ ...tool })) };

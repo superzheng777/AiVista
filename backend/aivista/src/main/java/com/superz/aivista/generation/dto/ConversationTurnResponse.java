@@ -11,5 +11,6 @@ public record ConversationTurnResponse(
         ConversationMessageResponse assistantMessage,
         NormalGenerationRequestResponse normalGenerationRequest,
         java.util.List<GenerationTaskSnapshotResponse> generations,
-        java.util.List<CreationActivityResponse> activities) {
+        java.util.List<CreationActivityResponse> activities,
+        java.util.List<CreationFormResponse> forms) {
 }

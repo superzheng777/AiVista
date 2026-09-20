@@ -39,8 +39,9 @@ export interface OutboxEventTable {
 }
 export interface AgentWorkerExecutionTable {
   creation_task_id: bigint;
+  execution_revision: bigint;
   state: string;
-  completion_json: string | null;
+  payload_json: string | null;
   started_at: DbDate;
   completed_at: DbDate | null;
   updated_at: DbDate;

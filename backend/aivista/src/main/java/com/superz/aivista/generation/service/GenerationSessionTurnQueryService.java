@@ -7,17 +7,23 @@ import com.superz.aivista.generation.dto.ConversationTurnPageResponse;
 import com.superz.aivista.generation.dto.ConversationTurnResponse;
 import com.superz.aivista.generation.dto.NormalGenerationRequestResponse;
 import com.superz.aivista.generation.dto.CreationActivityResponse;
+import com.superz.aivista.generation.dto.CreationFormResponse;
 import com.superz.aivista.generation.entity.ImageAsset;
 import com.superz.aivista.generation.entity.ConversationMessage;
 import com.superz.aivista.generation.entity.CreationTask;
 import com.superz.aivista.generation.entity.GenerationTask;
 import com.superz.aivista.generation.entity.CreationActivity;
+import com.superz.aivista.generation.entity.CreationForm;
 import com.superz.aivista.generation.mapper.ImageAssetMapper;
 import com.superz.aivista.generation.mapper.ConversationMessageMapper;
 import com.superz.aivista.generation.mapper.CreationTaskMapper;
 import com.superz.aivista.generation.mapper.GenerationSessionMapper;
 import com.superz.aivista.generation.mapper.GenerationTaskMapper;
 import com.superz.aivista.generation.mapper.CreationActivityMapper;
+import com.superz.aivista.generation.mapper.CreationFormMapper;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.superz.aivista.generation.model.ConversationRole;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -42,6 +48,8 @@ public class GenerationSessionTurnQueryService {
     private final ImageAssetMapper imageAssetMapper;
     private final GenerationTaskQueryService taskQueryService;
     private final CreationActivityMapper activityMapper;
+    private final CreationFormMapper formMapper;
+    private final ObjectMapper objectMapper;
 
     /**
      * 注入会话归属校验、消息与任务批量查询，以及负责生成任务安全快照的服务。
@@ -50,7 +58,7 @@ public class GenerationSessionTurnQueryService {
             ConversationMessageMapper messageMapper, CreationTaskMapper creationTaskMapper,
             GenerationTaskMapper taskMapper,
             ImageAssetMapper imageAssetMapper, GenerationTaskQueryService taskQueryService,
-            CreationActivityMapper activityMapper) {
+            CreationActivityMapper activityMapper, CreationFormMapper formMapper, ObjectMapper objectMapper) {
         this.sessionMapper = sessionMapper;
         this.messageMapper = messageMapper;
         this.creationTaskMapper = creationTaskMapper;
@@ -58,6 +66,8 @@ public class GenerationSessionTurnQueryService {
         this.imageAssetMapper = imageAssetMapper;
         this.taskQueryService = taskQueryService;
         this.activityMapper = activityMapper;
+        this.formMapper = formMapper;
+        this.objectMapper = objectMapper;
     }
 
     /**
@@ -97,11 +107,15 @@ public class GenerationSessionTurnQueryService {
         Map<Long, List<CreationActivity>> activitiesByCreationTaskId = activityMapper
                 .selectByCreationTaskIds(creationTaskIds).stream()
                 .collect(Collectors.groupingBy(CreationActivity::getCreationTaskId));
+        Map<Long, List<CreationForm>> formsByCreationTaskId = formMapper
+                .selectByCreationTaskIds(creationTaskIds).stream()
+                .collect(Collectors.groupingBy(CreationForm::getCreationTaskId));
         return creationTasks.stream()
                 .map(creationTask -> toItem(creationTask,
                         messagesByTaskId.getOrDefault(creationTask.getId(), List.of()),
                         generationTasksByCreationTaskId.getOrDefault(creationTask.getId(), List.of()), imagesByTaskId,
-                        activitiesByCreationTaskId.getOrDefault(creationTask.getId(), List.of())))
+                        activitiesByCreationTaskId.getOrDefault(creationTask.getId(), List.of()),
+                        formsByCreationTaskId.getOrDefault(creationTask.getId(), List.of())))
                 .toList();
     }
 
@@ -132,7 +146,7 @@ public class GenerationSessionTurnQueryService {
     /** 组装单个创作轮次；异常历史数据缺少生成任务时仍返回两侧消息。 */
     private ConversationTurnResponse toItem(CreationTask creationTask, List<ConversationMessage> messages,
             List<GenerationTask> tasks, Map<Long, List<ImageAsset>> imagesByTaskId,
-            List<CreationActivity> activities) {
+            List<CreationActivity> activities, List<CreationForm> forms) {
         ConversationMessage userMessage = messageWithRole(messages, ConversationRole.USER.name());
         ConversationMessage assistantMessage = optionalMessageWithRole(messages, ConversationRole.ASSISTANT.name());
         GenerationTask normalTask = "NORMAL".equals(creationTask.getMode()) && !tasks.isEmpty() ? tasks.getFirst() : null;
@@ -143,7 +157,8 @@ public class GenerationSessionTurnQueryService {
                 normalTask == null ? null : new NormalGenerationRequestResponse(normalTask.getFinalNegativePrompt()),
                 tasks.stream().map(task -> taskQueryService.snapshot(task,
                         imagesByTaskId.getOrDefault(task.getId(), List.of()))).toList(),
-                activities.stream().map(this::responseOf).toList());
+                activities.stream().map(this::responseOf).toList(),
+                forms.stream().map(this::responseOf).toList());
     }
 
     private CreationActivityResponse responseOf(CreationActivity activity) {
@@ -151,6 +166,20 @@ public class GenerationSessionTurnQueryService {
                 activity.getActivityType(), activity.getOutcome(), activity.getContent(), activity.getToolName(),
                 activity.getGenerationTaskId() == null ? null : activity.getGenerationTaskId().toString(),
                 activity.getStartedAt(), activity.getCompletedAt());
+    }
+
+    private CreationFormResponse responseOf(CreationForm form) {
+        return new CreationFormResponse(form.getId().toString(), form.getStatus(), readJson(form.getFormJson()),
+                readJson(form.getAnswerJson()), form.getRequestedAt(), form.getResolvedAt());
+    }
+
+    private JsonNode readJson(String value) {
+        if (value == null) return null;
+        try {
+            return objectMapper.readTree(value);
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("Stored creation form JSON is invalid", exception);
+        }
     }
 
     private ConversationMessageResponse responseOf(ConversationMessage message) {

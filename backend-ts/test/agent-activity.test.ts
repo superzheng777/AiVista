@@ -48,6 +48,46 @@ describe("AgentActivityCollector", () => {
       outcome: "COMPLETED", content: "已启用海报设计能力。" })]);
   });
 
+  it("uses the public label for the brand-design Skill", () => {
+    const collector = new AgentActivityCollector(() => new Date("2026-09-09T01:00:00Z"));
+    collector.accept({ type: "tool_start", toolCallId: "read-brand", toolName: "read",
+      args: { path: "C:/app/.pi/skills/brand-design/SKILL.md" } });
+    collector.accept({ type: "tool_end", toolCallId: "read-brand", toolName: "read",
+      result: { content: [{ type: "text", text: "skill body" }] }, isError: false });
+    expect(collector.snapshot()).toEqual([expect.objectContaining({ type: "SKILL",
+      outcome: "COMPLETED", content: "已启用品牌设计能力。" })]);
+  });
+
+  it("uses the public label for the cinematic-still Skill", () => {
+    const collector = new AgentActivityCollector(() => new Date("2026-09-09T01:00:00Z"));
+    collector.accept({ type: "tool_start", toolCallId: "read-cinematic", toolName: "read",
+      args: { path: "C:/app/.pi/skills/cinematic-still/SKILL.md" } });
+    collector.accept({ type: "tool_end", toolCallId: "read-cinematic", toolName: "read",
+      result: { content: [{ type: "text", text: "skill body" }] }, isError: false });
+    expect(collector.snapshot()).toEqual([expect.objectContaining({ type: "SKILL",
+      outcome: "COMPLETED", content: "已启用电影感摄影能力。" })]);
+  });
+
+  it("uses the public label for the impasto-diorama Skill", () => {
+    const collector = new AgentActivityCollector(() => new Date("2026-09-09T01:00:00Z"));
+    collector.accept({ type: "tool_start", toolCallId: "read-impasto", toolName: "read",
+      args: { path: "C:/app/.pi/skills/impasto-diorama/SKILL.md" } });
+    collector.accept({ type: "tool_end", toolCallId: "read-impasto", toolName: "read",
+      result: { content: [{ type: "text", text: "skill body" }] }, isError: false });
+    expect(collector.snapshot()).toEqual([expect.objectContaining({ type: "SKILL",
+      outcome: "COMPLETED", content: "已启用油彩立体厚涂能力。" })]);
+  });
+
+  it("uses the public label for the monumental-scale-poster Skill", () => {
+    const collector = new AgentActivityCollector(() => new Date("2026-09-09T01:00:00Z"));
+    collector.accept({ type: "tool_start", toolCallId: "read-monumental", toolName: "read",
+      args: { path: "C:/app/.pi/skills/monumental-scale-poster/SKILL.md" } });
+    collector.accept({ type: "tool_end", toolCallId: "read-monumental", toolName: "read",
+      result: { content: [{ type: "text", text: "skill body" }] }, isError: false });
+    expect(collector.snapshot()).toEqual([expect.objectContaining({ type: "SKILL",
+      outcome: "COMPLETED", content: "已启用巨物尺度清透海报能力。" })]);
+  });
+
   it("keeps narration before a subsequently selected Skill in persisted order", () => {
     const collector = new AgentActivityCollector(() => new Date("2026-09-19T00:00:00Z"));
     collector.accept({ type: "turn_start", turn: 1 });

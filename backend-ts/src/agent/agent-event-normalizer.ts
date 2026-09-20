@@ -1,5 +1,6 @@
 import type { AgentRuntimeEvent } from "./agent-runtime.js";
 import { selectedSkillName, toolOutcome, userFacingPlan } from "./agent-event-utils.js";
+import { REQUEST_USER_INPUT_TOOL_NAME } from "./tools/request-user-input.js";
 
 export type AgentRealtimeEvent =
   | { eventType: "RUN_STARTED"; payload: Record<string, never> }
@@ -62,6 +63,7 @@ export class AgentEventNormalizer {
         return;
       case "tool_start":
         this.flush();
+        if (event.toolName === REQUEST_USER_INPUT_TOOL_NAME) return;
         {
           const skillName = selectedSkillName(event.toolName, event.args);
           if (skillName) {
@@ -80,6 +82,7 @@ export class AgentEventNormalizer {
           payload: { toolCallId: event.toolCallId, toolName: event.toolName } });
         return;
       case "tool_progress":
+        if (event.toolName === REQUEST_USER_INPUT_TOOL_NAME) return;
         if (this.skillCalls.has(event.toolCallId)) return;
         this.flush();
         this.options.emit({ eventType: "TOOL_PROGRESS",
@@ -87,6 +90,7 @@ export class AgentEventNormalizer {
         return;
       case "tool_end":
         this.flush();
+        if (event.toolName === REQUEST_USER_INPUT_TOOL_NAME) return;
         {
           const skillName = this.skillCalls.get(event.toolCallId);
           if (skillName) {

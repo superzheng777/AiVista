@@ -14,8 +14,8 @@ run("Java local MySQL compatibility", () => {
     const connection = await createConnection({host:url.hostname,port:Number(url.port||3306),database:url.pathname.slice(1),user:resolveSpringValue(source.username),password:resolveSpringValue(source.password),supportBigNumbers:true,bigNumberStrings:true});
     try {
       const [versions] = await connection.query<(RowDataPacket&{version:string})[]>("SELECT version FROM flyway_schema_history WHERE success=1 ORDER BY installed_rank DESC LIMIT 1");
-      expect(versions[0]?.version).toBe("28");
-      const requiredTables=["generation_tasks","image_assets","generation_task_input_assets","user_generation_daily_usage","outbox_events","agent_worker_executions","creation_activities","agent_session_contexts"];
+      expect(versions[0]?.version).toBe("29");
+      const requiredTables=["generation_tasks","image_assets","generation_task_input_assets","user_generation_daily_usage","outbox_events","agent_worker_executions","creation_activities","agent_session_contexts","creation_forms"];
       const [tables] = await connection.query<(RowDataPacket&{TABLE_NAME:string})[]>("SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN (?)",[requiredTables]);
       expect(new Set(tables.map(r=>r.TABLE_NAME))).toEqual(new Set(requiredTables));
       const [taskColumns]=await connection.query<(RowDataPacket&{COLUMN_NAME:string})[]>("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='generation_tasks'");
@@ -26,6 +26,10 @@ run("Java local MySQL compatibility", () => {
       const [outboxColumns]=await connection.query<(RowDataPacket&{COLUMN_NAME:string})[]>("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='outbox_events'");
       const outboxColumnNames=new Set(outboxColumns.map(r=>r.COLUMN_NAME));
       for(const name of ["event_type","aggregate_type","aggregate_id","aggregate_version","payload_json","status","retry_count","available_at","published_at"]) expect(outboxColumnNames.has(name)).toBe(true);
+      const [ledgerColumns]=await connection.query<(RowDataPacket&{COLUMN_NAME:string})[]>("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='agent_worker_executions'");
+      const ledgerColumnNames=new Set(ledgerColumns.map(r=>r.COLUMN_NAME));
+      for(const name of ["creation_task_id","execution_revision","state","payload_json"]) expect(ledgerColumnNames.has(name)).toBe(true);
+      expect(ledgerColumnNames.has("completion_json")).toBe(false);
     } finally { await connection.end(); }
   });
 });

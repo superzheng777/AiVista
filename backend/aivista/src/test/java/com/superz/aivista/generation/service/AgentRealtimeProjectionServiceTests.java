@@ -10,6 +10,9 @@ import com.superz.aivista.generation.entity.CreationTask;
 import com.superz.aivista.generation.event.AgentRealtimeEvent;
 import com.superz.aivista.generation.event.AgentRealtimeInboundEvent;
 import com.superz.aivista.generation.mapper.CreationTaskMapper;
+import com.superz.aivista.generation.dto.CreationFormResponse;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.time.Instant;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -105,6 +108,23 @@ class AgentRealtimeProjectionServiceTests {
         verify(connections).publishAgent(Mockito.eq(7L), anyLong(), event.capture());
         assertThat(event.getValue().eventType()).isEqualTo("RUN_CANCELLED");
         assertThat(event.getValue().payload()).containsEntry("status", "CANCELLED");
+    }
+
+    @Test
+    void publishesTheFullCommittedFormWithoutASecondRestRead() {
+        when(creations.selectSnapshotById(31L)).thenReturn(creation("AGENT", "WAITING_INPUT", 5L));
+        var definition = new ObjectMapper().createObjectNode().put("schemaVersion", 1)
+                .put("title", "确认需求").putArray("fields");
+        var form = new CreationFormResponse("701", "PENDING", definition, null,
+                Instant.parse("2026-09-20T01:00:00Z"), null);
+
+        service.publishFormRequested(31L, 5L, form);
+
+        ArgumentCaptor<AgentRealtimeEvent> event = ArgumentCaptor.forClass(AgentRealtimeEvent.class);
+        verify(connections).publishAgent(Mockito.eq(7L), anyLong(), event.capture());
+        assertThat(event.getValue().eventType()).isEqualTo("FORM_REQUESTED");
+        assertThat(event.getValue().revision()).isEqualTo(5L);
+        assertThat(event.getValue().payload()).containsEntry("form", form);
     }
 
     private AgentRealtimeInboundEvent event(String type, Map<String, Object> payload) {

@@ -15,6 +15,9 @@ import com.superz.aivista.generation.message.AgentExecutionSnapshot;
 import com.superz.aivista.generation.message.AgentCompletionCommand;
 import com.superz.aivista.generation.service.AgentCompletionService;
 import com.superz.aivista.generation.service.AgentRealtimeProjectionService;
+import com.superz.aivista.generation.service.AgentFormService;
+import com.superz.aivista.generation.message.AgentInputRequestCommand;
+import org.springframework.http.ResponseEntity;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import org.springframework.http.HttpStatus;
@@ -40,12 +43,13 @@ public class GenerationWorkerController {
     private final AgentCompletionService agentCompletions;
     private final AgentRealtimeProjectionService agentRealtime;
     private final GenerationPhaseService phases;
+    private final AgentFormService forms;
 
     public GenerationWorkerController(GenerationCompletionService completions,
             GenerationWorkerApiProperties properties, AgentGenerationTaskCreationService agentTasks,
             AgentExecutionSnapshotService agentSnapshots, AgentCompletionService agentCompletions,
             AgentRealtimeProjectionService agentRealtime,
-            GenerationPhaseService phases) {
+            GenerationPhaseService phases, AgentFormService forms) {
         this.completions = completions;
         this.properties = properties;
         this.agentTasks = agentTasks;
@@ -53,6 +57,17 @@ public class GenerationWorkerController {
         this.agentCompletions = agentCompletions;
         this.agentRealtime = agentRealtime;
         this.phases = phases;
+        this.forms = forms;
+    }
+
+    @PutMapping("/agent-creations/{creationId}/forms/{toolCallId}")
+    public ResponseEntity<Void> requestAgentInput(
+            @RequestHeader(TOKEN_HEADER) String token, @PathVariable long creationId,
+            @PathVariable String toolCallId, @RequestBody AgentInputRequestCommand command) {
+        authenticate(token);
+        var result = forms.request(creationId, toolCallId, command);
+        if (result.created()) agentRealtime.publishFormRequested(creationId, result.revision(), result.form());
+        return ResponseEntity.status(result.created() ? HttpStatus.CREATED : HttpStatus.NO_CONTENT).build();
     }
 
     @GetMapping("/agent-creations/{creationId}/execution")

@@ -22,7 +22,12 @@ export function selectedSkillName(toolName: string, args: unknown): string | nul
 }
 
 export function skillLabel(skillName: string): string {
-  return skillName === "poster-design" ? "海报设计能力" : "创作能力";
+  if (skillName === "poster-design") return "海报设计能力";
+  if (skillName === "brand-design") return "品牌设计能力";
+  if (skillName === "cinematic-still") return "电影感摄影能力";
+  if (skillName === "impasto-diorama") return "油彩立体厚涂能力";
+  if (skillName === "monumental-scale-poster") return "巨物尺度清透海报能力";
+  return "创作能力";
 }
 
 export function toolOutcomeDetails(result: unknown): { outcome?: string; generationTaskId: string | null } {

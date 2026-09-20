@@ -30,6 +30,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import {
   needsImageUrlRefresh,
+  type AgentFormAnswer,
   type GenerationAsset,
   type GenerationSession,
   type GenerationTask,
@@ -49,11 +50,13 @@ import {
   generationQueryKeys,
   listGenerationSessions,
   listGenerationTurns,
+  resolveAgentForm,
 } from "@/features/generation/api/generation-api";
 import {
   GenerationComposer,
   type GenerationComposerDraft,
 } from "@/features/generation/ui/generation-composer";
+import { AgentInputFormCard } from "@/features/generation/ui/agent-input-form-card";
 import {
   useGenerationEventStream,
   type GenerationSessionIndicator,
@@ -64,6 +67,7 @@ import {
 } from "@/features/generation/model/conversation-scroll";
 import {
   mergeGenerationTurnPageData,
+  applyAgentFormUpdateToTurns,
   type GenerationTurnPage,
 } from "@/features/generation/model/generation-turn-cache";
 import { PublicationFormDialog } from "@/features/publication/ui/publication-form-dialog";
@@ -231,7 +235,7 @@ function ConversationPanel({
     ? [...turnsQuery.data.pages].reverse().flatMap((page) => page.items)
     : undefined;
   const hasActiveCreation =
-    turns?.some((turn) => turn.status === "RUNNING") ?? false;
+    turns?.some((turn) => turn.status === "RUNNING" || turn.status === "WAITING_INPUT") ?? false;
   useEffect(() => {
     if (
       turnsQuery.isLoading ||
@@ -310,6 +314,17 @@ function ConversationPanel({
       ]),
     onError: () =>
       setActionNotice("取消失败，创作可能已经结束，请刷新后重试。"),
+  });
+  const formMutation = useMutation({
+    mutationFn: resolveAgentForm,
+    onSuccess: (result) => {
+      queryClient.setQueryData<InfiniteData<GenerationTurnPage>>(
+        generationQueryKeys.turns(sessionId),
+        (current) => applyAgentFormUpdateToTurns(current, result.creationId, result.revision,
+          result.form, "RUNNING"),
+      );
+    },
+    onError: () => setActionNotice("表单提交失败，请检查填写内容后重试。"),
   });
   useEffect(() => {
     if (
@@ -516,6 +531,10 @@ function ConversationPanel({
                 cancelMutation.isPending && cancelMutation.variables === turn.id
               }
               onCancel={() => cancelMutation.mutate(turn.id)}
+              resolvingFormId={formMutation.isPending ? formMutation.variables?.formId ?? null : null}
+              onResolveForm={(formId, action, answers) => formMutation.mutate({
+                creationId: turn.id, formId, expectedRevision: turn.revision, action, answers,
+              })}
               onContinue={(draft) => {
                 setComposerDraft({ key: Date.now(), value: draft });
                 setIsComposerCollapsed(false);
@@ -720,6 +739,8 @@ function ConversationTurn({
   turn,
   isCancelling,
   onCancel,
+  resolvingFormId,
+  onResolveForm,
   onContinue,
   onOpenAsset,
   onRefreshAsset,
@@ -730,6 +751,9 @@ function ConversationTurn({
   turn: GenerationTurn;
   isCancelling: boolean;
   onCancel: () => void;
+  resolvingFormId: string | null;
+  onResolveForm: (formId: string, action: "SUBMIT" | "SKIP",
+    answers: Record<string, AgentFormAnswer> | null) => void;
   onContinue: (draft: GenerationComposerDraft) => void;
   onOpenAsset: (asset: GenerationAsset) => Promise<void>;
   onRefreshAsset: (imageId: string) => Promise<GenerationAsset>;
@@ -821,7 +845,7 @@ function ConversationTurn({
                   ? taskStatusText(turn.generations[0])
                   : creationStatusText(turn.status)}
               </span>
-              {turn.mode === "AGENT" && turn.status === "RUNNING" ? (
+              {turn.mode === "AGENT" && (turn.status === "RUNNING" || turn.status === "WAITING_INPUT") ? (
                 <button
                   type="button"
                   onClick={onCancel}
@@ -836,7 +860,7 @@ function ConversationTurn({
           </div>
           {showProcess ? (
             <details
-              open={turn.status === "RUNNING" ? true : undefined}
+              open={turn.status === "RUNNING" || turn.status === "WAITING_INPUT" ? true : undefined}
               className="group mt-3 rounded-[7px] border border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2"
             >
               <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-xs font-medium text-[var(--text-secondary)] marker:content-none">
@@ -897,6 +921,15 @@ function ConversationTurn({
               ) : null}
             </details>
           ) : null}
+          {turn.forms.map((form) => (
+            <AgentInputFormCard
+              key={form.id}
+              value={form}
+              enabled={turn.status === "WAITING_INPUT" && form.status === "PENDING"}
+              submitting={resolvingFormId === form.id}
+              onResolve={(action, answers) => onResolveForm(form.id, action, answers)}
+            />
+          ))}
           {turn.mode === "NORMAL" ? (
             <div className="mt-3">
               <p className="whitespace-pre-wrap text-sm leading-7">
@@ -1071,6 +1104,7 @@ function ActivityStateMark({
 }
 function creationStatusText(status: GenerationTurn["status"]): string {
   if (status === "RUNNING") return "创作中";
+  if (status === "WAITING_INPUT") return "等待确认";
   if (status === "SUCCEEDED") return "已完成";
   if (status === "CANCELLED") return "已取消";
   return "未完成";

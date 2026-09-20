@@ -1,6 +1,7 @@
 import type { AgentRuntimeEvent } from "./agent-runtime.js";
 import { selectedSkillName, skillLabel, toolLabel, toolOutcomeDetails,
   userFacingPlan } from "./agent-event-utils.js";
+import { REQUEST_USER_INPUT_TOOL_NAME } from "./tools/request-user-input.js";
 
 export interface AgentActivityItem {
   type: "NARRATION" | "SKILL" | "TOOL";
@@ -44,6 +45,7 @@ export class AgentActivityCollector {
     if (event.type === "tool_start") {
       const occurredAt = this.now().toISOString();
       this.flushNarration(occurredAt);
+      if (event.toolName === REQUEST_USER_INPUT_TOOL_NAME) return;
       const skillName = selectedSkillName(event.toolName, event.args);
       if (skillName) {
         this.skillCalls.set(event.toolCallId, { name: skillName, startedAt: occurredAt });
@@ -68,6 +70,7 @@ export class AgentActivityCollector {
       return;
     }
     if (event.type === "tool_end") {
+      if (event.toolName === REQUEST_USER_INPUT_TOOL_NAME) return;
       const skill = this.skillCalls.get(event.toolCallId);
       if (skill) {
         this.skillCalls.delete(event.toolCallId);

@@ -13,6 +13,7 @@ import com.superz.aivista.generation.mapper.CreationTaskInputAssetMapper;
 import com.superz.aivista.generation.mapper.CreationTaskMapper;
 import com.superz.aivista.generation.mapper.ImageAssetMapper;
 import com.superz.aivista.generation.mapper.AgentSessionContextMapper;
+import com.superz.aivista.generation.mapper.CreationFormMapper;
 import com.superz.aivista.common.exception.BusinessException;
 import com.superz.aivista.common.exception.ErrorCode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -48,10 +49,10 @@ class AgentExecutionSnapshotServiceTests {
         when(assets.selectByAssetIds(List.of(502L, 501L))).thenReturn(List.of(generated, uploaded));
 
         var snapshot = new AgentExecutionSnapshotService(creations, messages, inputs, assets,
-                contexts, new ObjectMapper()).get(151L);
+                contexts, mock(CreationFormMapper.class), new ObjectMapper()).get(151L);
 
         assertThat(snapshot.prompt()).isEqualTo("把这张图改成海报");
-        assertThat(snapshot.contractVersion()).isEqualTo(2);
+        assertThat(snapshot.contractVersion()).isEqualTo(3);
         assertThat(snapshot.agentContext().path("messages").get(0).path("content").asText())
                 .isEqualTo("上一轮请求");
         assertThat(snapshot.inputAssets()).extracting(asset -> asset.assetId())
@@ -77,7 +78,7 @@ class AgentExecutionSnapshotServiceTests {
         when(assets.selectReadableByAgentSession(701L, 7L, 101L)).thenReturn(generated);
 
         var result = new AgentExecutionSnapshotService(creations, messages, inputs, assets,
-                contexts, new ObjectMapper()).resolveImage(151L, 3L, 701L);
+                contexts, mock(CreationFormMapper.class), new ObjectMapper()).resolveImage(151L, 3L, 701L);
 
         assertThat(result.assetId()).isEqualTo("701");
         assertThat(result.objectKey()).isEqualTo("users/7/tasks/31/0/display.webp");
@@ -91,7 +92,7 @@ class AgentExecutionSnapshotServiceTests {
         when(creations.selectSnapshotById(151L)).thenReturn(creation);
         var service = new AgentExecutionSnapshotService(creations, mock(ConversationMessageMapper.class),
                 mock(CreationTaskInputAssetMapper.class), mock(ImageAssetMapper.class),
-                mock(AgentSessionContextMapper.class), new ObjectMapper());
+                mock(AgentSessionContextMapper.class), mock(CreationFormMapper.class), new ObjectMapper());
 
         assertThatThrownBy(() -> service.resolveImage(151L, 2L, 701L))
                 .isInstanceOfSatisfying(BusinessException.class,

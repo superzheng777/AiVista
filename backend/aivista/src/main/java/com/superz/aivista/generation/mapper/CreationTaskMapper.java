@@ -13,7 +13,7 @@ public interface CreationTaskMapper extends BaseMapper<CreationTask> {
     @Select("""
             SELECT COUNT(*) > 0
             FROM creation_tasks
-            WHERE session_id = #{sessionId} AND status = 'RUNNING'
+            WHERE session_id = #{sessionId} AND status IN ('RUNNING', 'WAITING_INPUT')
             """)
     boolean existsRunningBySessionId(@Param("sessionId") long sessionId);
 
@@ -49,6 +49,19 @@ public interface CreationTaskMapper extends BaseMapper<CreationTask> {
             @Param("beforeId") Long beforeId,
             @Param("limit") int limit);
 
+    @Select("""
+            <script>
+            SELECT DISTINCT session_id
+            FROM creation_tasks
+            WHERE status IN ('RUNNING', 'WAITING_INPUT')
+              AND session_id IN
+            <foreach collection="sessionIds" item="sessionId" open="(" separator="," close=")">
+                #{sessionId}
+            </foreach>
+            </script>
+            """)
+    List<Long> selectActiveSessionIds(@Param("sessionIds") List<Long> sessionIds);
+
     @Update("""
             UPDATE creation_tasks
             SET status = #{status}, failure_code = #{failureCode}, revision = revision + 1,
@@ -60,4 +73,30 @@ public interface CreationTaskMapper extends BaseMapper<CreationTask> {
             @Param("status") String status,
             @Param("failureCode") String failureCode,
             @Param("completedAt") java.time.Instant completedAt);
+
+    @Update("""
+            UPDATE creation_tasks
+            SET status = 'WAITING_INPUT', revision = revision + 1, updated_at = #{now}
+            WHERE id = #{creationTaskId} AND status = 'RUNNING' AND revision = #{expectedRevision}
+            """)
+    int pauseForInput(@Param("creationTaskId") long creationTaskId,
+            @Param("expectedRevision") long expectedRevision, @Param("now") java.time.Instant now);
+
+    @Update("""
+            UPDATE creation_tasks
+            SET status = 'RUNNING', revision = revision + 1, updated_at = #{now}
+            WHERE id = #{creationTaskId} AND status = 'WAITING_INPUT' AND revision = #{expectedRevision}
+            """)
+    int resumeAfterInput(@Param("creationTaskId") long creationTaskId,
+            @Param("expectedRevision") long expectedRevision, @Param("now") java.time.Instant now);
+
+    @Update("""
+            UPDATE creation_tasks
+            SET status = 'CANCELLED', failure_code = NULL, revision = revision + 1,
+                completed_at = #{now}, updated_at = #{now}
+            WHERE id = #{creationTaskId} AND status IN ('RUNNING', 'WAITING_INPUT')
+              AND revision = #{expectedRevision}
+            """)
+    int cancelActive(@Param("creationTaskId") long creationTaskId,
+            @Param("expectedRevision") long expectedRevision, @Param("now") java.time.Instant now);
 }

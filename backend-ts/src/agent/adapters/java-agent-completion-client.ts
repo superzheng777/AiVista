@@ -2,10 +2,10 @@ import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { z } from "zod";
 import type { Environment } from "../../config/environment.js";
-import { JavaGenerationApiError } from "./java-generation-client.js";
 import { agentSessionContextSchema } from "../agent-context.js";
+import { putJavaWorker } from "../../common/java-worker-http.js";
 
-const activitySchema = z.object({
+export const activitySchema = z.object({
   type: z.enum(["NARRATION", "SKILL", "TOOL"]),
   outcome: z.enum(["COMPLETED", "FAILED", "CANCELLED"]),
   content: z.string().min(1).max(1_000),
@@ -57,37 +57,7 @@ export class JavaAgentCompletionClient {
     if (!this.token) throw new Error("Generation worker token is not configured");
     const value = agentCompletionCommandSchema.parse(command);
     const url = `${this.baseUrl}/internal/generation-worker/agent-creations/${value.creationId}/completion`;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      signal?.throwIfAborted();
-      let response: Response;
-      try {
-        const timeout = AbortSignal.timeout(this.timeoutMs);
-        response = await fetch(url, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json", "X-AiVista-Worker-Token": this.token },
-          body: JSON.stringify(value),
-          signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
-        });
-      } catch (error) {
-        if (signal?.aborted || attempt === 2) throw error;
-        await delay(100 * (attempt + 1), signal);
-        continue;
-      }
-      if (response.ok) return;
-      const error = new JavaGenerationApiError(response.status, undefined,
-        `Java Agent completion API returned HTTP ${response.status}`);
-      if (response.status < 500 || attempt === 2) throw error;
-      await delay(100 * (attempt + 1), signal);
-    }
+    await putJavaWorker({ url, token: this.token, body: value, timeoutMs: this.timeoutMs, signal,
+      fallbackError: "Java Agent completion API request failed" });
   }
-}
-
-async function delay(milliseconds: number, signal?: AbortSignal): Promise<void> {
-  signal?.throwIfAborted();
-  await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => { cleanup(); resolve(); }, milliseconds);
-    const aborted = () => { clearTimeout(timer); cleanup(); reject(signal?.reason); };
-    const cleanup = () => signal?.removeEventListener("abort", aborted);
-    signal?.addEventListener("abort", aborted, { once: true });
-  });
 }

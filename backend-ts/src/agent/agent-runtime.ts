@@ -12,6 +12,8 @@ import type { AgentModelBinding } from "./providers/bailian.js";
 import type { ImageContent } from "@earendil-works/pi-ai";
 import type { AgentGenerationConstraints } from "./tools/generation.js";
 import { exportAgentContext, restoreAgentContext, type AgentSessionContext } from "./agent-context.js";
+import { inputRequestFromToolResult, REQUEST_USER_INPUT_TOOL_NAME,
+  type AgentInputRequest } from "./tools/request-user-input.js";
 
 export type AgentRuntimeEvent =
   | { type: "agent_start" }
@@ -36,10 +38,9 @@ export interface RunAgentPromptOptions {
   onEvent?: (event: AgentRuntimeEvent) => void;
 }
 
-export interface AgentPromptResult {
-  text: string;
-  context: AgentSessionContext;
-}
+export type AgentPromptResult =
+  | { outcome: "COMPLETED"; text: string; context: AgentSessionContext }
+  | { outcome: "WAITING_FOR_USER"; request: AgentInputRequest; context: AgentSessionContext };
 
 export class AgentTurnLimitError extends Error {
   constructor(readonly maxTurns: number) {
@@ -59,6 +60,8 @@ export async function runAgentPrompt(options: RunAgentPromptOptions): Promise<Ag
   };
   let turns = 0;
   let turnLimitReached = false;
+  let inputRequest: AgentInputRequest | undefined;
+  const blockedMixedToolCalls = new Set<string>();
   const extension: InlineExtension = {
     name: "aivista-harness",
     hidden: true,
@@ -76,6 +79,24 @@ export async function runAgentPrompt(options: RunAgentPromptOptions): Promise<Ag
         if (event.turnIndex + 1 >= options.maxTurns && event.toolResults.length > 0) {
           turnLimitReached = true;
           context.abort();
+        }
+      });
+      pi.on("message_end", (event) => {
+        if (event.message.role !== "assistant") return;
+        const toolCalls = event.message.content
+          .filter((content) => content.type === "toolCall")
+          .map((content) => ({ id: content.id, name: content.name }));
+        if (toolCalls.some((call) => call.name === REQUEST_USER_INPUT_TOOL_NAME)
+            && toolCalls.some((call) => call.name !== REQUEST_USER_INPUT_TOOL_NAME)) {
+          for (const call of toolCalls) blockedMixedToolCalls.add(call.id);
+        }
+      });
+      pi.on("tool_call", (event) => {
+        if (blockedMixedToolCalls.has(event.toolCallId)) {
+          return {
+            block: true,
+            reason: "request_user_input 必须单独调用，不能与其他工具出现在同一条 assistant 消息中。",
+          };
         }
       });
     },
@@ -122,14 +143,20 @@ export async function runAgentPrompt(options: RunAgentPromptOptions): Promise<Ag
     if (event.type === "agent_start") emit({ type: "agent_start" });
     if (event.type === "agent_settled") resolveSettled();
     if (event.type === "tool_execution_start") {
+      if (blockedMixedToolCalls.has(event.toolCallId)) return;
       emit({ type: "tool_start", toolCallId: event.toolCallId, toolName: event.toolName,
         args: event.args });
     }
     if (event.type === "tool_execution_update") {
+      if (blockedMixedToolCalls.has(event.toolCallId)) return;
       emit({ type: "tool_progress", toolCallId: event.toolCallId, toolName: event.toolName,
         partialResult: event.partialResult });
     }
     if (event.type === "tool_execution_end") {
+      if (blockedMixedToolCalls.has(event.toolCallId)) return;
+      if (!event.isError && event.toolName === REQUEST_USER_INPUT_TOOL_NAME) {
+        inputRequest = inputRequestFromToolResult(event.toolCallId, event.result);
+      }
       emit({ type: "tool_end", toolCallId: event.toolCallId, toolName: event.toolName,
         result: event.result, isError: event.isError });
     }
@@ -154,9 +181,11 @@ export async function runAgentPrompt(options: RunAgentPromptOptions): Promise<Ag
     if (abortPromise) await abortPromise;
     options.signal?.throwIfAborted();
     if (turnLimitReached) throw new AgentTurnLimitError(options.maxTurns);
+    const context = exportAgentContext(sessionManager, options.authorizedInputAssetIds ?? []);
+    if (inputRequest) return { outcome: "WAITING_FOR_USER", request: inputRequest, context };
     const text = session.getLastAssistantText()?.trim();
     if (!text) throw new Error("Agent returned an empty final response");
-    return { text, context: exportAgentContext(sessionManager, options.authorizedInputAssetIds ?? []) };
+    return { outcome: "COMPLETED", text, context };
   } finally {
     options.signal?.removeEventListener("abort", abort);
     if (abortPromise) await abortPromise;

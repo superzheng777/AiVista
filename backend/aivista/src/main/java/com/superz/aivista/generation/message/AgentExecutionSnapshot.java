@@ -6,12 +6,16 @@ import java.util.List;
 /** TS 启动一个 Pi Loop 所需的最小权威快照。 */
 public record AgentExecutionSnapshot(int contractVersion, String creationId, long revision,
         String status, String sessionId, String prompt, JsonNode agentContext,
-        List<InputAsset> inputAssets, GenerationConstraints constraints) {
+        List<InputAsset> inputAssets, GenerationConstraints constraints, FormResponse formResponse) {
 
     public record GenerationConstraints(String aspectRatio, int imageCount) {
     }
 
     public record InputAsset(String assetId, String objectKey, String contentType,
             long fileSize, int width, int height) {
+    }
+
+    /** 最近一次已处理表单；只用于恢复暂停的 Pi Loop。 */
+    public record FormResponse(String formId, String status, JsonNode form, JsonNode answers) {
     }
 }

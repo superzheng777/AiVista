@@ -13,6 +13,7 @@ import com.superz.aivista.generation.entity.GenerationSession;
 import com.superz.aivista.generation.entity.GenerationTask;
 import com.superz.aivista.generation.mapper.GenerationSessionMapper;
 import com.superz.aivista.generation.mapper.GenerationTaskMapper;
+import com.superz.aivista.generation.mapper.CreationTaskMapper;
 import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -23,13 +24,14 @@ class GenerationSessionQueryServiceTests {
     void returnsSummariesAndOneAdditionalCursorPage() {
         GenerationSessionMapper sessionMapper = mock(GenerationSessionMapper.class);
         GenerationTaskMapper taskMapper = mock(GenerationTaskMapper.class);
+        CreationTaskMapper creationTaskMapper = mock(CreationTaskMapper.class);
         List<GenerationSession> sessions = List.of(session(3, "2026-07-30T03:00:00Z"),
                 session(2, "2026-07-30T02:00:00Z"), session(1, "2026-07-30T01:00:00Z"));
         when(sessionMapper.selectPageByUserId(7L, null, null, 3)).thenReturn(sessions);
         when(taskMapper.selectLatestBySessionIds(List.of(3L, 2L))).thenReturn(List.of(task(301, 3, "QUEUED", 2)));
-        when(taskMapper.selectActiveSessionIds(List.of(3L, 2L))).thenReturn(List.of(3L));
+        when(creationTaskMapper.selectActiveSessionIds(List.of(3L, 2L))).thenReturn(List.of(3L));
 
-        GenerationSessionPageResponse response = service(sessionMapper, taskMapper).list(7L, null, 2);
+        GenerationSessionPageResponse response = service(sessionMapper, taskMapper, creationTaskMapper).list(7L, null, 2);
 
         assertThat(response.hasMore()).isTrue();
         assertThat(response.nextCursor()).isNotBlank();
@@ -39,7 +41,7 @@ class GenerationSessionQueryServiceTests {
         assertThat(response.items().get(1).latestTask()).isNull();
         assertThat(response.items().get(1).hasActiveTask()).isFalse();
         verify(taskMapper).selectLatestBySessionIds(List.of(3L, 2L));
-        verify(taskMapper).selectActiveSessionIds(List.of(3L, 2L));
+        verify(creationTaskMapper).selectActiveSessionIds(List.of(3L, 2L));
     }
 
     @Test
@@ -72,7 +74,12 @@ class GenerationSessionQueryServiceTests {
 
     private static GenerationSessionQueryService service(GenerationSessionMapper sessionMapper,
             GenerationTaskMapper taskMapper) {
-        return new GenerationSessionQueryService(sessionMapper, taskMapper);
+        return service(sessionMapper, taskMapper, mock(CreationTaskMapper.class));
+    }
+
+    private static GenerationSessionQueryService service(GenerationSessionMapper sessionMapper,
+            GenerationTaskMapper taskMapper, CreationTaskMapper creationTaskMapper) {
+        return new GenerationSessionQueryService(sessionMapper, taskMapper, creationTaskMapper);
     }
 
     private static GenerationSession session(long id, String lastMessageAt) {

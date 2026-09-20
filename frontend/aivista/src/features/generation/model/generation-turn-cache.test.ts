@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { GenerationTurn } from "@/entities/generation/model/generation";
 import {
   applyGenerationTaskUpdateToTurns,
+  applyAgentFormUpdateToTurns,
   mergeGenerationTurnPages,
 } from "@/features/generation/model/generation-turn-cache";
 
@@ -17,7 +18,7 @@ function turn(version: number, status: GenerationTurn["generations"][number]["st
       id: "task-1", sessionId: "session-1", version, status, retryCount: 0, maxRetryCount: 3,
       requestedImageCount: 1, completedImageCount: 0, failedImageCount: 0,
       failureCode: null, failureMessage: null, images: [], createdAt: "2026-08-12T00:00:00Z", completedAt: null,
-    }], activities: [],
+    }], activities: [], forms: [],
   };
 }
 
@@ -52,5 +53,17 @@ describe("generation turn cache", () => {
     });
 
     expect(current?.pages[0].items[0].generations[0]).toMatchObject({ version: 1, status: "FAILED" });
+  });
+
+  it("applies a full form snapshot without a REST refetch and preserves it from older REST data", () => {
+    const form = { id: "701", status: "PENDING" as const, form: { schemaVersion: 1 as const,
+      title: "确认海报方向", fields: [] }, answers: null,
+      requestedAt: "2026-09-20T01:00:00Z", resolvedAt: null };
+    const current = applyAgentFormUpdateToTurns(page(turn(0, "QUEUED")), "creation-task-1", 1,
+      form, "WAITING_INPUT");
+    const merged = mergeGenerationTurnPages(current, page(turn(0, "QUEUED")));
+
+    expect(merged.pages[0].items[0]).toMatchObject({ revision: 1, status: "WAITING_INPUT",
+      forms: [{ id: "701", status: "PENDING" }] });
   });
 });

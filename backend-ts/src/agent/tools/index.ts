@@ -8,3 +8,5 @@ export {
 export { AgentGenerationToolExecutor, type AgentGenerationExecutorOptions } from "./generation-executor.js";
 export { createSkillReadTool } from "./skill-read.js";
 export { createInspectImageTool, type InspectImageResult, type InspectImageToolOptions } from "./inspect-image.js";
+export { createRequestUserInputTool, inputRequestFromToolResult, REQUEST_USER_INPUT_TOOL_NAME,
+  type AgentInputForm, type AgentInputRequest, type AgentInputRequestDetails } from "./request-user-input.js";

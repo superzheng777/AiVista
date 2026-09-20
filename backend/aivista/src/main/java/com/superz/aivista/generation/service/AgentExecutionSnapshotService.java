@@ -8,6 +8,7 @@ import com.superz.aivista.generation.mapper.AgentSessionContextMapper;
 import com.superz.aivista.generation.mapper.ConversationMessageMapper;
 import com.superz.aivista.generation.mapper.CreationTaskInputAssetMapper;
 import com.superz.aivista.generation.mapper.CreationTaskMapper;
+import com.superz.aivista.generation.mapper.CreationFormMapper;
 import com.superz.aivista.generation.mapper.ImageAssetMapper;
 import com.superz.aivista.generation.message.AgentExecutionSnapshot;
 import com.superz.aivista.generation.model.GenerationImageObjectKeys;
@@ -27,16 +28,18 @@ public class AgentExecutionSnapshotService {
     private final CreationTaskInputAssetMapper creationInputs;
     private final ImageAssetMapper assets;
     private final AgentSessionContextMapper contexts;
+    private final CreationFormMapper forms;
     private final ObjectMapper objectMapper;
 
     public AgentExecutionSnapshotService(CreationTaskMapper creations, ConversationMessageMapper messages,
             CreationTaskInputAssetMapper creationInputs, ImageAssetMapper assets,
-            AgentSessionContextMapper contexts, ObjectMapper objectMapper) {
+            AgentSessionContextMapper contexts, CreationFormMapper forms, ObjectMapper objectMapper) {
         this.creations = creations;
         this.messages = messages;
         this.creationInputs = creationInputs;
         this.assets = assets;
         this.contexts = contexts;
+        this.forms = forms;
         this.objectMapper = objectMapper;
     }
 
@@ -55,11 +58,15 @@ public class AgentExecutionSnapshotService {
         List<AgentExecutionSnapshot.InputAsset> inputs = ids.stream()
                 .map(id -> input(byId.get(id)))
                 .toList();
-        return new AgentExecutionSnapshot(2, creation.getId().toString(), creation.getRevision(),
+        var resolvedForm = forms.selectLatestResolved(creationTaskId);
+        return new AgentExecutionSnapshot(3, creation.getId().toString(), creation.getRevision(),
                 creation.getStatus(), creation.getSessionId().toString(), userMessage.getContent(),
                 readContext(creation.getSessionId()), inputs,
                 new AgentExecutionSnapshot.GenerationConstraints(creation.getRequestedAspectRatio(),
-                        creation.getRequestedImageCount()));
+                        creation.getRequestedImageCount()), resolvedForm == null ? null
+                        : new AgentExecutionSnapshot.FormResponse(resolvedForm.getId().toString(),
+                                resolvedForm.getStatus(), readJson(resolvedForm.getFormJson()),
+                                readJson(resolvedForm.getAnswerJson())));
     }
 
     /** Resolves a stable Asset ID without exposing arbitrary user or OSS objects to the Agent. */
@@ -91,6 +98,15 @@ public class AgentExecutionSnapshotService {
             return objectMapper.readTree(value);
         } catch (JsonProcessingException exception) {
             throw new IllegalStateException("Stored Agent session context is invalid", exception);
+        }
+    }
+
+    private JsonNode readJson(String value) {
+        if (value == null) return null;
+        try {
+            return objectMapper.readTree(value);
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("Stored Agent form JSON is invalid", exception);
         }
     }
 

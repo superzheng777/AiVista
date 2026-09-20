@@ -25,15 +25,16 @@ class AgentActivityServiceTests {
     @Test
     void persistsFinalActivitiesOnceInTheirSubmittedOrder() {
         when(generationTasks.selectCreationTaskId(9001L)).thenReturn(151L);
+        when(activities.selectMaxSequenceNo(151L)).thenReturn(3);
 
-        service.persistFinalLocked(151L, List.of(
+        service.persistLocked(151L, List.of(
                 item("NARRATION", "COMPLETED", "我会先确定版式。", null, null),
                 item("TOOL", "COMPLETED", "文生图已完成。", "text_to_image", "9001")));
 
         ArgumentCaptor<CreationActivity> inserted = ArgumentCaptor.forClass(CreationActivity.class);
         verify(activities, org.mockito.Mockito.times(2)).insertSelective(inserted.capture());
         assertThat(inserted.getAllValues()).extracting(CreationActivity::getSequenceNo)
-                .containsExactly(1, 2);
+                .containsExactly(4, 5);
         assertThat(inserted.getAllValues().getLast().getOutcome()).isEqualTo("COMPLETED");
     }
 
@@ -41,7 +42,7 @@ class AgentActivityServiceTests {
     void rejectsForeignGenerationActivities() {
         when(generationTasks.selectCreationTaskId(9001L)).thenReturn(999L);
 
-        assertThatThrownBy(() -> service.persistFinalLocked(151L, List.of(
+        assertThatThrownBy(() -> service.persistLocked(151L, List.of(
                 item("TOOL", "COMPLETED", "文生图已完成。", "text_to_image", "9001"))))
                 .isInstanceOf(IllegalArgumentException.class);
     }

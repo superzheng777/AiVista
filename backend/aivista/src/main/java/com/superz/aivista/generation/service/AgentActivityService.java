@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.Objects;
 import org.springframework.stereotype.Service;
 
-/** 在 Agent Completion 事务中一次性保存用户可见的最终步骤。 */
+/** 在 Agent 暂停或完成事务中按执行分段追加用户可见步骤。 */
 @Service
 public class AgentActivityService {
     private final CreationActivityMapper activities;
@@ -19,9 +19,9 @@ public class AgentActivityService {
         this.generationTasks = generationTasks;
     }
 
-    void persistFinalLocked(long creationTaskId, List<AgentActivityItem> items) {
+    void persistLocked(long creationTaskId, List<AgentActivityItem> items) {
         if (items == null || items.size() > 100) throw new IllegalArgumentException("Invalid Agent activities");
-        int sequence = 1;
+        int sequence = activities.selectMaxSequenceNo(creationTaskId) + 1;
         for (AgentActivityItem item : items) {
             validateItem(item);
             validateGenerationTask(creationTaskId, item.generationTaskId());

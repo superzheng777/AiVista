@@ -77,12 +77,13 @@ describe("JavaGenerationClient", () => {
 
   it("loads and validates the minimal Agent execution snapshot", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
-      contractVersion: 2, creationId: "151", revision: 0, status: "RUNNING", sessionId: "101",
+      contractVersion: 3, creationId: "151", revision: 0, status: "RUNNING", sessionId: "101",
       prompt: "把这张图改成海报", agentContext: { schemaVersion: 1, compaction: null,
         messages: [{ role: "user", content: "上一轮", timestamp: 1 }] },
       inputAssets: [{ assetId: "501", objectKey: "users/7/x/display.webp",
         contentType: "image/webp", fileSize: 1234, width: 800, height: 1200 }],
       constraints: { aspectRatio: "3:4", imageCount: 3 },
+      formResponse: null,
     }), { status: 200, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
     const client = new JavaGenerationClient(config());

@@ -1,5 +1,7 @@
 package com.superz.aivista.generation.service;
 
+import com.superz.aivista.generation.dto.CreationFormResponse;
+import com.superz.aivista.generation.dto.ResolveCreationFormResponse;
 import com.superz.aivista.generation.entity.CreationTask;
 import com.superz.aivista.generation.event.AgentRealtimeEvent;
 import com.superz.aivista.generation.event.AgentRealtimeInboundEvent;
@@ -82,6 +84,34 @@ public class AgentRealtimeProjectionService {
                 Map.of("status", creation.getStatus()));
         connections.publishAgent(creation.getUserId(), eventIds.incrementAndGet(), event);
         streams.remove(key, stream);
+    }
+
+    /** Publishes a committed form snapshot; unlike transient Pi events this is directly renderable. */
+    public void publishFormRequested(long creationTaskId, long revision, CreationFormResponse form) {
+        CreationTask creation = creationTasks.selectSnapshotById(creationTaskId);
+        if (!matches(creation, revision, "WAITING_INPUT")) return;
+        streams.remove(new StreamKey(creationTaskId, revision - 1));
+        publishForm(creation, revision, "FORM_REQUESTED", form, 1);
+    }
+
+    /** Publishes the persisted submitted/skipped form before the resumed Pi segment starts. */
+    public void publishFormResolved(long creationTaskId, ResolveCreationFormResponse response) {
+        CreationTask creation = creationTasks.selectSnapshotById(creationTaskId);
+        if (!matches(creation, response.revision(), "RUNNING")) return;
+        publishForm(creation, response.revision(), "FORM_RESOLVED", response.form(), 2);
+    }
+
+    private void publishForm(CreationTask creation, long revision, String eventType,
+            CreationFormResponse form, long sequence) {
+        AgentRealtimeEvent event = new AgentRealtimeEvent(Long.toString(creation.getId()),
+                Long.toString(creation.getSessionId()), revision, "form-" + form.formId(), sequence,
+                eventType, Map.of("form", form));
+        connections.publishAgent(creation.getUserId(), eventIds.incrementAndGet(), event);
+    }
+
+    private static boolean matches(CreationTask creation, long revision, String status) {
+        return creation != null && "AGENT".equals(creation.getMode()) && status.equals(creation.getStatus())
+                && creation.getRevision() != null && creation.getRevision() == revision;
     }
 
     private record StreamKey(long creationTaskId, long revision) {

@@ -23,6 +23,8 @@ public enum ErrorCode {
     AGENT_TOOL_CALL_CONFLICT(40906, "Agent 工具调用与已创建任务不一致", HttpStatus.CONFLICT),
     AGENT_CREATION_NOT_RUNNING(40907, "创作已经结束，无法取消", HttpStatus.CONFLICT),
     SESSION_CREATION_IN_PROGRESS(40908, "当前会话已有创作正在进行", HttpStatus.CONFLICT),
+    AGENT_FORM_CONFLICT(40909, "需求确认表单与现有状态冲突", HttpStatus.CONFLICT),
+    AGENT_FORM_NOT_PENDING(40910, "需求确认表单已经处理", HttpStatus.CONFLICT),
     GENERATION_RESOURCE_NOT_FOUND(40401, "生成资源不存在", HttpStatus.NOT_FOUND),
     VALIDATION_ERROR(42200, "请求参数校验失败", HttpStatus.UNPROCESSABLE_CONTENT),
     INVALID_CURSOR(42201, "分页游标无效", HttpStatus.UNPROCESSABLE_CONTENT),

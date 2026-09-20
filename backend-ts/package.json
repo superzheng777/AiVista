@@ -8,7 +8,8 @@
     "build": "pnpm clean && tsc -p tsconfig.build.json",
     "worker": "node dist/worker.js",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --pool=threads --maxWorkers=1 --reporter=verbose",
+    "test": "vitest run test --exclude test/integration/** --exclude test/java-local-schema.integration.test.ts --pool=threads --maxWorkers=1 --reporter=verbose",
+    "test:schema": "vitest run test/java-local-schema.integration.test.ts --pool=threads --maxWorkers=1 --reporter=verbose",
     "test:agent-smoke": "vitest run test/integration/pi-bailian-smoke.test.ts --pool=threads"
   },
   "dependencies": {

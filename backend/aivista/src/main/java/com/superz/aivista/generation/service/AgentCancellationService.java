@@ -30,12 +30,13 @@ public class AgentCancellationService {
         if ("CANCELLED".equals(creation.getStatus())) {
             return new CancellationResult(response(creation), false, creation.getRevision() - 1);
         }
-        if (!"RUNNING".equals(creation.getStatus()) || creation.getRevision() == null) {
+        if (!("RUNNING".equals(creation.getStatus()) || "WAITING_INPUT".equals(creation.getStatus()))
+                || creation.getRevision() == null) {
             throw new BusinessException(ErrorCode.AGENT_CREATION_NOT_RUNNING);
         }
         long executionRevision = creation.getRevision();
         Instant now = clock.instant();
-        if (creations.completeRunning(creationTaskId, executionRevision, "CANCELLED", null, now) != 1) {
+        if (creations.cancelActive(creationTaskId, executionRevision, now) != 1) {
             throw new BusinessException(ErrorCode.AGENT_CREATION_NOT_RUNNING);
         }
         creation.setStatus("CANCELLED");
