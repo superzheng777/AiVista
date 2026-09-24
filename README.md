@@ -50,7 +50,7 @@ AiVista 面向希望用 AI 把视觉想法做成作品的个人创作者。我�
 
 ### 资产详情
 
-![AiVista 图片详情](E:\Project\AiVista\AiVista\frontend\aivista\ui-design\pic\show\asset_detail.png)
+![AiVista 图片详情](frontend\aivista\ui-design\pic\show\asset_detail.png)
 
 
 
