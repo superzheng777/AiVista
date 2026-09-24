@@ -57,7 +57,7 @@ class AgentExecutionSnapshotServiceTests {
                 contexts, mock(CreationFormMapper.class), new ObjectMapper()).get(151L);
 
         assertThat(snapshot.prompt()).isEqualTo("把这张图改成海报");
-        assertThat(snapshot.contractVersion()).isEqualTo(4);
+        assertThat(snapshot.contractVersion()).isEqualTo(5);
         var contextMessages = (List<?>) snapshot.agentContext().get("messages");
         assertThat(((java.util.Map<?, ?>) contextMessages.getFirst()).get("content")).isEqualTo("上一轮请求");
         assertThat(snapshot.inputAssets()).extracting(asset -> asset.assetId())
@@ -96,9 +96,9 @@ class AgentExecutionSnapshotServiceTests {
         form.setCreationTaskId(151L);
         form.setToolCallId("call-form-1");
         form.setStatus("SUBMITTED");
-        form.setFormJson("{\"schemaVersion\":1,\"title\":\"确认需求\",\"fields\":["
-                + "{\"id\":\"subject\",\"type\":\"TEXT\",\"label\":\"主题\",\"required\":true}]}");
-        form.setAnswerJson("{\"subject\":{\"kind\":\"TEXT\",\"value\":\"旧答案\"}}");
+        form.setFormJson("{\"schemaVersion\":2,\"title\":\"确认需求\",\"fields\":["
+                + "{\"id\":\"subject\",\"type\":\"TEXT\",\"label\":\"主题\",\"required\":true,"
+                + "\"value\":\"旧答案\"}]}");
         when(creations.selectSnapshotById(152L)).thenReturn(current);
         when(messages.selectUserByCreationTaskId(152L)).thenReturn(user);
         when(inputs.selectAssetIdsByCreationTaskId(152L)).thenReturn(List.of());
@@ -112,7 +112,48 @@ class AgentExecutionSnapshotServiceTests {
         assertThat(snapshot.pendingInput().toolCallId()).isEqualTo("call-form-1");
         assertThat(snapshot.pendingInput().status()).isEqualTo("CANCELLED");
         assertThat(snapshot.pendingInput().form().get("title")).isEqualTo("确认需求");
-        assertThat(snapshot.pendingInput().answers()).isNull();
+    }
+
+    @Test
+    void returnsTheFilledSubmittedFormForAgentResume() {
+        CreationTaskMapper creations = mock(CreationTaskMapper.class);
+        ConversationMessageMapper messages = mock(ConversationMessageMapper.class);
+        CreationTaskInputAssetMapper inputs = mock(CreationTaskInputAssetMapper.class);
+        ImageAssetMapper assets = mock(ImageAssetMapper.class);
+        AgentSessionContextMapper contexts = mock(AgentSessionContextMapper.class);
+        CreationFormMapper forms = mock(CreationFormMapper.class);
+        CreationTask current = creation();
+        current.setRequestedAspectRatio("AUTO");
+        current.setRequestedImageCount(0);
+        ConversationMessage user = new ConversationMessage();
+        user.setContent("继续生成");
+        AgentSessionContext context = new AgentSessionContext();
+        context.setSessionId(101L);
+        context.setContextJson("{\"schemaVersion\":1,\"compaction\":null,\"messages\":[]}");
+        context.setSnapshotCreationTaskId(151L);
+        context.setSnapshotRevision(3L);
+        context.setPendingToolCallId("call-form-1");
+        context.setPendingInputStatus("SUBMITTED");
+        CreationForm form = new CreationForm();
+        form.setCreationTaskId(151L);
+        form.setToolCallId("call-form-1");
+        form.setStatus("SUBMITTED");
+        form.setFormJson("{\"schemaVersion\":2,\"title\":\"确认需求\",\"fields\":["
+                + "{\"id\":\"subject\",\"type\":\"TEXT\",\"label\":\"主题\",\"required\":true,"
+                + "\"value\":\"雾灯岛\"}]}");
+        when(creations.selectSnapshotById(151L)).thenReturn(current);
+        when(messages.selectUserByCreationTaskId(151L)).thenReturn(user);
+        when(inputs.selectAssetIdsByCreationTaskId(151L)).thenReturn(List.of());
+        when(contexts.selectBySessionId(101L)).thenReturn(context);
+        when(forms.selectByToolCall(151L, "call-form-1")).thenReturn(form);
+
+        var snapshot = new AgentExecutionSnapshotService(creations, messages, inputs, assets,
+                contexts, forms, new ObjectMapper()).get(151L);
+
+        assertThat(snapshot.pendingInput().status()).isEqualTo("SUBMITTED");
+        assertThat(snapshot.pendingInput().form()).containsEntry("schemaVersion", 2);
+        var fields = (List<?>) snapshot.pendingInput().form().get("fields");
+        assertThat(((java.util.Map<?, ?>) fields.getFirst()).get("value")).isEqualTo("雾灯岛");
     }
 
     @Test

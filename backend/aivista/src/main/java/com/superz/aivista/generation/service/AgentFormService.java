@@ -67,7 +67,14 @@ public class AgentFormService {
         CreationTask creation = requireAgentCreation(creationTaskId);
         CreationForm existing = forms.selectByToolCallForUpdate(creationTaskId, toolCallId);
         if (existing != null) {
-            if (!readJson(existing.getFormJson()).equals(normalizedForm)) {
+            JsonNode storedForm = readJson(existing.getFormJson());
+            boolean sameRequest = switch (existing.getStatus()) {
+                case "PENDING" -> storedForm.equals(normalizedForm);
+                case "SUBMITTED", "SKIPPED", "CANCELLED" ->
+                    validator.hasSameDefinition(storedForm, normalizedForm);
+                default -> false;
+            };
+            if (!sameRequest) {
                 throw new BusinessException(ErrorCode.AGENT_FORM_CONFLICT);
             }
             return new InputRequestResult(creation.getRevision(), response(existing), false);
@@ -107,13 +114,18 @@ public class AgentFormService {
         if (form == null || !Objects.equals(form.getCreationTaskId(), creationTaskId)) {
             throw new BusinessException(ErrorCode.GENERATION_RESOURCE_NOT_FOUND);
         }
-        JsonNode definition = readJson(form.getFormJson());
-        JsonNode normalizedAnswers = validator.validateAnswers(definition, request.action(),
-                AgentJsonObjects.toTree(objectMapper, request.answers()));
-        String desiredStatus = "SUBMIT".equals(request.action()) ? "SUBMITTED" : "SKIPPED";
+        boolean submit = "SUBMIT".equals(request.action());
+        if (!submit && request.form() != null) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "跳过表单时不能提交表单内容");
+        }
+        JsonNode storedForm = readJson(form.getFormJson());
+        JsonNode submittedForm = submit
+                ? validator.validateSubmission(storedForm, AgentJsonObjects.toTree(objectMapper, request.form()))
+                : null;
+        String desiredStatus = submit ? "SUBMITTED" : "SKIPPED";
         if (!"PENDING".equals(form.getStatus())) {
             if (!desiredStatus.equals(form.getStatus())
-                    || !Objects.equals(readJson(form.getAnswerJson()), normalizedAnswers)) {
+                    || (submit && !storedForm.equals(submittedForm))) {
                 throw new BusinessException(ErrorCode.AGENT_FORM_CONFLICT);
             }
             return new ResolveResult(result(creation, form), false);
@@ -123,9 +135,9 @@ public class AgentFormService {
             throw new BusinessException(ErrorCode.AGENT_FORM_NOT_PENDING);
         }
         Instant now = clock.instant();
-        String answerJson = normalizedAnswers == null ? null : writeJson(normalizedAnswers);
+        String submittedFormJson = submittedForm == null ? null : writeJson(submittedForm);
         long nextRevision = request.expectedRevision() + 1;
-        if (forms.resolvePending(formId, desiredStatus, answerJson, now) != 1
+        if (forms.resolvePending(formId, desiredStatus, submittedFormJson, now) != 1
                 || contexts.transitionPending(creation.getSessionId(), creationTaskId,
                         request.expectedRevision(), nextRevision, form.getToolCallId(), "PENDING", desiredStatus, now)
                         != 1
@@ -135,7 +147,7 @@ public class AgentFormService {
         insertExecuteCommand(creationTaskId, nextRevision, now);
         sessions.updateLastMessageAt(creation.getSessionId(), now);
         form.setStatus(desiredStatus);
-        form.setAnswerJson(answerJson);
+        if (submittedFormJson != null) form.setFormJson(submittedFormJson);
         form.setResolvedAt(now);
         creation.setRevision(nextRevision);
         creation.setStatus("RUNNING");
@@ -171,7 +183,6 @@ public class AgentFormService {
     private CreationFormResponse response(CreationForm form) {
         return new CreationFormResponse(form.getId().toString(), form.getToolCallId(), form.getStatus(),
                 AgentJsonObjects.read(objectMapper, form.getFormJson(), "Stored Agent form JSON"),
-                AgentJsonObjects.read(objectMapper, form.getAnswerJson(), "Stored Agent answer JSON"),
                 form.getRequestedAt(), form.getResolvedAt());
     }
 

@@ -1,6 +1,7 @@
 package com.superz.aivista.generation.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.superz.aivista.common.exception.BusinessException;
 import com.superz.aivista.common.exception.ErrorCode;
 import java.util.HashSet;
@@ -16,18 +17,16 @@ public class AgentFormSchemaValidator {
     private static final Pattern OPTION_VALUE = Pattern.compile("^[A-Z][A-Z0-9_]{0,31}$");
     private static final Set<String> FORM_KEYS = Set.of("schemaVersion", "title", "fields");
     private static final Set<String> TEXT_KEYS = Set.of(
-            "id", "type", "label", "required", "initialValue", "placeholder");
+            "id", "type", "label", "required", "value", "placeholder");
     private static final Set<String> SELECT_KEYS = Set.of(
-            "id", "type", "label", "required", "initialValue", "options", "allowCustom",
-            "customLabel", "customInitialValue");
+            "id", "type", "label", "required", "value", "options", "allowCustom", "customLabel");
     private static final Set<String> OPTION_KEYS = Set.of("value", "label");
-    private static final Set<String> ANSWER_KEYS = Set.of("kind", "value");
 
     public JsonNode validateForm(JsonNode value) {
         requireObject(value, "form");
         requireExactKeys(value, FORM_KEYS, "form");
         JsonNode version = value.get("schemaVersion");
-        if (version == null || !version.isIntegralNumber() || version.intValue() != 1) {
+        if (version == null || !version.isIntegralNumber() || version.intValue() != 2) {
             invalid("不支持的表单版本");
         }
         requireText(value.get("title"), 1, 60, "title");
@@ -45,7 +44,7 @@ public class AgentFormSchemaValidator {
             requireText(field.get("label"), 1, 40, "label");
             requireBoolean(field.get("required"), "required");
             if ("TEXT".equals(type)) {
-                optionalText(field.get("initialValue"), 300, "initialValue");
+                requireTextAllowBlank(field.get("value"), 300, "value");
                 optionalText(field.get("placeholder"), 100, "placeholder");
             } else if ("SINGLE_SELECT".equals(type)) {
                 validateSelect(field);
@@ -56,52 +55,22 @@ public class AgentFormSchemaValidator {
         return value.deepCopy();
     }
 
-    public JsonNode validateAnswers(JsonNode form, String action, JsonNode answers) {
-        if ("SKIP".equals(action)) {
-            if (answers != null && !answers.isNull() && (!answers.isObject() || !answers.isEmpty())) {
-                invalid("跳过表单时不能提交答案");
-            }
-            return null;
+    public JsonNode validateSubmission(JsonNode storedForm, JsonNode submittedForm) {
+        JsonNode normalizedStored = validateForm(storedForm);
+        JsonNode normalizedSubmitted = validateForm(submittedForm);
+        if (!withoutValues(normalizedStored).equals(withoutValues(normalizedSubmitted))) {
+            invalid("提交的表单定义与待处理表单不一致");
         }
-        if (!"SUBMIT".equals(action)) invalid("action 只允许 SUBMIT 或 SKIP");
-        requireObject(answers, "answers");
-        Set<String> fieldIds = new HashSet<>();
-        for (JsonNode field : form.path("fields")) fieldIds.add(field.path("id").asText());
-        answers.fieldNames().forEachRemaining(id -> {
-            if (!fieldIds.contains(id)) invalid("答案包含未知字段：" + id);
-        });
-        for (JsonNode field : form.path("fields")) {
-            String id = field.path("id").asText();
-            JsonNode answer = answers.get(id);
-            if (answer == null || answer.isNull()) {
-                if (field.path("required").asBoolean()) invalid("缺少必填字段：" + id);
-                continue;
-            }
-            requireObject(answer, "answer");
-            requireExactKeys(answer, ANSWER_KEYS, "answer");
-            String kind = text(answer.get("kind"), "kind");
-            String value = text(answer.get("value"), "value");
-            if (value.codePointCount(0, value.length()) > 300) invalid("答案内容过长：" + id);
-            if ("TEXT".equals(field.path("type").asText())) {
-                if (!"TEXT".equals(kind)) invalid("文本字段答案类型错误：" + id);
-                if (field.path("required").asBoolean() && value.isBlank()) invalid("必填字段不能为空：" + id);
-                continue;
-            }
-            if ("OPTION".equals(kind)) {
-                boolean exists = false;
-                for (JsonNode option : field.path("options")) {
-                    if (value.equals(option.path("value").asText())) { exists = true; break; }
-                }
-                if (!exists) invalid("单选答案不在允许选项中：" + id);
-            } else if ("CUSTOM".equals(kind)) {
-                if (!field.path("allowCustom").asBoolean() || value.isBlank()) {
-                    invalid("该字段不允许空白的自定义答案：" + id);
-                }
-            } else {
-                invalid("单选字段答案类型错误：" + id);
+        for (JsonNode field : normalizedSubmitted.path("fields")) {
+            if (field.path("required").asBoolean() && field.path("value").asText().isBlank()) {
+                invalid("必填字段不能为空：" + field.path("id").asText());
             }
         }
-        return answers.deepCopy();
+        return normalizedSubmitted;
+    }
+
+    public boolean hasSameDefinition(JsonNode first, JsonNode second) {
+        return withoutValues(validateForm(first)).equals(withoutValues(validateForm(second)));
     }
 
     private static void validateSelect(JsonNode field) {
@@ -118,17 +87,23 @@ public class AgentFormSchemaValidator {
             if (!OPTION_VALUE.matcher(value).matches() || !values.add(value)) invalid("单选值无效或重复");
             requireText(option.get("label"), 1, 40, "option.label");
         }
-        JsonNode initial = field.get("initialValue");
-        if (initial != null && !initial.isNull()) {
-            String value = text(initial, "initialValue");
-            if (!values.contains(value)) invalid("initialValue 必须来自 options");
-        }
+        String selected = requireTextAllowBlank(field.get("value"), 300, "value");
         boolean allowCustom = field.path("allowCustom").asBoolean();
-        optionalText(field.get("customLabel"), 20, "customLabel");
-        optionalText(field.get("customInitialValue"), 300, "customInitialValue");
-        if (!allowCustom && (field.has("customLabel") || field.has("customInitialValue"))) {
+        optionalNonBlankText(field.get("customLabel"), 20, "customLabel");
+        if (!allowCustom && field.has("customLabel")) {
             invalid("未开放自定义选项时不能提供自定义配置");
         }
+        if (!selected.isEmpty() && !values.contains(selected) && !allowCustom) {
+            invalid("value 必须来自 options");
+        }
+    }
+
+    private static JsonNode withoutValues(JsonNode form) {
+        JsonNode definition = form.deepCopy();
+        for (JsonNode field : definition.path("fields")) {
+            ((ObjectNode) field).remove("value");
+        }
+        return definition;
     }
 
     private static void requireExactKeys(JsonNode value, Set<String> allowed, String field) {
@@ -136,8 +111,8 @@ public class AgentFormSchemaValidator {
         while (names.hasNext()) if (!allowed.contains(names.next())) invalid(field + " 包含未知字段");
         for (String required : switch (field) {
             case "form" -> Set.of("schemaVersion", "title", "fields");
-            case "field" -> Set.of("id", "type", "label", "required");
-            case "option", "answer" -> allowed;
+            case "field" -> Set.of("id", "type", "label", "required", "value");
+            case "option" -> allowed;
             default -> Set.<String>of();
         }) if (!value.has(required)) invalid(field + " 缺少字段 " + required);
     }
@@ -161,11 +136,22 @@ public class AgentFormSchemaValidator {
         if (length < min || length > max || text.isBlank()) invalid(field + " 长度无效");
     }
 
+    private static String requireTextAllowBlank(JsonNode value, int max, String field) {
+        String text = text(value, field);
+        if (text.codePointCount(0, text.length()) > max) invalid(field + " 长度无效");
+        return text;
+    }
+
     private static void optionalText(JsonNode value, int max, String field) {
         if (value == null) return;
         if (!value.isTextual() || value.textValue().codePointCount(0, value.textValue().length()) > max) {
             invalid(field + " 长度无效");
         }
+    }
+
+    private static void optionalNonBlankText(JsonNode value, int max, String field) {
+        if (value == null) return;
+        requireText(value, 1, max, field);
     }
 
     private static void invalid(String message) {

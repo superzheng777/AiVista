@@ -145,6 +145,7 @@ cd AiVista
 cd backend/aivista
 Copy-Item .\src\main\resources\application-local.example.yaml .\src\main\resources\application-local.yaml
 $env:AIVISTA_GENERATION_WORKER_TOKEN = '<local-shared-worker-token>'
+$env:APP_AGENT_ENABLED = 'true'
 .\mvnw.cmd spring-boot:run "-Dspring-boot.run.profiles=local"
 ```
 
@@ -159,11 +160,12 @@ cd backend-ts
 pnpm install
 $env:AIVISTA_JAVA_LOCAL_YAML = (Resolve-Path '..\backend\aivista\src\main\resources\application-local.yaml').Path
 $env:AIVISTA_GENERATION_WORKER_TOKEN = '<local-shared-worker-token>'
+$env:AIVISTA_AGENT_ENABLED = 'true'
 pnpm build
 pnpm worker
 ```
 
-Worker 复用 Java 本地配置，但不向浏览器提供 API。Java 与 Worker 必须使用相同的 `AIVISTA_GENERATION_WORKER_TOKEN`；Agent 模式还需要模型配置，并在两个进程中设置 `AIVISTA_AGENT_ENABLED=true`。可选环境变量见 [`.env.example`](backend-ts/.env.example)，完整说明见 [AI Runtime 文档](backend-ts/README.md)。
+Worker 复用 Java 本地配置，但不向浏览器提供 API。Java 与 Worker 必须使用相同的 `AIVISTA_GENERATION_WORKER_TOKEN`。启用 Agent 模式时，Java 终端设置 `APP_AGENT_ENABLED=true`，TS Worker 终端设置 `AIVISTA_AGENT_ENABLED=true`，同时由 Worker 通过 `AIVISTA_JAVA_LOCAL_YAML` 读取同一份 Java 本地配置。可选环境变量见 [`.env.example`](backend-ts/.env.example)，完整说明见 [AI Runtime 文档](backend-ts/README.md)。
 
 ### 3. 启动 Web
 

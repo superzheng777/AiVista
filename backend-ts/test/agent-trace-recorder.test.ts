@@ -151,9 +151,9 @@ describe("AgentTraceRecorder", () => {
     ["COMPLETED", { outcome: "COMPLETED" as const, text: "创作完成。", context: agentContext() },
       { outcome: "COMPLETED", finalMessage: "创作完成。" }],
     ["WAITING_FOR_USER", { outcome: "WAITING_FOR_USER" as const, request: {
-      toolCallId: "call-form", form: { schemaVersion: 1 as const, title: "确认创作方向", fields: [
-        { id: "theme", type: "TEXT" as const, label: "主题", required: true },
-        { id: "style", type: "TEXT" as const, label: "风格", required: true },
+      toolCallId: "call-form", form: { schemaVersion: 2 as const, title: "确认创作方向", fields: [
+        { id: "theme", type: "TEXT" as const, label: "主题", required: true, value: "" },
+        { id: "style", type: "TEXT" as const, label: "风格", required: true, value: "" },
       ] },
     }, context: agentContext() },
     { outcome: "WAITING_FOR_USER", toolCallId: "call-form", title: "确认创作方向", fieldCount: 2 }],

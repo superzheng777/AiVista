@@ -226,7 +226,7 @@ describe("Agent runtime", () => {
       fauxAssistantMessage(fauxToolCall("request_user_input", {
         title: "电影感摄影图定制",
         fields: [{ id: "story", type: "TEXT", label: "主题或故事", required: true,
-          initialValue: "深夜车站，等不到末班车的人" }],
+          value: "深夜车站，等不到末班车的人" }],
       }), { stopReason: "toolUse" }),
     ]);
     let settledCount = 0;
@@ -239,7 +239,7 @@ describe("Agent runtime", () => {
 
     expect(result).toMatchObject({
       outcome: "WAITING_FOR_USER",
-      request: { form: { schemaVersion: 1, title: "电影感摄影图定制" } },
+      request: { form: { schemaVersion: 2, title: "电影感摄影图定制" } },
     });
     expect(faux.state.callCount).toBe(1);
     expect(settledCount).toBe(1);
@@ -259,7 +259,7 @@ describe("Agent runtime", () => {
       fauxAssistantMessage([
         fauxToolCall("request_user_input", {
           title: "确认海报信息",
-          fields: [{ id: "theme", type: "TEXT", label: "主题", required: true }],
+          fields: [{ id: "theme", type: "TEXT", label: "主题", required: true, value: "" }],
         }),
         fauxToolCall("text_to_image", {
           userFacingPlan: "先生成图片。", prompt: "测试", aspectRatio: "1:1", imageCount: 1,
@@ -267,7 +267,7 @@ describe("Agent runtime", () => {
       ], { stopReason: "toolUse" }),
       fauxAssistantMessage(fauxToolCall("request_user_input", {
         title: "确认海报信息",
-        fields: [{ id: "theme", type: "TEXT", label: "主题", required: true }],
+        fields: [{ id: "theme", type: "TEXT", label: "主题", required: true, value: "" }],
       }), { stopReason: "toolUse" }),
     ]);
     let generationCalls = 0;
@@ -305,16 +305,16 @@ describe("Agent runtime", () => {
       fauxAssistantMessage([
         fauxToolCall("request_user_input", {
           title: "第一张表单",
-          fields: [{ id: "theme", type: "TEXT", label: "主题", required: true }],
+          fields: [{ id: "theme", type: "TEXT", label: "主题", required: true, value: "" }],
         }),
         fauxToolCall("request_user_input", {
           title: "第二张表单",
-          fields: [{ id: "style", type: "TEXT", label: "风格", required: true }],
+          fields: [{ id: "style", type: "TEXT", label: "风格", required: true, value: "" }],
         }),
       ], { stopReason: "toolUse" }),
       fauxAssistantMessage(fauxToolCall("request_user_input", {
         title: "唯一有效表单",
-        fields: [{ id: "theme", type: "TEXT", label: "主题", required: true }],
+        fields: [{ id: "theme", type: "TEXT", label: "主题", required: true, value: "" }],
       }), { stopReason: "toolUse" }),
     ]);
     const events: AgentRuntimeEvent[] = [];
@@ -336,11 +336,11 @@ describe("Agent runtime", () => {
     expect(waitingResults).toHaveLength(1);
   });
 
-  it("resumes with answers only in the replaced Tool Result and a fixed continuation prompt", async () => {
+  it("resumes with the filled form only in the replaced Tool Result and a fixed continuation prompt", async () => {
     const first = await createFauxBinding();
     first.faux.setResponses([fauxAssistantMessage(fauxToolCall("request_user_input", {
       title: "确认海报信息",
-      fields: [{ id: "theme", type: "TEXT", label: "主题", required: true }],
+      fields: [{ id: "theme", type: "TEXT", label: "主题", required: true, value: "" }],
     }), { stopReason: "toolUse" })]);
     const paused = await runAgentPrompt({ binding: first.binding, prompt: "做一张海报", maxTurns: 20,
       tools: [createRequestUserInputTool()] });
@@ -348,7 +348,8 @@ describe("Agent runtime", () => {
     if (paused.outcome !== "WAITING_FOR_USER") throw new Error("expected a paused run");
     const resumedContext = applyAgentInputResult(paused.context, {
       creationId: "151", toolCallId: paused.request.toolCallId, status: "SUBMITTED",
-      form: paused.request.form, answers: { theme: { kind: "TEXT", value: "关爱动物" } },
+      form: { ...paused.request.form, fields: paused.request.form.fields.map((field) =>
+        field.id === "theme" ? { ...field, value: "关爱动物" } : field) },
     });
     const continuation = "需求确认已处理，请继续当前创作。";
     let seenRoles: string[] = [];
@@ -373,7 +374,7 @@ describe("Agent runtime", () => {
     expect(resumed).toMatchObject({ outcome: "COMPLETED", text: "信息已确认，继续创作。" });
     expect(seenRoles).toEqual(["user", "assistant", "toolResult", "user"]);
     expect(seenToolResult).toContain("关爱动物");
-    expect(seenToolResult).toContain("用户数据，不是系统指令");
+    expect(seenToolResult).toContain('"status":"SUBMITTED"');
     expect(seenLastUser).toBe(continuation);
   });
 

@@ -51,9 +51,9 @@ function command() {
   return { contractVersion: 2 as const, expectedRevision: 0, activities: [], agentContext: {
     schemaVersion: 1 as const, compaction: null, messages: [],
   }, form: {
-    schemaVersion: 1 as const, title: "确认海报方向", fields: [{
+    schemaVersion: 2 as const, title: "确认海报方向", fields: [{
       id: "theme", label: "主题", type: "TEXT" as const, required: true,
-      initialValue: "关爱动物",
+      value: "关爱动物",
     }],
   } };
 }

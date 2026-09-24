@@ -11,6 +11,7 @@ import com.superz.aivista.generation.event.AgentRealtimeEvent;
 import com.superz.aivista.generation.event.AgentRealtimeInboundEvent;
 import com.superz.aivista.generation.mapper.CreationTaskMapper;
 import com.superz.aivista.generation.dto.CreationFormResponse;
+import com.superz.aivista.generation.dto.ResolveCreationFormResponse;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
 import java.util.Map;
@@ -114,12 +115,14 @@ class AgentRealtimeProjectionServiceTests {
     void publishesTheFullCommittedFormWithoutASecondRestRead() {
         when(creations.selectSnapshotById(31L)).thenReturn(creation("AGENT", "WAITING_INPUT", 5L));
         var definition = new ObjectMapper().createObjectNode();
-        definition.put("schemaVersion", 1).put("title", "确认需求");
-        definition.putArray("fields");
+        definition.put("schemaVersion", 2).put("title", "确认需求");
+        definition.putArray("fields").add(new ObjectMapper().createObjectNode()
+                .put("id", "subject").put("type", "TEXT").put("label", "主题")
+                .put("required", true).put("value", ""));
         @SuppressWarnings("unchecked")
         var definitionMap = (java.util.Map<String, Object>) new ObjectMapper().convertValue(
                 definition, java.util.Map.class);
-        var form = new CreationFormResponse("701", "call-form-1", "PENDING", definitionMap, null,
+        var form = new CreationFormResponse("701", "call-form-1", "PENDING", definitionMap,
                 Instant.parse("2026-09-20T01:00:00Z"), null);
 
         service.publishFormRequested(31L, 5L, form);
@@ -129,6 +132,31 @@ class AgentRealtimeProjectionServiceTests {
         assertThat(event.getValue().eventType()).isEqualTo("FORM_REQUESTED");
         assertThat(event.getValue().revision()).isEqualTo(5L);
         assertThat(event.getValue().payload()).containsEntry("form", form);
+    }
+
+    @Test
+    void publishesTheFilledSubmittedFormAfterResolution() {
+        when(creations.selectSnapshotById(31L)).thenReturn(creation("AGENT", "RUNNING", 6L));
+        var definition = new ObjectMapper().createObjectNode();
+        definition.put("schemaVersion", 2).put("title", "确认需求");
+        definition.putArray("fields").add(new ObjectMapper().createObjectNode()
+                .put("id", "subject").put("type", "TEXT").put("label", "主题")
+                .put("required", true).put("value", "雾灯岛"));
+        @SuppressWarnings("unchecked")
+        var definitionMap = (java.util.Map<String, Object>) new ObjectMapper().convertValue(
+                definition, java.util.Map.class);
+        var form = new CreationFormResponse("701", "call-form-1", "SUBMITTED", definitionMap,
+                Instant.parse("2026-09-20T01:00:00Z"), Instant.parse("2026-09-20T01:01:00Z"));
+
+        service.publishFormResolved(31L, new ResolveCreationFormResponse("31", 6L, form));
+
+        ArgumentCaptor<AgentRealtimeEvent> event = ArgumentCaptor.forClass(AgentRealtimeEvent.class);
+        verify(connections).publishAgent(Mockito.eq(7L), anyLong(), event.capture());
+        assertThat(event.getValue().eventType()).isEqualTo("FORM_RESOLVED");
+        assertThat(event.getValue().revision()).isEqualTo(6L);
+        assertThat(event.getValue().payload()).containsEntry("form", form);
+        var fields = (java.util.List<?>) form.form().get("fields");
+        assertThat(((java.util.Map<?, ?>) fields.getFirst()).get("value")).isEqualTo("雾灯岛");
     }
 
     private AgentRealtimeInboundEvent event(String type, Map<String, Object> payload) {

@@ -18,7 +18,7 @@ class AgentJsonWireContractTests {
         String json = """
                 {"contractVersion":2,"expectedRevision":0,
                  "agentContext":{"schemaVersion":1,"compaction":null,"messages":[]},
-                 "form":{"schemaVersion":1,"title":"确认需求","fields":[]},"activities":[]}
+                 "form":{"schemaVersion":2,"title":"确认需求","fields":[]},"activities":[]}
                 """;
 
         AgentInputRequestCommand command = mapper.readValue(json, AgentInputRequestCommand.class);
@@ -28,7 +28,7 @@ class AgentJsonWireContractTests {
     }
 
     @Test
-    void jacksonThreeDeserializesCompletionAndBrowserAnswers() throws Exception {
+    void jacksonThreeDeserializesCompletionAndBrowserForm() throws Exception {
         AgentCompletionCommand completion = mapper.readValue("""
                 {"contractVersion":2,"creationId":"6","expectedRevision":2,"outcome":"SUCCEEDED",
                  "failureCode":null,"finalMessage":"完成","activities":[],
@@ -36,25 +36,27 @@ class AgentJsonWireContractTests {
                 """, AgentCompletionCommand.class);
         ResolveCreationFormRequest response = mapper.readValue("""
                 {"expectedRevision":1,"action":"SUBMIT",
-                 "answers":{"subject":{"kind":"TEXT","value":"雾灯岛"}}}
+                 "form":{"schemaVersion":2,"title":"确认需求","fields":[
+                   {"id":"subject","type":"TEXT","label":"主题","required":true,"value":"雾灯岛"}]}}
                 """, ResolveCreationFormRequest.class);
 
         assertThat(completion.agentContext()).containsEntry("schemaVersion", 1);
-        assertThat(response.answers()).containsKey("subject");
+        assertThat(response.form()).containsEntry("schemaVersion", 2);
     }
 
     @Test
     void jacksonThreeSerializesDynamicAgentResponseObjects() throws Exception {
         var form = new CreationFormResponse("7", "call-1", "PENDING",
-                Map.of("schemaVersion", 1, "title", "确认需求", "fields", List.of()), null,
+                Map.of("schemaVersion", 2, "title", "确认需求", "fields", List.of()),
                 Instant.parse("2026-09-23T00:00:00Z"), null);
-        var snapshot = new AgentExecutionSnapshot(4, "6", 1, "WAITING_INPUT", "6", "生成海报",
+        var snapshot = new AgentExecutionSnapshot(5, "6", 1, "WAITING_INPUT", "6", "生成海报",
                 Map.of("schemaVersion", 1, "compaction", Map.of(), "messages", List.of()), List.of(),
                 new AgentExecutionSnapshot.GenerationConstraints("3:4", 1),
-                new AgentExecutionSnapshot.PendingInput("6", "call-1", "PENDING", form.form(), null));
+                new AgentExecutionSnapshot.PendingInput("6", "call-1", "PENDING", form.form()));
 
         String json = mapper.writeValueAsString(snapshot);
 
         assertThat(json).contains("\"agentContext\"", "\"pendingInput\"", "\"确认需求\"");
+        assertThat(json).doesNotContain("\"answers\"");
     }
 }

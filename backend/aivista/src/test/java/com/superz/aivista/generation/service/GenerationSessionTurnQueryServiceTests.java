@@ -13,6 +13,7 @@ import com.superz.aivista.common.exception.ErrorCode;
 import com.superz.aivista.generation.dto.GenerationTaskSnapshotResponse;
 import com.superz.aivista.generation.entity.ConversationMessage;
 import com.superz.aivista.generation.entity.CreationTask;
+import com.superz.aivista.generation.entity.CreationForm;
 import com.superz.aivista.generation.entity.GenerationSession;
 import com.superz.aivista.generation.entity.GenerationTask;
 import com.superz.aivista.generation.entity.CreationActivity;
@@ -56,7 +57,17 @@ class GenerationSessionTurnQueryServiceTests {
         activity.setOutcome("COMPLETED");
         activity.setContent("文生图已完成。");
         when(activityMapper.selectByCreationTaskIds(List.of(22L, 23L))).thenReturn(List.of(activity));
-        when(formMapper.selectByCreationTaskIds(List.of(22L, 23L))).thenReturn(List.of());
+        CreationForm form = new CreationForm();
+        form.setId(701L);
+        form.setCreationTaskId(23L);
+        form.setToolCallId("call-form-1");
+        form.setStatus("SUBMITTED");
+        form.setFormJson("{\"schemaVersion\":2,\"title\":\"确认需求\",\"fields\":["
+                + "{\"id\":\"subject\",\"type\":\"TEXT\",\"label\":\"主题\",\"required\":true,"
+                + "\"value\":\"雾灯岛\"}]}");
+        form.setRequestedAt(Instant.parse("2026-07-30T00:00:00Z"));
+        form.setResolvedAt(Instant.parse("2026-07-30T00:01:00Z"));
+        when(formMapper.selectByCreationTaskIds(List.of(22L, 23L))).thenReturn(List.of(form));
         when(imageMapper.selectByOriginTaskIds(List.of(302L, 303L, 304L))).thenReturn(List.of());
         when(taskQueryService.snapshot(eq(task2), anyList())).thenReturn(snapshot("302"));
         when(taskQueryService.snapshot(eq(task3), anyList())).thenReturn(snapshot("303"));
@@ -77,6 +88,11 @@ class GenerationSessionTurnQueryServiceTests {
                 .containsExactly("303", "304");
         assertThat(response.items().getLast().activities()).extracting(item -> item.outcome())
                 .containsExactly("COMPLETED");
+        var returnedForm = response.items().getLast().forms().getFirst();
+        assertThat(returnedForm.status()).isEqualTo("SUBMITTED");
+        assertThat(returnedForm.form()).containsEntry("schemaVersion", 2);
+        var fields = (List<?>) returnedForm.form().get("fields");
+        assertThat(((java.util.Map<?, ?>) fields.getFirst()).get("value")).isEqualTo("雾灯岛");
         verify(taskMapper).selectByCreationTaskIds(List.of(22L, 23L));
         verify(imageMapper).selectByOriginTaskIds(List.of(302L, 303L, 304L));
     }

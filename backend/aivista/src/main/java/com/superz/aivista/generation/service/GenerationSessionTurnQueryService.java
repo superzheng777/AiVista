@@ -169,8 +169,7 @@ public class GenerationSessionTurnQueryService {
 
     private CreationFormResponse responseOf(CreationForm form) {
         return new CreationFormResponse(form.getId().toString(), form.getToolCallId(), form.getStatus(),
-                readJson(form.getFormJson()), readJson(form.getAnswerJson()),
-                form.getRequestedAt(), form.getResolvedAt());
+                readJson(form.getFormJson()), form.getRequestedAt(), form.getResolvedAt());
     }
 
     private Map<String, Object> readJson(String value) {

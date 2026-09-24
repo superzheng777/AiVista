@@ -17,6 +17,6 @@ public record AgentExecutionSnapshot(int contractVersion, String creationId, lon
 
     /** 可跨 Creation 恢复的待处理或最近处理输入。 */
     public record PendingInput(String creationId, String toolCallId, String status,
-            Map<String, Object> form, Map<String, Object> answers) {
+            Map<String, Object> form) {
     }
 }

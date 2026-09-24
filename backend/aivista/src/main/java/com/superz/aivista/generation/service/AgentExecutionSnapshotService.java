@@ -60,7 +60,7 @@ public class AgentExecutionSnapshotService {
                 .map(id -> input(byId.get(id)))
                 .toList();
         AgentSessionContext context = contexts.selectBySessionId(creation.getSessionId());
-        return new AgentExecutionSnapshot(4, creation.getId().toString(), creation.getRevision(),
+        return new AgentExecutionSnapshot(5, creation.getId().toString(), creation.getRevision(),
                 creation.getStatus(), creation.getSessionId().toString(), userMessage.getContent(),
                 context == null ? null : readContext(context.getContextJson()), inputs,
                 new AgentExecutionSnapshot.GenerationConstraints(creation.getRequestedAspectRatio(),
@@ -99,9 +99,7 @@ public class AgentExecutionSnapshotService {
         if (form == null) throw new IllegalStateException("Stored Agent pending input form is missing");
         return new AgentExecutionSnapshot.PendingInput(context.getSnapshotCreationTaskId().toString(),
                 context.getPendingToolCallId(), context.getPendingInputStatus(),
-                AgentJsonObjects.read(objectMapper, form.getFormJson(), "Stored Agent form JSON"),
-                "SUBMITTED".equals(context.getPendingInputStatus())
-                        ? AgentJsonObjects.read(objectMapper, form.getAnswerJson(), "Stored Agent answer JSON") : null);
+                AgentJsonObjects.read(objectMapper, form.getFormJson(), "Stored Agent form JSON"));
     }
 
     private Map<String, Object> readContext(String value) {

@@ -93,9 +93,9 @@ export function InspirationFeed({ view = "discovery" }: { view?: InspirationFeed
           </p>
           <div
             aria-hidden="true"
-            className="pointer-events-none absolute left-[52%] top-3 hidden h-[52px] w-[82px] lg:block"
+            className="pointer-events-none absolute left-[52%] top-3 hidden h-[76px] w-[133px] lg:block"
           >
-            <DotMatrix columns={5} rows={3} dotSize={3} gap={7} className="absolute left-0 top-0" />
+            <DotMatrix columns={5} rows={3} dotSize={6} gap={16} className="absolute left-0 top-0" />
             <AccentSquare size={14} className="absolute bottom-0 right-0" />
           </div>
         </header>

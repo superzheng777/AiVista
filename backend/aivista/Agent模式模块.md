@@ -41,7 +41,7 @@ TS Agent Worker
 Browser
   → 通过 SSE 立即收到完整表单；提交或跳过后由 Java 恢复 RUNNING 并再次派发 AGENT_EXECUTE
 TS Agent Worker
-  → 从 Execution Snapshot V4 恢复正式 Context，把权威表单结果替换进原 request_user_input Tool Result
+  → 从 Execution Snapshot V5 恢复正式 Context，把权威表单结果替换进原 request_user_input Tool Result
   → 追加固定续跑提示并继续同一个 Creation；PAUSE_READY 不再充当 Context 权威来源
 Agent Tool
   → PUT 创建或读取同一 Generation Task
@@ -120,17 +120,17 @@ Tool 无论成功或失败都返回 Pi 官方可消费的 `{ content, details }`
 
 ### 4.1 需求确认表单
 
-`request_user_input` 只用于缺少会实质改变结果的信息。V1 只支持固定渲染组件 `TEXT` 与 `SINGLE_SELECT`；字段、选项和模型根据当前理解给出的初始值都由 Tool 参数提供。模型不得把普通说明伪装成表单，也不得在同一次 Tool 批次中混合表单与有副作用的生成 Tool。Harness 会在 Tool 执行前识别这种混合批次，阻止整批调用并把可修正错误返回模型，因此不会仅依赖提示词避免副作用。
+`request_user_input` 只用于缺少会实质改变结果的信息。表单 Schema V2 只支持固定渲染组件 `TEXT` 与 `SINGLE_SELECT`；每个字段都带一个字符串 `value`，模型有可靠建议时直接预填，没有建议时传空字符串。用户填写时只覆盖同一个 `fields[].value`，不再维护 `initialValue`、`customInitialValue` 或独立答案对象。模型不得把普通说明伪装成表单，也不得在同一次 Tool 批次中混合表单与有副作用的生成 Tool。Harness 会在 Tool 执行前识别这种混合批次，阻止整批调用并把可修正错误返回模型，因此不会仅依赖提示词避免副作用。
 
-表单是 Creation 内独立的业务事实，不伪装成新的聊天气泡或 Activity。`creation_forms` 保存完整定义、`PENDING/SUBMITTED/SKIPPED/CANCELLED` 状态及结构化答案；一个 Creation 可按 Loop 需要顺序产生多张表单，但任一时刻最多只有当前 `WAITING_INPUT` 表单可操作。用户可确认、跳过或取消本次 Creation；确认与跳过会持久化结果并恢复原 Pi Context，取消则把 Creation 与尚未处理的表单一起收口为 `CANCELLED`。
+表单是 Creation 内独立的业务事实，不伪装成新的聊天气泡或 Activity。`creation_forms` 只保存一份 `form_json` 以及 `PENDING/SUBMITTED/SKIPPED/CANCELLED` 状态：`PENDING` 时其中的 `value` 是模型预填草稿，`SUBMITTED` 时原子覆盖为用户确认后的完整表单；`SKIPPED/CANCELLED` 不把预填值解释成用户答案。一个 Creation 可按 Loop 需要顺序产生多张表单，但任一时刻最多只有当前 `WAITING_INPUT` 表单可操作。用户可确认、跳过或取消本次 Creation；确认与跳过会持久化结果并恢复原 Pi Context，取消则把 Creation 与尚未处理的表单一起收口为 `CANCELLED`。
 
-Pi Tool Result 使用官方 `terminate: true` 在表单边界稳定结束当前 prompt。暂停期间不保留活跃 Pi Session、Tool Waiter 或未 ACK 的 MQ 消息。TS 先用 `PAUSE_READY + payload_json` 暂存一次可重放的 HTTP 投递请求；Java随后在同一事务内提交暂停 Context、表单、最终 Activity 和 `WAITING_INPUT`，确认后 TS 清空这份临时 payload。用户响应后，Java复用 `AGENT_EXECUTE` Outbox 派发新 revision；TS只从 Java快照恢复 Context，按 `toolCallId` 校验唯一的 Tool Call/Result 配对，将占位 Tool Result替换为结构化的 `SUBMITTED/SKIPPED` 结果，再追加不含答案的固定续跑 USER 提示。答案始终作为不受信任的用户数据进入 Tool Result，而不是拼成系统指令：模型可见 `content` 按表单字段顺序输出“字段标签：实际答案”的简洁摘要，选项答案显示用户看到的标签，并明确已回答字段不得重复询问、未回答的可选字段由模型合理决定；完整的表单与结构化答案只保留在 Tool Result `details`。
+Pi Tool Result 使用官方 `terminate: true` 在表单边界稳定结束当前 prompt。暂停期间不保留活跃 Pi Session、Tool Waiter 或未 ACK 的 MQ 消息。TS 先用 `PAUSE_READY + payload_json` 暂存一次可重放的 HTTP 投递请求；Java随后在同一事务内提交暂停 Context、表单、最终 Activity 和 `WAITING_INPUT`，确认后 TS 清空这份临时 payload。用户响应后，Java复用 `AGENT_EXECUTE` Outbox 派发新 revision；TS只从 Java快照恢复 Context，按 `toolCallId` 校验唯一的 Tool Call/Result 配对，并校验 Tool Call、占位结果与持久化表单除 `fields[].value` 外定义一致。随后原位替换占位 Tool Result，再追加不含表单数据的固定续跑 USER 提示。`SUBMITTED` 的模型可见 `content` 是 `{status, form}` 的 JSON 文本，`SKIPPED/CANCELLED` 只包含 `{status}`；它们是同一 Tool Call 的不受信任用户数据，不会伪装成系统指令或第二条聊天消息。
 
-内部 HTTP 契约中的 `form`、`answers` 与 `agentContext` 使用普通 JSON Object（Java wire DTO 为 `Map<String, Object>`）承载；进入 Service 后再转换为业务层使用的 Jackson 2 Tree 做结构校验和持久化。这样可与 Spring Boot 4 的 Jackson 3 HTTP Converter 保持兼容，同时避免把某一 Jackson 版本的 `JsonNode` 暴露为跨服务协议类型；对 TS 和浏览器看到的 JSON 结构没有影响。
+内部 HTTP 契约中的 `form` 与 `agentContext` 使用普通 JSON Object（Java wire DTO 为 `Map<String, Object>`）承载；进入 Service 后再转换为业务层使用的 Jackson 2 Tree 做结构校验和持久化。提交时浏览器发送填写后的完整 `form`，Java以数据库中的 PENDING 表单为权威，只允许 `fields[].value` 变化，并再次校验必填、选项与自定义值。这样可与 Spring Boot 4 的 Jackson 3 HTTP Converter 保持兼容，同时避免把某一 Jackson 版本的 `JsonNode` 暴露为跨服务协议类型。
 
 ## 5. 会话与 Agent Context
 
-Java Execution Snapshot V4 返回当前 USER prompt、当前会话唯一的 `agentContext`、本轮授权图片、Creation 级生成约束，以及与该 Context 配对的 `pendingInput`。`pendingInput` 包含来源 Creation、`toolCallId`、`PENDING/SUBMITTED/SKIPPED/CANCELLED` 状态、表单定义和规范化答案；因此它也能在旧 Creation 取消或恢复失败后，供下一轮先完成占位 Tool Result 的确定性归一化。普通模式不读取或修改 Agent Context；上下文严格以 Generation Session 隔离。
+Java Execution Snapshot V5 返回当前 USER prompt、当前会话唯一的 `agentContext`、本轮授权图片、Creation 级生成约束，以及与该 Context 配对的 `pendingInput`。`pendingInput` 只包含来源 Creation、`toolCallId`、`PENDING/SUBMITTED/SKIPPED/CANCELLED` 状态和当前权威 `form`；因此它也能在旧 Creation 取消或恢复失败后，供下一轮先完成占位 Tool Result 的确定性归一化。普通模式不读取或修改 Agent Context；上下文严格以 Generation Session 隔离。
 
 ```json
 {
@@ -192,7 +192,7 @@ sequence_no + activity_type + outcome + content
 - 当前进程存在同 revision 或更新 revision 的 active 执行时，重复/过期消息直接 ACK；更高 revision 的恢复命令等待上一执行分段退出后再启动，不能被误判成重复消息。
 - 重启后发现孤立 `RUNNING`，标记 `INTERRUPTED` 并把 Creation 收敛为 `AGENT_RUNTIME_INTERRUPTED`；不重跑非确定性 Loop。
 - Pi 请求用户输入时先保存 `PAUSE_READY + payload_json`，再让 Java原子提交 Context、表单和 `WAITING_INPUT`；Java响应丢失时，MQ 重投仍可重放同一请求。
-- Java确认暂停后清空 Ledger 的 `payload_json`。表单处理后，新 revision 的 `AGENT_EXECUTE` 将 `PAUSE_READY` 原子恢复为 `RUNNING`，但 Context 始终从 Java Execution Snapshot V4 读取。
+- Java确认暂停后清空 Ledger 的 `payload_json`。表单处理后，新 revision 的 `AGENT_EXECUTE` 将 `PAUSE_READY` 原子恢复为 `RUNNING`，但 Context 始终从 Java Execution Snapshot V5 读取。
 - Pi 结束后先保存 `COMPLETION_READY + payload_json`（包括成功 Context），再提交 Java。
 - Java响应丢失或 MQ 重投时读取 `payload_json` 再次 PUT；Java终态检查保证不重复写消息或 Activity。
 
@@ -208,7 +208,7 @@ sequence_no + activity_type + outcome + content
 - `creation_tasks`：一次普通或 Agent 创作轮次；含 `mode/status/revision` 及用户比例、数量约束。
 - `generation_tasks`：一次图片模型调用；含 `revision` 和可空 `tool_call_id`。
 - `creation_activities`：Agent 最终可展示步骤。
-- `creation_forms`：Agent 请求的完整表单定义、处理状态和结构化答案。
+- `creation_forms`：Agent 表单的当前完整文档与处理状态；`PENDING` 保存模型预填值，`SUBMITTED` 保存用户确认后覆盖的 `fields[].value`，不再维护独立答案列。
 - `agent_worker_executions`：TS Agent 技术账本。
 - `image_assets`：永久图片资产。
 - `outbox_events`：Java 可靠派发命令和终态通知。
@@ -245,5 +245,5 @@ sequence_no + activity_type + outcome + content
 - TS 不直接写 Java业务表，只写 `agent_worker_executions` 技术账本；Agent Context 通过暂停请求或 Completion 由 Java事务写入。
 - `image_to_image` 继续由 Tool 与 Java双重校验 Asset ID 属于当前 Creation 输入集合；`inspect_image` 由 Java校验当前用户、同一 Generation Session、资产有效性及活动 Creation revision。
 - Skill 正文、系统提示词、Tool 原始参数与结果不会作为产品事件发送前端。
-- `request_user_input` 的定义和答案都经过 TypeBox、Zod 与 Java信任边界校验；前端只渲染固定字段类型，不接受模型提供的 HTML 或组件代码。
+- `request_user_input` 的表单定义和 `fields[].value` 都经过 TypeBox、Zod 与 Java信任边界校验；前端只渲染固定字段类型，不接受模型提供的 HTML 或组件代码。
 - 不向浏览器展示真实思维链；只展示模型主动输出的安全阶段说明。

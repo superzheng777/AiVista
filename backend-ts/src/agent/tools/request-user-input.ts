@@ -1,6 +1,6 @@
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import type { AgentInputForm } from "../agent-form-contract.js";
+import { agentInputFormSchema, type AgentInputForm } from "../agent-form-contract.js";
 
 export type { AgentInputForm } from "../agent-form-contract.js";
 
@@ -13,32 +13,33 @@ const fieldId = Type.String({
 
 const option = Type.Object({
   value: Type.String({ pattern: "^[A-Z][A-Z0-9_]{0,31}$" }),
-  label: Type.String({ minLength: 1, maxLength: 40 }),
+  label: Type.String({ minLength: 1, maxLength: 40, pattern: "\\S" }),
 }, { additionalProperties: false });
 
 const textField = Type.Object({
   id: fieldId,
   type: Type.Literal("TEXT"),
-  label: Type.String({ minLength: 1, maxLength: 40 }),
+  label: Type.String({ minLength: 1, maxLength: 40, pattern: "\\S" }),
   required: Type.Boolean(),
-  initialValue: Type.Optional(Type.String({ maxLength: 300 })),
+  value: Type.String({ maxLength: 300,
+    description: "当前值。没有建议值时必须传空字符串；用户提交后会由最终确认值覆盖。" }),
   placeholder: Type.Optional(Type.String({ maxLength: 100 })),
 }, { additionalProperties: false });
 
 const singleSelectField = Type.Object({
   id: fieldId,
   type: Type.Literal("SINGLE_SELECT"),
-  label: Type.String({ minLength: 1, maxLength: 40 }),
+  label: Type.String({ minLength: 1, maxLength: 40, pattern: "\\S" }),
   required: Type.Boolean(),
-  initialValue: Type.Optional(Type.String({ pattern: "^[A-Z][A-Z0-9_]{0,31}$" })),
+  value: Type.String({ maxLength: 300,
+    description: "当前选项值或自定义文本；没有建议值时必须传空字符串。" }),
   options: Type.Array(option, { minItems: 2, maxItems: 8 }),
   allowCustom: Type.Boolean(),
-  customLabel: Type.Optional(Type.String({ minLength: 1, maxLength: 20 })),
-  customInitialValue: Type.Optional(Type.String({ maxLength: 300 })),
+  customLabel: Type.Optional(Type.String({ minLength: 1, maxLength: 20, pattern: "\\S" })),
 }, { additionalProperties: false });
 
 const parameters = Type.Object({
-  title: Type.String({ minLength: 1, maxLength: 60,
+  title: Type.String({ minLength: 1, maxLength: 60, pattern: "\\S",
     description: "表单标题，应直接说明需要用户确认的创作信息。" }),
   fields: Type.Array(Type.Union([textField, singleSelectField]), { minItems: 1, maxItems: 8 }),
 }, { additionalProperties: false });
@@ -80,29 +81,11 @@ export function inputRequestFromToolResult(toolCallId: string, result: unknown):
     return undefined;
   }
   const form = Reflect.get(details, "form");
-  if (!form || typeof form !== "object") return undefined;
-  return { toolCallId, form: form as AgentInputForm };
+  const parsed = agentInputFormSchema.safeParse(form);
+  if (!parsed.success) return undefined;
+  return { toolCallId, form: parsed.data };
 }
 
 function normalizeForm(value: Omit<AgentInputForm, "schemaVersion">): AgentInputForm {
-  const ids = new Set<string>();
-  const fields = value.fields.map((field) => {
-    if (ids.has(field.id)) throw new Error(`表单字段 ID 重复：${field.id}`);
-    ids.add(field.id);
-    if (field.type === "TEXT") return { ...field };
-    const optionValues = new Set<string>();
-    for (const item of field.options) {
-      if (optionValues.has(item.value)) throw new Error(`字段 ${field.id} 的选项值重复：${item.value}`);
-      optionValues.add(item.value);
-    }
-    if (field.initialValue && !optionValues.has(field.initialValue)) {
-      throw new Error(`字段 ${field.id} 的 initialValue 必须来自 options`);
-    }
-    if (!field.allowCustom
-        && (field.customLabel !== undefined || field.customInitialValue !== undefined)) {
-      throw new Error(`字段 ${field.id} 未开放自定义选项`);
-    }
-    return { ...field, options: field.options.map((item) => ({ ...item })) };
-  });
-  return { schemaVersion: 1, title: value.title, fields };
+  return agentInputFormSchema.parse({ ...value, schemaVersion: 2 });
 }

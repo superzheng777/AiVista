@@ -282,7 +282,7 @@ describe("AgentExecutionService", () => {
   });
 
   it.each(["SUBMITTED", "SKIPPED"] as const)(
-    "continues from a %s input result without putting user answers in the prompt", async (status) => {
+    "continues from a %s input result without putting form values in the prompt", async (status) => {
       runtime.runAgentPrompt.mockResolvedValue({ outcome: "COMPLETED", text: "继续生成。", context: context() });
       const state = { prepare: vi.fn().mockResolvedValue({ kind: "RESUME_AGENT" }),
         saveCompletion: vi.fn() };
@@ -358,7 +358,7 @@ describe("AgentExecutionService", () => {
 });
 
 function command() { return { creationId: 151n, expectedRevision: 0 }; }
-function snapshot() { return { contractVersion: 4, creationId: "151", revision: 0, status: "RUNNING",
+function snapshot() { return { contractVersion: 5, creationId: "151", revision: 0, status: "RUNNING",
   sessionId: "101", prompt: "生成一张海报", agentContext: null, inputAssets: [],
   constraints: { aspectRatio: "AUTO", imageCount: 0 }, pendingInput: null }; }
 function context() { return { schemaVersion: 1 as const, compaction: null, messages: [] }; }
@@ -368,13 +368,13 @@ function realtime() { return { publish: vi.fn(), waitUntilReady: vi.fn().mockRes
 function observability() { return { traceAgentRun: vi.fn(async (_context: unknown,
   execute: (recorder: undefined) => Promise<unknown>) => execute(undefined)) }; }
 function formClient() { return { requestInput: vi.fn().mockResolvedValue({}) }; }
-function form() { return { schemaVersion: 1 as const, title: "确认海报方向", fields: [
-  { id: "subject", type: "TEXT" as const, label: "主题", required: true, initialValue: "关爱动物" },
+function form(value = "关爱动物") { return { schemaVersion: 2 as const, title: "确认海报方向", fields: [
+  { id: "subject", type: "TEXT" as const, label: "主题", required: true, value },
 ] }; }
 function pendingInput(status: "PENDING" | "SUBMITTED" | "SKIPPED" | "CANCELLED",
     creationId = "151") {
-  return { creationId, toolCallId: "call-form-1", status, form: form(),
-    answers: status === "SUBMITTED" ? { subject: { kind: "TEXT" as const, value: "关爱流浪猫" } } : null };
+  return { creationId, toolCallId: "call-form-1", status,
+    form: form(status === "SUBMITTED" ? "关爱流浪猫" : "关爱动物") };
 }
 function pausedContext() {
   const value = form();

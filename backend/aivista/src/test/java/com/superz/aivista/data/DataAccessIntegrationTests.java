@@ -108,11 +108,12 @@ class DataAccessIntegrationIT {
                     'creation_tasks', 'creation_task_input_assets',
                     'generation_tasks', 'image_assets', 'generation_task_input_assets',
                     'image_publications', 'image_asset_likes', 'outbox_events',
-                    'user_generation_daily_usage', 'user_consents', 'agent_session_contexts'
+                    'user_generation_daily_usage', 'user_consents', 'agent_session_contexts',
+                    'creation_forms'
                   )
                 """, Integer.class);
 
-        assertThat(tableCount).isEqualTo(15);
+        assertThat(tableCount).isEqualTo(16);
     }
 
     @Test
@@ -131,6 +132,15 @@ class DataAccessIntegrationIT {
         assertThat(columns).containsExactlyInAnyOrder(
                 "snapshot_creation_task_id", "snapshot_revision",
                 "pending_tool_call_id", "pending_input_status");
+
+        var formColumns = jdbcTemplate.queryForList("""
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = DATABASE()
+                  AND table_name = 'creation_forms'
+                  AND column_name IN ('form_json', 'answer_json')
+                """, String.class);
+        assertThat(formColumns).containsExactly("form_json");
 
         String formStatusCheck = jdbcTemplate.queryForObject("""
                 SELECT check_clause

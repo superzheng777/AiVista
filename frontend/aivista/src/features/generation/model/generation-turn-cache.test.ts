@@ -128,8 +128,11 @@ describe("generation turn cache", () => {
     const form = {
       id: "701",
       status: "PENDING" as const,
-      form: { schemaVersion: 1 as const, title: "确认海报方向", fields: [] },
-      answers: null,
+      form: {
+        schemaVersion: 2 as const,
+        title: "确认海报方向",
+        fields: [{ id: "subject", type: "TEXT" as const, label: "主题", required: true, value: "关爱流浪猫" }],
+      },
       requestedAt: "2026-09-20T01:00:00Z",
       resolvedAt: null,
     };
@@ -139,7 +142,7 @@ describe("generation turn cache", () => {
     expect(merged.pages[0]?.items[0]).toMatchObject({
       revision: 1,
       status: "WAITING_INPUT",
-      forms: [{ id: "701", status: "PENDING" }],
+      forms: [{ id: "701", status: "PENDING", form: { fields: [{ id: "subject", value: "关爱流浪猫" }] } }],
     });
 
     const cancelled = applyAgentFormUpdateToTurns(

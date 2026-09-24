@@ -30,7 +30,7 @@ import {
   generationImageProgress,
   isActiveGenerationStatus,
   needsImageUrlRefresh,
-  type AgentFormAnswer,
+  type AgentInputForm,
   type GenerationAsset,
   type GenerationSession,
   type GenerationTask,
@@ -468,13 +468,13 @@ function ConversationPanel({ sessionId, sessionTitle }: { sessionId: string; ses
               isCancelling={cancelMutation.isPending && cancelMutation.variables === turn.id}
               onCancel={() => cancelMutation.mutate(turn.id)}
               resolvingFormId={formMutation.isPending ? (formMutation.variables?.formId ?? null) : null}
-              onResolveForm={(formId, action, answers) =>
+              onResolveForm={(formId, action, form) =>
                 formMutation.mutate({
                   creationId: turn.id,
                   formId,
                   expectedRevision: turn.revision,
                   action,
-                  answers,
+                  form,
                 })
               }
               onContinue={(draft) => {
@@ -670,7 +670,7 @@ function ConversationTurn({
   isCancelling: boolean;
   onCancel: () => void;
   resolvingFormId: string | null;
-  onResolveForm: (formId: string, action: "SUBMIT" | "SKIP", answers: Record<string, AgentFormAnswer> | null) => void;
+  onResolveForm: (formId: string, action: "SUBMIT" | "SKIP", form: AgentInputForm | null) => void;
   onContinue: (draft: GenerationComposerDraft) => void;
   onOpenAsset: (asset: GenerationAsset) => Promise<void>;
   onRefreshAsset: (imageId: string) => Promise<GenerationAsset>;
@@ -822,7 +822,7 @@ function ConversationTurn({
               submitting={resolvingFormId === form.id}
               cancelling={isCancelling}
               onCancel={onCancel}
-              onResolve={(action, answers) => onResolveForm(form.id, action, answers)}
+              onResolve={(action, resolvedForm) => onResolveForm(form.id, action, resolvedForm)}
             />
           ))}
           {turn.mode === "NORMAL" ? (
@@ -1173,8 +1173,8 @@ function WorkspaceDecorations() {
   return (
     <div aria-hidden="true" className="pointer-events-none absolute inset-0 select-none">
       <span className="absolute right-[7%] top-[94px] hidden h-[390px] w-[290px] bg-[var(--active-bg)] lg:block" />
-      <div className="absolute left-[13%] top-[150px] hidden h-[57px] w-[109px] lg:block">
-        <DotMatrix columns={5} rows={5} dotSize={3} gap={7} opacity={0.55} className="absolute left-0 top-0" />
+      <div className="absolute left-[13%] top-[150px] hidden h-[111px] w-[161px] lg:block">
+        <DotMatrix columns={5} rows={5} dotSize={6} gap={16} opacity={0.55} className="absolute left-0 top-0" />
         <AccentSquare size={17} className="absolute bottom-0 right-0" />
       </div>
     </div>

@@ -1,5 +1,4 @@
 import type {
-  AgentFormAnswer,
   AgentInputForm,
   AgentInputFormField,
   CreationForm,
@@ -151,15 +150,16 @@ export function agentFormFromEvent(event: AgentRealtimeEvent): CreationForm | nu
     !CREATION_FORM_STATUSES.has(raw.status) ||
     !isAgentInputForm(raw.form) ||
     typeof raw.requestedAt !== "string" ||
-    !(raw.resolvedAt === null || typeof raw.resolvedAt === "string") ||
-    !(raw.answers === null || isAgentFormAnswers(raw.answers))
+    !(raw.resolvedAt === null || typeof raw.resolvedAt === "string")
   )
     return null;
+  if (raw.status === "SUBMITTED" && raw.form.fields.some((field) => field.required && !field.value.trim())) {
+    return null;
+  }
   return {
     id: raw.formId,
     status: raw.status as CreationForm["status"],
     form: raw.form,
-    answers: raw.answers,
     requestedAt: raw.requestedAt,
     resolvedAt: raw.resolvedAt as string | null,
   };
@@ -173,11 +173,11 @@ function isOptionalString(value: unknown): boolean {
   return value === undefined || typeof value === "string";
 }
 
-function isAgentInputForm(value: unknown): value is AgentInputForm {
+export function isAgentInputForm(value: unknown): value is AgentInputForm {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const form = value as Record<string, unknown>;
   return (
-    form.schemaVersion === 1 &&
+    form.schemaVersion === 2 &&
     typeof form.title === "string" &&
     Array.isArray(form.fields) &&
     form.fields.every(isAgentInputFormField)
@@ -191,31 +191,27 @@ function isAgentInputFormField(value: unknown): value is AgentInputFormField {
     typeof field.id === "string" &&
     typeof field.label === "string" &&
     typeof field.required === "boolean" &&
-    isOptionalString(field.initialValue);
+    typeof field.value === "string";
   if (!hasBaseFields) return false;
   if (field.type === "TEXT") return isOptionalString(field.placeholder);
   if (
     field.type !== "SINGLE_SELECT" ||
     typeof field.allowCustom !== "boolean" ||
     !isOptionalString(field.customLabel) ||
-    !isOptionalString(field.customInitialValue) ||
     !Array.isArray(field.options)
   )
     return false;
-  return field.options.every((option) => {
+  const validOptions = field.options.every((option) => {
     if (!option || typeof option !== "object" || Array.isArray(option)) return false;
     const candidate = option as Record<string, unknown>;
     return typeof candidate.value === "string" && typeof candidate.label === "string";
   });
-}
-
-function isAgentFormAnswers(value: unknown): value is Record<string, AgentFormAnswer> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  return Object.values(value).every((answer) => {
-    if (!answer || typeof answer !== "object" || Array.isArray(answer)) return false;
-    const candidate = answer as Record<string, unknown>;
-    return ["TEXT", "OPTION", "CUSTOM"].includes(String(candidate.kind)) && typeof candidate.value === "string";
-  });
+  if (!validOptions) return false;
+  return (
+    field.value === "" ||
+    field.allowCustom ||
+    field.options.some((option) => (option as Record<string, unknown>).value === field.value)
+  );
 }
 
 export function applyAgentRealtimeEvent(current: AgentLiveRun | undefined, event: AgentRealtimeEvent): AgentLiveRun {

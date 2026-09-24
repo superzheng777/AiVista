@@ -49,7 +49,7 @@ export class AgentExecutionStateService {
     }
     if (execution.state === "PAUSE_READY") {
       const pausedRevision = Number(execution.execution_revision);
-      // Java increments once when it enters WAITING_INPUT and once when the answer resumes RUNNING.
+      // Java increments once when it enters WAITING_INPUT and once when the form response resumes RUNNING.
       if (Number.isSafeInteger(pausedRevision) && command.expectedRevision === pausedRevision + 2) {
         const changed = await this.database.db.updateTable("agent_worker_executions")
           .set({ state: "RUNNING", execution_revision: BigInt(command.expectedRevision), payload_json: null,

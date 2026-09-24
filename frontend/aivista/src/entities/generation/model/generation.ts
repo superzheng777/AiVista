@@ -75,25 +75,22 @@ export type GenerationTurn = {
 
 export type AgentInputFormOption = { value: string; label: string };
 export type AgentInputFormField =
-  | { id: string; type: "TEXT"; label: string; required: boolean; initialValue?: string; placeholder?: string }
+  | { id: string; type: "TEXT"; label: string; required: boolean; value: string; placeholder?: string }
   | {
       id: string;
       type: "SINGLE_SELECT";
       label: string;
       required: boolean;
-      initialValue?: string;
+      value: string;
       options: AgentInputFormOption[];
       allowCustom: boolean;
       customLabel?: string;
-      customInitialValue?: string;
     };
-export type AgentInputForm = { schemaVersion: 1; title: string; fields: AgentInputFormField[] };
-export type AgentFormAnswer = { kind: "TEXT" | "OPTION" | "CUSTOM"; value: string };
+export type AgentInputForm = { schemaVersion: 2; title: string; fields: AgentInputFormField[] };
 export type CreationForm = {
   id: string;
   status: "PENDING" | "SUBMITTED" | "SKIPPED" | "CANCELLED";
   form: AgentInputForm;
-  answers: Record<string, AgentFormAnswer> | null;
   requestedAt: string;
   resolvedAt: string | null;
 };

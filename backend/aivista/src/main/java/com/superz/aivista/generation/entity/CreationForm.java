@@ -20,7 +20,6 @@ public class CreationForm {
     private String toolCallId;
     private String status;
     private String formJson;
-    private String answerJson;
     private Instant requestedAt;
     private Instant resolvedAt;
 }

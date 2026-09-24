@@ -77,7 +77,7 @@ describe("JavaGenerationClient", () => {
 
   it("loads and validates the minimal Agent execution snapshot", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
-      contractVersion: 4, creationId: "151", revision: 0, status: "RUNNING", sessionId: "101",
+      contractVersion: 5, creationId: "151", revision: 0, status: "RUNNING", sessionId: "101",
       prompt: "把这张图改成海报", agentContext: { schemaVersion: 1, compaction: null,
         messages: [{ role: "user", content: "上一轮", timestamp: 1 }] },
       inputAssets: [{ assetId: "501", objectKey: "users/7/x/display.webp",
@@ -97,6 +97,29 @@ describe("JavaGenerationClient", () => {
       "http://java/api/internal/generation-worker/agent-creations/151/execution",
       expect.objectContaining({ headers: { "X-AiVista-Worker-Token": "worker-secret" } }),
     );
+  });
+
+  it("preserves a submitted form value from the V5 Agent execution snapshot", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      contractVersion: 5, creationId: "151", revision: 2, status: "RUNNING", sessionId: "101",
+      prompt: "设计一个品牌 Logo", agentContext: { schemaVersion: 1, compaction: null, messages: [] },
+      inputAssets: [], constraints: { aspectRatio: "AUTO", imageCount: 1 },
+      pendingInput: {
+        creationId: "151", toolCallId: "call-form-1", status: "SUBMITTED",
+        form: { schemaVersion: 2, title: "Logo 设计需求确认", fields: [{
+          id: "brandName", type: "TEXT", label: "品牌名称", required: true, value: "superZ",
+        }] },
+      },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await new JavaGenerationClient(config()).getAgentExecution("151");
+
+    expect(result.pendingInput).toMatchObject({
+      status: "SUBMITTED",
+      form: { schemaVersion: 2, fields: [{ id: "brandName", value: "superZ" }] },
+    });
+    expect(result.pendingInput?.form.fields[0]?.value).toBe("superZ");
   });
 
   it("resolves one authorized historical image for the active Agent revision", async () => {

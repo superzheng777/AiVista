@@ -28,7 +28,7 @@ const agentImageAssetSchema = z.object({
 });
 
 const agentExecutionSchema = z.object({
-  contractVersion: z.literal(4),
+  contractVersion: z.literal(5),
   creationId: z.string().regex(/^[1-9]\d*$/),
   revision: z.number().int().nonnegative(),
   status: z.enum(["RUNNING", "WAITING_INPUT", "SUCCEEDED", "FAILED", "CANCELLED"]),

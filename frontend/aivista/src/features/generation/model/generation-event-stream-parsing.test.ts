@@ -175,8 +175,11 @@ describe("Agent realtime projection", () => {
         form: {
           formId: "701",
           status: "PENDING",
-          form: { schemaVersion: 1, title: "确认海报方向", fields: [] },
-          answers: null,
+          form: {
+            schemaVersion: 2,
+            title: "确认海报方向",
+            fields: [{ id: "subject", type: "TEXT", label: "主题", required: true, value: "关爱流浪猫" }],
+          },
           requestedAt: "2026-09-20T01:00:00Z",
           resolvedAt: null,
         },
@@ -185,17 +188,40 @@ describe("Agent realtime projection", () => {
     expect(isAgentRealtimeEvent(event)).toBe(true);
     expect(agentFormFromEvent(event)).toMatchObject({ id: "701", status: "PENDING", form: { title: "确认海报方向" } });
 
-    const cancelledEvent = {
+    const submittedEvent = {
       ...event,
       revision: 6,
       sequence: 2,
+      eventType: "FORM_RESOLVED" as const,
+      payload: {
+        form: {
+          ...event.payload.form,
+          status: "SUBMITTED",
+          form: {
+            ...event.payload.form.form,
+            fields: [{ id: "subject", type: "TEXT", label: "主题", required: true, value: "关爱野生小猫" }],
+          },
+          resolvedAt: "2026-09-20T01:01:00Z",
+        },
+      },
+    };
+    expect(agentFormFromEvent(submittedEvent)).toMatchObject({
+      id: "701",
+      status: "SUBMITTED",
+      form: { fields: [{ id: "subject", value: "关爱野生小猫" }] },
+    });
+
+    const cancelledEvent = {
+      ...event,
+      revision: 7,
+      sequence: 3,
       eventType: "FORM_RESOLVED" as const,
       payload: { form: { ...event.payload.form, status: "CANCELLED", resolvedAt: "2026-09-20T01:01:00Z" } },
     };
     expect(agentFormFromEvent(cancelledEvent)).toMatchObject({ id: "701", status: "CANCELLED" });
   });
 
-  it("rejects malformed form fields and answers instead of trusting nested payloads", () => {
+  it("rejects malformed form fields instead of trusting nested payloads", () => {
     const event = {
       ...base,
       eventType: "FORM_REQUESTED" as const,
@@ -206,7 +232,7 @@ describe("Agent realtime projection", () => {
           requestedAt: "2026-09-20T01:00:00Z",
           resolvedAt: null,
           form: {
-            schemaVersion: 1,
+            schemaVersion: 2,
             title: "确认方向",
             fields: [
               {
@@ -214,12 +240,12 @@ describe("Agent realtime projection", () => {
                 type: "SINGLE_SELECT",
                 label: "风格",
                 required: true,
+                value: "warm",
                 allowCustom: false,
                 options: [{ value: "warm" }],
               },
             ],
           },
-          answers: null,
         },
       },
     };
@@ -230,12 +256,43 @@ describe("Agent realtime projection", () => {
       payload: {
         form: {
           ...event.payload.form,
-          form: { schemaVersion: 1, title: "确认方向", fields: [] },
-          answers: { style: { kind: "UNSUPPORTED", value: "warm" } },
+          form: {
+            schemaVersion: 2,
+            title: "确认方向",
+            fields: [
+              {
+                id: "style",
+                type: "SINGLE_SELECT",
+                label: "风格",
+                required: true,
+                value: "unknown",
+                allowCustom: false,
+                options: [{ value: "warm", label: "温暖" }],
+              },
+            ],
+          },
         },
       },
     };
     expect(agentFormFromEvent(validForm)).toBeNull();
+
+    const missingRequiredValue = {
+      ...event,
+      eventType: "FORM_RESOLVED" as const,
+      payload: {
+        form: {
+          ...event.payload.form,
+          status: "SUBMITTED",
+          resolvedAt: "2026-09-20T01:01:00Z",
+          form: {
+            schemaVersion: 2,
+            title: "确认方向",
+            fields: [{ id: "subject", type: "TEXT", label: "主题", required: true, value: " " }],
+          },
+        },
+      },
+    };
+    expect(agentFormFromEvent(missingRequiredValue)).toBeNull();
   });
 
   it("projects safe Tool lifecycle state", () => {

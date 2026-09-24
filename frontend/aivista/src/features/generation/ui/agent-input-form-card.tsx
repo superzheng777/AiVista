@@ -1,9 +1,9 @@
 "use client";
 
 import { ClipboardList } from "lucide-react";
-import { useState } from "react";
+import { type Dispatch, type SetStateAction, useState } from "react";
 
-import type { AgentFormAnswer, CreationForm } from "@/entities/generation/model/generation";
+import type { AgentInputForm, AgentInputFormField, CreationForm } from "@/entities/generation/model/generation";
 import { cn } from "@/shared/lib/cn";
 
 export function AgentInputFormCard({
@@ -18,15 +18,12 @@ export function AgentInputFormCard({
   enabled: boolean;
   submitting: boolean;
   cancelling: boolean;
-  onResolve: (action: "SUBMIT" | "SKIP", answers: Record<string, AgentFormAnswer> | null) => void;
+  onResolve: (action: "SUBMIT" | "SKIP", form: AgentInputForm | null) => void;
   onCancel: () => void;
 }) {
-  const [answers, setAnswers] = useState<Record<string, AgentFormAnswer>>(() => initialFormAnswers(value));
-  const missingRequired = value.form.fields.some((field) => {
-    if (!field.required) return false;
-    const answer = answers[field.id];
-    return !answer || !answer.value.trim();
-  });
+  const [draftForm, setDraftForm] = useState<AgentInputForm>(() => cloneForm(value.form));
+  const [customFieldIds, setCustomFieldIds] = useState<Set<string>>(() => initialCustomFieldIds(value.form));
+  const missingRequired = draftForm.fields.some((field) => field.required && !field.value.trim());
   if (value.status !== "PENDING") {
     return (
       <section
@@ -46,12 +43,11 @@ export function AgentInputFormCard({
         ) : (
           <dl className="mt-2 space-y-1 text-xs leading-5 text-[var(--text-secondary)]">
             {value.form.fields.map((field) => {
-              const answer = value.answers?.[field.id];
-              if (!answer) return null;
+              if (!field.value.trim()) return null;
               return (
                 <div key={field.id} className="flex gap-1">
                   <dt className="shrink-0">{field.label}：</dt>
-                  <dd className="text-[var(--primary)]">{formAnswerLabel(field, answer)}</dd>
+                  <dd className="text-[var(--primary)]">{formValueLabel(field)}</dd>
                 </div>
               );
             })}
@@ -70,7 +66,7 @@ export function AgentInputFormCard({
         {value.form.title}
       </div>
       <div className="mt-4 space-y-5">
-        {value.form.fields.map((field) => (
+        {draftForm.fields.map((field) => (
           <fieldset key={field.id} disabled={!enabled || submitting || cancelling}>
             <legend className="mb-2 text-xs font-medium text-[var(--text-secondary)]">
               {field.label}
@@ -78,27 +74,26 @@ export function AgentInputFormCard({
             </legend>
             {field.type === "TEXT" ? (
               <input
-                value={answers[field.id]?.value ?? ""}
+                value={field.value}
                 maxLength={300}
                 placeholder={field.placeholder}
-                onChange={(event) =>
-                  setAnswers((current) => ({ ...current, [field.id]: { kind: "TEXT", value: event.target.value } }))
-                }
+                onChange={(event) => setFieldValue(setDraftForm, field.id, event.target.value)}
                 className="h-11 w-full rounded-[6px] border border-[var(--border)] bg-[var(--surface-bg)] px-3 text-sm outline-none transition focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent-border)] disabled:cursor-not-allowed disabled:opacity-60"
               />
             ) : (
               <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={field.label}>
                 {field.options.map((option) => {
-                  const selected = answers[field.id]?.kind === "OPTION" && answers[field.id]?.value === option.value;
+                  const selected = !customFieldIds.has(field.id) && field.value === option.value;
                   return (
                     <button
                       key={option.value}
                       type="button"
                       role="radio"
                       aria-checked={selected}
-                      onClick={() =>
-                        setAnswers((current) => ({ ...current, [field.id]: { kind: "OPTION", value: option.value } }))
-                      }
+                      onClick={() => {
+                        setCustomFieldSelected(setCustomFieldIds, field.id, false);
+                        setFieldValue(setDraftForm, field.id, option.value);
+                      }}
                       className={cn(
                         "min-h-9 rounded-[6px] border px-3 text-xs transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--surface-bg)] disabled:cursor-not-allowed disabled:opacity-60",
                         selected
@@ -114,23 +109,16 @@ export function AgentInputFormCard({
                   <button
                     type="button"
                     role="radio"
-                    aria-checked={answers[field.id]?.kind === "CUSTOM"}
-                    onClick={() =>
-                      setAnswers((current) => {
-                        const currentAnswer = current[field.id];
-                        return {
-                          ...current,
-                          [field.id]: {
-                            kind: "CUSTOM",
-                            value:
-                              currentAnswer?.kind === "CUSTOM" ? currentAnswer.value : (field.customInitialValue ?? ""),
-                          },
-                        };
-                      })
-                    }
+                    aria-checked={customFieldIds.has(field.id)}
+                    onClick={() => {
+                      setCustomFieldSelected(setCustomFieldIds, field.id, true);
+                      if (field.options.some((option) => option.value === field.value)) {
+                        setFieldValue(setDraftForm, field.id, "");
+                      }
+                    }}
                     className={cn(
                       "min-h-9 rounded-[6px] border px-3 text-xs transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--surface-bg)] disabled:cursor-not-allowed disabled:opacity-60",
-                      answers[field.id]?.kind === "CUSTOM"
+                      customFieldIds.has(field.id)
                         ? "border-[var(--accent-border)] bg-[var(--active-bg)] text-[var(--primary)]"
                         : "border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--surface-soft)]",
                     )}
@@ -138,17 +126,12 @@ export function AgentInputFormCard({
                     {field.customLabel ?? "自定义"}
                   </button>
                 ) : null}
-                {answers[field.id]?.kind === "CUSTOM" ? (
+                {customFieldIds.has(field.id) ? (
                   <input
                     aria-label={`${field.label}自定义内容`}
-                    value={answers[field.id]?.value ?? ""}
+                    value={field.value}
                     maxLength={300}
-                    onChange={(event) =>
-                      setAnswers((current) => ({
-                        ...current,
-                        [field.id]: { kind: "CUSTOM", value: event.target.value },
-                      }))
-                    }
+                    onChange={(event) => setFieldValue(setDraftForm, field.id, event.target.value)}
                     className="h-9 min-w-[220px] flex-1 rounded-[6px] border border-[var(--border)] bg-[var(--surface-bg)] px-3 text-xs outline-none transition focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent-border)] disabled:cursor-not-allowed disabled:opacity-60"
                   />
                 ) : null}
@@ -178,7 +161,7 @@ export function AgentInputFormCard({
           <button
             type="button"
             disabled={!enabled || submitting || cancelling || missingRequired}
-            onClick={() => onResolve("SUBMIT", answers)}
+            onClick={() => onResolve("SUBMIT", draftForm)}
             className="inline-flex h-9 items-center rounded-[6px] bg-[var(--primary)] px-5 text-xs font-semibold text-[var(--surface-bg)] transition hover:bg-[var(--primary-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--surface-bg)] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {submitting ? "提交中" : "确认"}
@@ -192,23 +175,58 @@ export function AgentInputFormCard({
   );
 }
 
-function initialFormAnswers(value: CreationForm): Record<string, AgentFormAnswer> {
-  const answers: Record<string, AgentFormAnswer> = {};
-  for (const field of value.form.fields) {
-    if (field.type === "TEXT" && field.initialValue !== undefined) {
-      answers[field.id] = { kind: "TEXT", value: field.initialValue };
-    } else if (field.type === "SINGLE_SELECT" && field.initialValue !== undefined) {
-      answers[field.id] = { kind: "OPTION", value: field.initialValue };
-    } else if (field.type === "SINGLE_SELECT" && field.allowCustom && field.customInitialValue !== undefined) {
-      answers[field.id] = { kind: "CUSTOM", value: field.customInitialValue };
-    }
-  }
-  return answers;
+function cloneForm(form: AgentInputForm): AgentInputForm {
+  return {
+    ...form,
+    fields: form.fields.map((field) =>
+      field.type === "SINGLE_SELECT"
+        ? { ...field, options: field.options.map((option) => ({ ...option })) }
+        : { ...field },
+    ),
+  };
 }
 
-function formAnswerLabel(field: CreationForm["form"]["fields"][number], answer: AgentFormAnswer): string {
-  if (field.type === "SINGLE_SELECT" && answer.kind === "OPTION") {
-    return field.options.find((option) => option.value === answer.value)?.label ?? answer.value;
+function initialCustomFieldIds(form: AgentInputForm): Set<string> {
+  return new Set(
+    form.fields
+      .filter(
+        (field) =>
+          field.type === "SINGLE_SELECT" &&
+          field.allowCustom &&
+          Boolean(field.value) &&
+          !field.options.some((option) => option.value === field.value),
+      )
+      .map((field) => field.id),
+  );
+}
+
+function setFieldValue(
+  setForm: Dispatch<SetStateAction<AgentInputForm>>,
+  fieldId: string,
+  nextValue: string,
+): void {
+  setForm((current) => ({
+    ...current,
+    fields: current.fields.map((field) => (field.id === fieldId ? { ...field, value: nextValue } : field)),
+  }));
+}
+
+function setCustomFieldSelected(
+  setFieldIds: Dispatch<SetStateAction<Set<string>>>,
+  fieldId: string,
+  selected: boolean,
+): void {
+  setFieldIds((current) => {
+    const next = new Set(current);
+    if (selected) next.add(fieldId);
+    else next.delete(fieldId);
+    return next;
+  });
+}
+
+function formValueLabel(field: AgentInputFormField): string {
+  if (field.type === "SINGLE_SELECT") {
+    return field.options.find((option) => option.value === field.value)?.label ?? field.value;
   }
-  return answer.value;
+  return field.value;
 }

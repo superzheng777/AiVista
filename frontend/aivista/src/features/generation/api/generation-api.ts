@@ -8,10 +8,11 @@ import type {
   GenerationTask,
   GenerationTaskStatus,
   CreationForm,
-  AgentFormAnswer,
+  AgentInputForm,
 } from "@/entities/generation/model/generation";
 import { browserApiClient } from "@/shared/api/browser-client";
 import { type ApiResponse, unwrapApiResponse } from "@/shared/api/api-response";
+import { isAgentInputForm } from "@/features/generation/model/generation-event-stream-parsing";
 
 type GenerationTaskDto = {
   generationTaskId: string;
@@ -57,8 +58,7 @@ type CreationActivityDto = {
 type CreationFormDto = {
   formId: string;
   status: CreationForm["status"];
-  form: CreationForm["form"];
-  answers: CreationForm["answers"];
+  form: unknown;
   requestedAt: string;
   resolvedAt: string | null;
 };
@@ -109,7 +109,7 @@ export type ResolveAgentFormInput = {
   formId: string;
   expectedRevision: number;
   action: "SUBMIT" | "SKIP";
-  answers: Record<string, AgentFormAnswer> | null;
+  form: AgentInputForm | null;
 };
 export type ResolvedAgentForm = { creationId: string; revision: number; form: CreationForm };
 export type UpdatedGenerationSession = { id: string; title: string; createdAt: string; lastMessageAt: string };
@@ -200,7 +200,13 @@ export async function listGenerationTurns(
       normalGenerationRequest: turn.normalGenerationRequest,
       generations: turn.generations.map(toTask),
       activities: turn.activities,
-      forms: turn.forms.map(toForm),
+      forms: turn.forms.flatMap((form) => {
+        const parsed = toForm(form);
+        if (!parsed && form.status === "PENDING") {
+          throw new Error("服务端返回了无效的待填写 Agent 表单");
+        }
+        return parsed ? [parsed] : [];
+      }),
     })),
     nextBefore: data.nextBefore,
     hasMore: data.hasMore,
@@ -249,18 +255,23 @@ export async function resolveAgentForm(input: ResolveAgentFormInput): Promise<Re
   >(`/agent-creations/${input.creationId}/forms/${input.formId}/response`, {
     expectedRevision: input.expectedRevision,
     action: input.action,
-    answers: input.answers,
+    form: input.form,
   });
   const data = unwrapApiResponse(response.data);
-  return { creationId: data.creationId, revision: data.revision, form: toForm(data.form) };
+  const form = toForm(data.form);
+  if (!form) throw new Error("服务端返回了无效的 Agent 表单结构");
+  return { creationId: data.creationId, revision: data.revision, form };
 }
 
-function toForm(dto: CreationFormDto): CreationForm {
+function toForm(dto: CreationFormDto): CreationForm | null {
+  if (!isAgentInputForm(dto.form)) return null;
+  if (dto.status === "SUBMITTED" && dto.form.fields.some((field) => field.required && !field.value.trim())) {
+    return null;
+  }
   return {
     id: dto.formId,
     status: dto.status,
     form: dto.form,
-    answers: dto.answers,
     requestedAt: dto.requestedAt,
     resolvedAt: dto.resolvedAt,
   };

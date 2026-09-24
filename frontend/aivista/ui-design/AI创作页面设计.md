@@ -430,9 +430,9 @@ justify-content: space-between;
 - `position: absolute`
 - 距离工作区左侧约：200px
 - 距离顶部约：150px
-- 5列 × 3行
-- 每个点：3px
-- 点间距：10px
+- 5列 × 5行
+- 每个点：6px
+- 点间距：16px
 - 颜色：`#A99C8D`
 - 透明度：55%
 

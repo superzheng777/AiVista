@@ -96,8 +96,8 @@ describe("AgentExecutionStateService", () => {
 
 function command() { return { creationId: 151n, expectedRevision: 0 }; }
 function now() { return new Date("2026-09-09T02:00:00Z"); }
-function form() { return { schemaVersion: 1 as const, title: "确认需求", fields: [
-  { id: "subject", type: "TEXT" as const, label: "主题", required: true, initialValue: "关爱动物" },
+function form() { return { schemaVersion: 2 as const, title: "确认需求", fields: [
+  { id: "subject", type: "TEXT" as const, label: "主题", required: true, value: "关爱动物" },
 ] }; }
 function pauseDelivery() { return { toolCallId: "call-form-1", request: { contractVersion: 2 as const,
   expectedRevision: 0, form: form(), activities: [], agentContext: context() } }; }
