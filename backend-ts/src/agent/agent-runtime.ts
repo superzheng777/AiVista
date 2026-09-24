@@ -9,11 +9,13 @@ import {
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import type { AgentModelBinding } from "./providers/bailian.js";
-import type { ImageContent } from "@earendil-works/pi-ai";
+import type { AssistantMessage, ImageContent } from "@earendil-works/pi-ai";
 import type { AgentGenerationConstraints } from "./tools/generation.js";
 import { exportAgentContext, restoreAgentContext, type AgentSessionContext } from "./agent-context.js";
 import { inputRequestFromToolResult, REQUEST_USER_INPUT_TOOL_NAME,
   type AgentInputRequest } from "./tools/request-user-input.js";
+
+export const AGENT_PROJECT_ROOT = resolve(fileURLToPath(new URL("../../", import.meta.url)));
 
 export type AgentRuntimeEvent =
   | { type: "agent_start" }
@@ -24,6 +26,15 @@ export type AgentRuntimeEvent =
   | { type: "tool_start"; toolCallId: string; toolName: string; args: unknown }
   | { type: "tool_progress"; toolCallId: string; toolName: string; partialResult: unknown }
   | { type: "tool_end"; toolCallId: string; toolName: string; result: unknown; isError: boolean };
+
+/** Optional side-channel for run diagnostics; implementations must remain fail-open. */
+export interface AgentRuntimeObserver {
+  captureSystemPrompt(systemPrompt: string): void;
+  startGeneration(messages: unknown): void;
+  finishGeneration(message: AssistantMessage): void;
+  startTool(input: { toolCallId: string; toolName: string; args: unknown }): void;
+  finishTool(input: { toolCallId: string; result: unknown; isError: boolean }): void;
+}
 
 export interface RunAgentPromptOptions {
   binding: AgentModelBinding;
@@ -36,6 +47,7 @@ export interface RunAgentPromptOptions {
   context?: AgentSessionContext | null;
   signal?: AbortSignal;
   onEvent?: (event: AgentRuntimeEvent) => void;
+  observer?: AgentRuntimeObserver;
 }
 
 export type AgentPromptResult =
@@ -54,26 +66,29 @@ export async function runAgentPrompt(options: RunAgentPromptOptions): Promise<Ag
     throw new RangeError("maxTurns must be an integer between 1 and 20");
   }
   // Keep Pi project-resource discovery independent from the shell launch directory.
-  const cwd = resolve(fileURLToPath(new URL("../../", import.meta.url)));
   const emit = (event: AgentRuntimeEvent) => {
     try { options.onEvent?.(event); } catch { /* Product projection failures must not break Pi's loop. */ }
   };
-  let turns = 0;
   let turnLimitReached = false;
   let inputRequest: AgentInputRequest | undefined;
-  const blockedMixedToolCalls = new Set<string>();
+  const blockedMixedToolCallIds = new Set<string>();
   const extension: InlineExtension = {
     name: "aivista-harness",
     hidden: true,
     factory(pi) {
+      pi.on("before_agent_start", (event) => {
+        options.observer?.captureSystemPrompt(event.systemPrompt);
+      });
+      pi.on("context", (event) => {
+        options.observer?.startGeneration(event.messages);
+      });
       pi.on("turn_start", (event, context) => {
         if (event.turnIndex >= options.maxTurns) {
           turnLimitReached = true;
           context.abort();
           return;
         }
-        turns = event.turnIndex + 1;
-        emit({ type: "turn_start", turn: turns });
+        emit({ type: "turn_start", turn: event.turnIndex + 1 });
       });
       pi.on("turn_end", (event, context) => {
         if (event.turnIndex + 1 >= options.maxTurns && event.toolResults.length > 0) {
@@ -83,35 +98,36 @@ export async function runAgentPrompt(options: RunAgentPromptOptions): Promise<Ag
       });
       pi.on("message_end", (event) => {
         if (event.message.role !== "assistant") return;
+        options.observer?.finishGeneration(event.message);
         const toolCalls = event.message.content
           .filter((content) => content.type === "toolCall")
           .map((content) => ({ id: content.id, name: content.name }));
-        if (toolCalls.some((call) => call.name === REQUEST_USER_INPUT_TOOL_NAME)
-            && toolCalls.some((call) => call.name !== REQUEST_USER_INPUT_TOOL_NAME)) {
-          for (const call of toolCalls) blockedMixedToolCalls.add(call.id);
+        if (toolCalls.length > 1
+            && toolCalls.some((call) => call.name === REQUEST_USER_INPUT_TOOL_NAME)) {
+          for (const call of toolCalls) blockedMixedToolCallIds.add(call.id);
         }
       });
       pi.on("tool_call", (event) => {
-        if (blockedMixedToolCalls.has(event.toolCallId)) {
+        if (blockedMixedToolCallIds.has(event.toolCallId)) {
           return {
             block: true,
-            reason: "request_user_input 必须单独调用，不能与其他工具出现在同一条 assistant 消息中。",
+            reason: "request_user_input 每条 assistant 消息只能调用一次，且不能与其他工具同时调用。",
           };
         }
       });
     },
   };
   const resourceLoader = new DefaultResourceLoader({
-    cwd,
-    agentDir: resolve(cwd, ".pi"),
+    cwd: AGENT_PROJECT_ROOT,
+    agentDir: resolve(AGENT_PROJECT_ROOT, ".pi"),
     extensionFactories: [extension],
     noExtensions: true,
     noSkills: true,
-    additionalSkillPaths: [resolve(cwd, ".pi", "skills")],
+    additionalSkillPaths: [resolve(AGENT_PROJECT_ROOT, ".pi", "skills")],
     noPromptTemplates: true,
     noThemes: true,
     noContextFiles: true,
-    systemPrompt: resolve(cwd, ".pi", "SYSTEM.md"),
+    systemPrompt: resolve(AGENT_PROJECT_ROOT, ".pi", "SYSTEM.md"),
     appendSystemPromptOverride: (base) => [
       ...base,
       ...authorizedInputAssetContext(options.authorizedInputAssetIds ?? []),
@@ -120,13 +136,13 @@ export async function runAgentPrompt(options: RunAgentPromptOptions): Promise<Ag
   });
   await resourceLoader.reload();
   const tools = options.tools ?? [];
-  const sessionManager = SessionManager.inMemory(cwd);
+  const sessionManager = SessionManager.inMemory(AGENT_PROJECT_ROOT);
   restoreAgentContext(sessionManager, options.context);
   const settingsManager = SettingsManager.inMemory({
     compaction: { enabled: true, reserveTokens: 16_384, keepRecentTokens: 20_000 },
   });
   const { session } = await createAgentSession({
-    cwd,
+    cwd: AGENT_PROJECT_ROOT,
     modelRuntime: options.binding.modelRuntime,
     model: options.binding.model,
     thinkingLevel: "off",
@@ -143,17 +159,21 @@ export async function runAgentPrompt(options: RunAgentPromptOptions): Promise<Ag
     if (event.type === "agent_start") emit({ type: "agent_start" });
     if (event.type === "agent_settled") resolveSettled();
     if (event.type === "tool_execution_start") {
-      if (blockedMixedToolCalls.has(event.toolCallId)) return;
+      options.observer?.startTool({ toolCallId: event.toolCallId,
+        toolName: event.toolName, args: event.args });
+      if (blockedMixedToolCallIds.has(event.toolCallId)) return;
       emit({ type: "tool_start", toolCallId: event.toolCallId, toolName: event.toolName,
         args: event.args });
     }
     if (event.type === "tool_execution_update") {
-      if (blockedMixedToolCalls.has(event.toolCallId)) return;
+      if (blockedMixedToolCallIds.has(event.toolCallId)) return;
       emit({ type: "tool_progress", toolCallId: event.toolCallId, toolName: event.toolName,
         partialResult: event.partialResult });
     }
     if (event.type === "tool_execution_end") {
-      if (blockedMixedToolCalls.has(event.toolCallId)) return;
+      options.observer?.finishTool({ toolCallId: event.toolCallId,
+        result: event.result, isError: event.isError });
+      if (blockedMixedToolCallIds.has(event.toolCallId)) return;
       if (!event.isError && event.toolName === REQUEST_USER_INPUT_TOOL_NAME) {
         inputRequest = inputRequestFromToolResult(event.toolCallId, event.result);
       }

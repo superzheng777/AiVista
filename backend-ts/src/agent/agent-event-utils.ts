@@ -22,15 +22,15 @@ export function selectedSkillName(toolName: string, args: unknown): string | nul
 }
 
 export function skillLabel(skillName: string): string {
-  if (skillName === "poster-design") return "海报设计能力";
-  if (skillName === "brand-design") return "品牌设计能力";
-  if (skillName === "cinematic-still") return "电影感摄影能力";
-  if (skillName === "impasto-diorama") return "油彩立体厚涂能力";
-  if (skillName === "monumental-scale-poster") return "巨物尺度清透海报能力";
-  if (skillName === "portrait-face-director") return "人像捏脸能力";
-  if (skillName === "japanese-life-fragments") return "日系生活碎片能力";
-  if (skillName === "series-image-director") return "系列套图能力";
-  return "创作能力";
+  if (skillName === "poster-design") return "海报设计";
+  if (skillName === "brand-design") return "品牌设计";
+  if (skillName === "cinematic-still") return "电影感摄影";
+  if (skillName === "impasto-diorama") return "油彩立体厚涂";
+  if (skillName === "monumental-scale-poster") return "巨物尺度清透海报";
+  if (skillName === "portrait-face-director") return "人像捏脸";
+  if (skillName === "japanese-life-fragments") return "日系生活碎片";
+  if (skillName === "series-image-director") return "系列套图";
+  return skillName;
 }
 
 export function toolOutcomeDetails(result: unknown): { outcome?: string; generationTaskId: string | null } {
@@ -39,7 +39,7 @@ export function toolOutcomeDetails(result: unknown): { outcome?: string; generat
   if (!details || typeof details !== "object") return { generationTaskId: null };
   const outcome = "outcome" in details && typeof details.outcome === "string" ? details.outcome : undefined;
   const generationTaskId = "generationTaskId" in details && typeof details.generationTaskId === "string"
-      && /^\d+$/.test(details.generationTaskId) ? details.generationTaskId : null;
+      && /^[1-9]\d*$/.test(details.generationTaskId) ? details.generationTaskId : null;
   return outcome === undefined ? { generationTaskId } : { outcome, generationTaskId };
 }
 

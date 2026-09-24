@@ -1,17 +1,24 @@
 import type { AgentRuntimeEvent } from "./agent-runtime.js";
+import { z } from "zod";
 import { selectedSkillName, skillLabel, toolLabel, toolOutcomeDetails,
   userFacingPlan } from "./agent-event-utils.js";
 import { REQUEST_USER_INPUT_TOOL_NAME } from "./tools/request-user-input.js";
 
-export interface AgentActivityItem {
-  type: "NARRATION" | "SKILL" | "TOOL";
-  outcome: "COMPLETED" | "FAILED" | "CANCELLED";
-  content: string;
-  toolName: string | null;
-  generationTaskId: string | null;
-  startedAt: string;
-  completedAt: string;
-}
+export const MAX_AGENT_ACTIVITY_COUNT = 100;
+
+export const agentActivitySchema = z.object({
+  type: z.enum(["NARRATION", "SKILL", "TOOL"]),
+  outcome: z.enum(["COMPLETED", "FAILED", "CANCELLED"]),
+  content: z.string().min(1).refine((value) => Array.from(value).length <= 1_000, {
+    message: "Agent activity content must contain at most 1000 Unicode code points",
+  }),
+  toolName: z.string().min(1).max(64).nullable(),
+  generationTaskId: z.string().regex(/^[1-9]\d*$/).nullable(),
+  startedAt: z.string().datetime(),
+  completedAt: z.string().datetime(),
+});
+
+export type AgentActivityItem = z.infer<typeof agentActivitySchema>;
 
 type PendingToolActivity = Omit<AgentActivityItem, "outcome" | "completedAt">;
 
@@ -79,7 +86,7 @@ export class AgentActivityCollector {
         this.record(`skill:${skill.name}`, {
           type: "SKILL",
           outcome: "COMPLETED",
-          content: `已启用${skillLabel(skill.name)}。`,
+          content: `已加载技能：${skillLabel(skill.name)}`,
           toolName: null,
           generationTaskId: null,
           startedAt: skill.startedAt,
@@ -89,6 +96,7 @@ export class AgentActivityCollector {
       }
       const existing = this.tools.get(event.toolCallId);
       if (!existing) return;
+      this.tools.delete(event.toolCallId);
       const details = toolOutcomeDetails(event.result);
       const failed = event.isError || details.outcome === "FAILED";
       const completed: AgentActivityItem = {
@@ -112,7 +120,8 @@ export class AgentActivityCollector {
   }
 
   snapshot(): AgentActivityItem[] {
-    return [...this.stable.values()].map((activity) => ({ ...activity }));
+    return [...this.stable.values()].slice(0, MAX_AGENT_ACTIVITY_COUNT)
+      .map((activity) => ({ ...activity }));
   }
 
   private flushNarration(occurredAt: string): void {

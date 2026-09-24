@@ -16,6 +16,12 @@ describe("Agent generation tools", () => {
 
     expect(textToImage?.name).toBe("text_to_image");
     expect(imageToImage?.name).toBe("image_to_image");
+    expect(textToImage?.parameters).toMatchObject({
+      properties: {
+        prompt: { description: expect.stringContaining("默认使用用户当前语言") },
+        negativePrompt: { description: expect.stringContaining("默认使用用户当前语言") },
+      },
+    });
     expect(Value.Check(textToImage!.parameters, {
       userFacingPlan: "我会采用清晰的视觉层级完成这一版海报设计并突出画面主体。",
       prompt: "海边日落",
@@ -115,6 +121,42 @@ describe("Agent generation tools", () => {
     }, undefined, undefined, {} as never);
     expect(tooMany.details).toMatchObject({ code: "IMAGE_COUNT_EXCEEDS_REMAINING" });
     expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("releases the missing image count after a partially successful generation", async () => {
+    const execute = vi.fn()
+      .mockResolvedValueOnce({ outcome: "SUCCEEDED" as const, generationTaskId: "9001",
+        imageAssetIds: ["7001"] })
+      .mockResolvedValueOnce({ outcome: "SUCCEEDED" as const, generationTaskId: "9002",
+        imageAssetIds: ["7002", "7003"] });
+    const [textToImage] = createGenerationTools({
+      executor: { execute },
+      authorizedInputAssetIds: new Set(),
+      constraints: { aspectRatio: "AUTO", imageCount: 3 },
+    });
+    const parameters = {
+      userFacingPlan: "我会先生成完整方向，并在部分成功时继续补足用户要求的最终数量。",
+      prompt: "公益海报",
+      aspectRatio: "3:4" as const,
+    };
+
+    const partial = await textToImage!.execute("call-partial", {
+      ...parameters,
+      imageCount: 3,
+    }, undefined, undefined, {} as never);
+    const remainder = await textToImage!.execute("call-remainder", {
+      ...parameters,
+      imageCount: 2,
+    }, undefined, undefined, {} as never);
+    const excess = await textToImage!.execute("call-excess", {
+      ...parameters,
+      imageCount: 1,
+    }, undefined, undefined, {} as never);
+
+    expect(partial.details).toMatchObject({ outcome: "SUCCEEDED", imageAssetIds: ["7001"] });
+    expect(remainder.details).toMatchObject({ outcome: "SUCCEEDED", imageAssetIds: ["7002", "7003"] });
+    expect(excess.details).toMatchObject({ outcome: "FAILED", code: "IMAGE_COUNT_EXCEEDS_REMAINING" });
+    expect(execute).toHaveBeenCalledTimes(2);
   });
 });
 

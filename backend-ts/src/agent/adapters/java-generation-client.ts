@@ -2,17 +2,16 @@ import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { z } from "zod";
 import type { Environment } from "../../config/environment.js";
-import type { GenerationToolRequest } from "../tools/index.js";
+import type { GenerationToolRequest } from "../tools/generation.js";
 import { agentSessionContextSchema } from "../agent-context.js";
-import { creationFormResponseSchema } from "../agent-form-contract.js";
-import { JavaWorkerApiError as JavaGenerationApiError, javaWorkerError,
-  putJavaWorker } from "../../common/java-worker-http.js";
+import { agentPendingInputSchema } from "../agent-form-contract.js";
+import { javaWorkerError, putJavaWorker } from "../../common/java-worker-http.js";
 
 export { JavaWorkerApiError as JavaGenerationApiError } from "../../common/java-worker-http.js";
 
 const responseSchema = z.object({
-  generationTaskId: z.string().regex(/^\d+$/),
-  sessionId: z.string().regex(/^\d+$/),
+  generationTaskId: z.string().regex(/^[1-9]\d*$/),
+  sessionId: z.string().regex(/^[1-9]\d*$/),
   status: z.enum(["QUEUED", "GENERATING", "SAVING", "SUCCEEDED", "PARTIALLY_SUCCEEDED", "FAILED"]),
   revision: z.number().int().nonnegative(),
   requestedImageCount: z.number().int().positive(),
@@ -29,11 +28,11 @@ const agentImageAssetSchema = z.object({
 });
 
 const agentExecutionSchema = z.object({
-  contractVersion: z.literal(3),
-  creationId: z.string().regex(/^\d+$/),
+  contractVersion: z.literal(4),
+  creationId: z.string().regex(/^[1-9]\d*$/),
   revision: z.number().int().nonnegative(),
   status: z.enum(["RUNNING", "WAITING_INPUT", "SUCCEEDED", "FAILED", "CANCELLED"]),
-  sessionId: z.string().regex(/^\d+$/),
+  sessionId: z.string().regex(/^[1-9]\d*$/),
   prompt: z.string().min(1),
   agentContext: agentSessionContextSchema.nullable(),
   inputAssets: z.array(agentImageAssetSchema).max(3),
@@ -41,7 +40,7 @@ const agentExecutionSchema = z.object({
     aspectRatio: z.enum(["AUTO", "1:1", "4:3", "3:4", "16:9", "9:16"]),
     imageCount: z.number().int().min(0).max(6),
   }),
-  formResponse: creationFormResponseSchema.nullable(),
+  pendingInput: agentPendingInputSchema.nullable(),
 });
 
 export type AgentGenerationTaskResponse = z.infer<typeof responseSchema>;
@@ -75,12 +74,12 @@ export class JavaGenerationClient {
 
   async getAgentExecution(creationId: string, signal?: AbortSignal): Promise<AgentExecutionSnapshot> {
     this.requireReady(creationId);
-    const timeout = AbortSignal.timeout(this.timeoutMs);
+    const timeoutSignal = AbortSignal.timeout(this.timeoutMs);
     const response = await fetch(
       `${this.baseUrl}/internal/generation-worker/agent-creations/${creationId}/execution`,
       {
         headers: { "X-AiVista-Worker-Token": this.token! },
-        signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+        signal: signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal,
       },
     );
     if (!response.ok) throw await javaWorkerError(response,
@@ -95,13 +94,13 @@ export class JavaGenerationClient {
       throw new TypeError("expectedRevision must be a non-negative safe integer");
     }
     if (!/^[1-9]\d*$/.test(assetId)) throw new TypeError("assetId must be a positive integer ID");
-    const timeout = AbortSignal.timeout(this.timeoutMs);
+    const timeoutSignal = AbortSignal.timeout(this.timeoutMs);
     const response = await fetch(
       `${this.baseUrl}/internal/generation-worker/agent-creations/${creationId}`
         + `/assets/${assetId}?expectedRevision=${expectedRevision}`,
       {
         headers: { "X-AiVista-Worker-Token": this.token! },
-        signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+        signal: signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal,
       },
     );
     if (!response.ok) throw await javaWorkerError(response,

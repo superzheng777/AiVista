@@ -6,12 +6,13 @@ import { inspirationQueryKeys, type InspirationPage } from "@/features/inspirati
 export function updateInspirationInFeeds(queryClient: QueryClient, image: GenerationAsset): void {
   queryClient.setQueriesData<InfiniteData<InspirationPage>>(
     { queryKey: inspirationQueryKeys.all },
-    (current) => current && {
-      ...current,
-      pages: current.pages.map((page) => ({
-        ...page,
-        items: page.items.map((item) => item.id === image.id ? image : item),
-      })),
-    },
+    (current) =>
+      current && {
+        ...current,
+        pages: current.pages.map((page) => ({
+          ...page,
+          items: page.items.map((item) => (item.id === image.id ? image : item)),
+        })),
+      },
   );
 }

@@ -8,7 +8,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { LogoutConfirmDialog } from "@/features/auth/ui/logout-confirm-dialog";
 import { useAuthDialog } from "@/features/auth/model/auth-dialog-provider";
 import { useSession } from "@/features/auth/model/session-provider";
-import { cn } from "@/lib/utils";
+import { cn } from "@/shared/lib/cn";
 
 type AccountControlProps = { compact?: boolean };
 type Submenu = "app" | null;
@@ -64,32 +64,126 @@ export function AccountControl({ compact = false }: AccountControlProps) {
     router.replace("/");
   }
 
-  if (status === "loading") return <div className={cn("animate-pulse rounded-full bg-muted", compact ? "size-9" : "size-10")} />;
-  if (status === "error") return <button type="button" onClick={() => void restoreSession()} aria-label="重新连接" className={cn("flex items-center justify-center rounded-xl border border-border text-muted-foreground transition hover:bg-muted hover:text-foreground", compact ? "size-10" : "h-10 gap-1.5 px-3 text-xs")}><RotateCw className="size-4" />{compact ? null : "重试"}</button>;
-  if (!user) return <button type="button" onClick={openAuthDialog} className={cn("flex items-center justify-center rounded-xl bg-primary font-medium text-primary-foreground transition hover:bg-primary/80", compact ? "size-10" : "h-10 gap-1.5 px-3 text-xs")}><LogIn className="size-4" />{compact ? null : "登录"}</button>;
+  if (status === "loading")
+    return <div className={cn("animate-pulse rounded-full bg-muted", compact ? "size-9" : "size-10")} />;
+  if (status === "error")
+    return (
+      <button
+        type="button"
+        onClick={() => void restoreSession()}
+        aria-label="重新连接"
+        className={cn(
+          "flex items-center justify-center rounded-xl border border-border text-muted-foreground transition hover:bg-muted hover:text-foreground",
+          compact ? "size-10" : "h-10 gap-1.5 px-3 text-xs",
+        )}
+      >
+        <RotateCw className="size-4" />
+        {compact ? null : "重试"}
+      </button>
+    );
+  if (!user)
+    return (
+      <button
+        type="button"
+        onClick={openAuthDialog}
+        className={cn(
+          "flex items-center justify-center rounded-xl bg-primary font-medium text-primary-foreground transition hover:bg-primary/80",
+          compact ? "size-10" : "h-10 gap-1.5 px-3 text-xs",
+        )}
+      >
+        <LogIn className="size-4" />
+        {compact ? null : "登录"}
+      </button>
+    );
 
   const initial = user.nickname.trim().slice(0, 1).toUpperCase() || "我";
   if (compact) {
-    return <Link href="/profile" aria-label="进入个人主页" className="grid size-10 overflow-hidden rounded-full border border-[var(--border)] bg-[var(--surface-bg)] text-[var(--accent)] ring-2 ring-transparent transition hover:bg-[var(--active-bg)] hover:ring-[var(--accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]">{user.avatarUrl ? <AvatarImage avatarUrl={user.avatarUrl} nickname={user.nickname} /> : <span className="grid place-items-center text-sm font-semibold">{initial}</span>}</Link>;
+    return (
+      <Link
+        href="/profile"
+        aria-label="进入个人主页"
+        className="grid size-10 overflow-hidden rounded-full border border-[var(--border)] bg-[var(--surface-bg)] text-[var(--accent)] ring-2 ring-transparent transition hover:bg-[var(--active-bg)] hover:ring-[var(--accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+      >
+        {user.avatarUrl ? (
+          <AvatarImage avatarUrl={user.avatarUrl} nickname={user.nickname} />
+        ) : (
+          <span className="grid place-items-center text-sm font-semibold">{initial}</span>
+        )}
+      </Link>
+    );
   }
 
   return (
-    <div ref={containerRef} className="relative flex w-full justify-center" onMouseEnter={clearCloseTimer} onMouseLeave={scheduleClose} onFocusCapture={() => setIsMenuOpen(true)} onBlurCapture={() => setTimeout(() => { if (!containerRef.current?.contains(document.activeElement)) closeMenu(); }, 0)}>
-      <Link href="/profile" aria-label="进入个人主页" onMouseEnter={() => setIsMenuOpen(true)} className="grid size-10 overflow-hidden rounded-full border border-[var(--border)] bg-[var(--surface-bg)] text-[var(--accent)] ring-2 ring-transparent transition hover:bg-[var(--active-bg)] hover:ring-[var(--accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]">{user.avatarUrl ? <AvatarImage avatarUrl={user.avatarUrl} nickname={user.nickname} /> : <span className="grid place-items-center text-sm font-semibold">{initial}</span>}</Link>
+    <div
+      ref={containerRef}
+      className="relative flex w-full justify-center"
+      onMouseEnter={clearCloseTimer}
+      onMouseLeave={scheduleClose}
+      onFocusCapture={() => setIsMenuOpen(true)}
+      onBlurCapture={() =>
+        setTimeout(() => {
+          if (!containerRef.current?.contains(document.activeElement)) closeMenu();
+        }, 0)
+      }
+    >
+      <Link
+        href="/profile"
+        aria-label="进入个人主页"
+        onMouseEnter={() => setIsMenuOpen(true)}
+        className="grid size-10 overflow-hidden rounded-full border border-[var(--border)] bg-[var(--surface-bg)] text-[var(--accent)] ring-2 ring-transparent transition hover:bg-[var(--active-bg)] hover:ring-[var(--accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+      >
+        {user.avatarUrl ? (
+          <AvatarImage avatarUrl={user.avatarUrl} nickname={user.nickname} />
+        ) : (
+          <span className="grid place-items-center text-sm font-semibold">{initial}</span>
+        )}
+      </Link>
 
       {isMenuOpen ? (
         <div className="absolute bottom-0 left-[calc(100%+0.75rem)] z-40 w-52 rounded-2xl border border-border bg-popover p-1.5 shadow-[0_18px_45px_-22px_rgba(15,23,42,0.5)]">
-          <Link href="/profile" onClick={closeMenu} className="flex h-10 items-center gap-3 rounded-xl px-3 text-sm text-popover-foreground transition hover:bg-muted"><UserRound className="size-4" />个人主页</Link>
+          <Link
+            href="/profile"
+            onClick={closeMenu}
+            className="flex h-10 items-center gap-3 rounded-xl px-3 text-sm text-popover-foreground transition hover:bg-muted"
+          >
+            <UserRound className="size-4" />
+            个人主页
+          </Link>
           <div className="relative" onMouseEnter={() => setSubmenu("app")}>
-            <button type="button" className="flex h-10 w-full items-center gap-3 rounded-xl px-3 text-left text-sm text-popover-foreground transition hover:bg-muted"><Smartphone className="size-4" /><span className="flex-1">AiVista APP</span><ChevronRight className="size-4 text-muted-foreground" /></button>
-            {submenu === "app" ? <div className="absolute left-[calc(100%+0.5rem)] top-0 z-50 w-32 rounded-2xl border border-border bg-popover p-1.5 shadow-[0_18px_45px_-22px_rgba(15,23,42,0.5)]"><p className="rounded-xl px-3 py-2.5 text-sm text-muted-foreground">敬请期待</p></div> : null}
+            <button
+              type="button"
+              className="flex h-10 w-full items-center gap-3 rounded-xl px-3 text-left text-sm text-popover-foreground transition hover:bg-muted"
+            >
+              <Smartphone className="size-4" />
+              <span className="flex-1">AiVista APP</span>
+              <ChevronRight className="size-4 text-muted-foreground" />
+            </button>
+            {submenu === "app" ? (
+              <div className="absolute left-[calc(100%+0.5rem)] top-0 z-50 w-32 rounded-2xl border border-border bg-popover p-1.5 shadow-[0_18px_45px_-22px_rgba(15,23,42,0.5)]">
+                <p className="rounded-xl px-3 py-2.5 text-sm text-muted-foreground">敬请期待</p>
+              </div>
+            ) : null}
           </div>
           <div className="my-1 border-t border-border" />
-          <button type="button" onClick={() => { closeMenu(); setIsLogoutDialogOpen(true); }} className="flex h-10 w-full items-center gap-3 rounded-xl px-3 text-left text-sm text-popover-foreground transition hover:bg-muted"><LogOut className="size-4" />退出登录</button>
+          <button
+            type="button"
+            onClick={() => {
+              closeMenu();
+              setIsLogoutDialogOpen(true);
+            }}
+            className="flex h-10 w-full items-center gap-3 rounded-xl px-3 text-left text-sm text-popover-foreground transition hover:bg-muted"
+          >
+            <LogOut className="size-4" />
+            退出登录
+          </button>
         </div>
       ) : null}
 
-      <LogoutConfirmDialog isOpen={isLogoutDialogOpen} onClose={() => setIsLogoutDialogOpen(false)} onConfirm={handleLogout} />
+      <LogoutConfirmDialog
+        isOpen={isLogoutDialogOpen}
+        onClose={() => setIsLogoutDialogOpen(false)}
+        onConfirm={handleLogout}
+      />
     </div>
   );
 }

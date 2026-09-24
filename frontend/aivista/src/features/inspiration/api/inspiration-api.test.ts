@@ -2,7 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/shared/api/browser-client", () => ({ browserApiClient: { get: vi.fn(), put: vi.fn(), delete: vi.fn() } }));
 
-import { listFollowingInspirations, listInspirations, searchInspirations } from "@/features/inspiration/api/inspiration-api";
+import {
+  listFollowingInspirations,
+  listInspirations,
+  searchInspirations,
+  setImageLike,
+} from "@/features/inspiration/api/inspiration-api";
 import { browserApiClient } from "@/shared/api/browser-client";
 
 const client = vi.mocked(browserApiClient);
@@ -24,7 +29,8 @@ const image = {
   likeCount: 0,
   likedByCurrentUser: false,
 };
-const response = (nextCursor: string | null) => ({ data: { code: 0, message: "ok", data: { items: [image], nextCursor } } } as never);
+const response = (nextCursor: string | null) =>
+  ({ data: { code: 0, message: "ok", data: { items: [image], nextCursor } } }) as never;
 
 describe("inspiration-api", () => {
   beforeEach(() => vi.clearAllMocks());
@@ -32,21 +38,42 @@ describe("inspiration-api", () => {
   it("keeps discovery and following endpoints separate", async () => {
     client.get.mockResolvedValueOnce(response("discovery-cursor")).mockResolvedValueOnce(response("following-cursor"));
 
-    await expect(listInspirations(null)).resolves.toMatchObject({ items: [{ id: "11" }], nextCursor: "discovery-cursor" });
-    await expect(listFollowingInspirations("cursor-1")).resolves.toMatchObject({ items: [{ id: "11" }], nextCursor: "following-cursor" });
+    await expect(listInspirations(null)).resolves.toMatchObject({
+      items: [{ id: "11" }],
+      nextCursor: "discovery-cursor",
+    });
+    await expect(listFollowingInspirations("cursor-1")).resolves.toMatchObject({
+      items: [{ id: "11" }],
+      nextCursor: "following-cursor",
+    });
 
     expect(client.get).toHaveBeenNthCalledWith(1, "/inspirations", { params: undefined });
     expect(client.get).toHaveBeenNthCalledWith(2, "/inspirations/following", { params: { cursor: "cursor-1" } });
   });
 
   it("uses raw Meilisearch offset returned by the server", async () => {
-    client.get.mockResolvedValueOnce({ data: { code: 0, message: "ok", data: { items: [image], nextOffset: 24 } } } as never);
+    client.get.mockResolvedValueOnce({
+      data: { code: 0, message: "ok", data: { items: [image], nextOffset: 24 } },
+    } as never);
 
     await expect(searchInspirations("AI 星空", null)).resolves.toMatchObject({ items: [{ id: "11" }], nextOffset: 24 });
     expect(client.get).toHaveBeenCalledWith("/inspirations/search", { params: { q: "AI 星空" } });
 
-    client.get.mockResolvedValueOnce({ data: { code: 0, message: "ok", data: { items: [], nextOffset: null } } } as never);
+    client.get.mockResolvedValueOnce({
+      data: { code: 0, message: "ok", data: { items: [], nextOffset: null } },
+    } as never);
     await searchInspirations("AI 星空", 24);
     expect(client.get).toHaveBeenLastCalledWith("/inspirations/search", { params: { q: "AI 星空", offset: 24 } });
+  });
+
+  it("uses target-state endpoints for liking and unliking a publication version", async () => {
+    client.put.mockResolvedValueOnce({} as never);
+    client.delete.mockResolvedValueOnce({} as never);
+
+    await setImageLike("11", 3, true);
+    await setImageLike("11", 3, false);
+
+    expect(client.put).toHaveBeenCalledWith("/inspirations/11/like", undefined, { params: { publicationVersion: 3 } });
+    expect(client.delete).toHaveBeenCalledWith("/inspirations/11/like", { params: { publicationVersion: 3 } });
   });
 });

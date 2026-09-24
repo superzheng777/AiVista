@@ -13,11 +13,11 @@ Java 是浏览器唯一业务入口和业务事实拥有者；TypeScript 负责 
 | 能力 | Java Core | TypeScript AI Runtime |
 | --- | --- | --- |
 | 用户、认证、社区、发布、通知、搜索 | 唯一负责 | 不负责 |
-| Generation Session、消息、Creation、Agent Context | 创建、查询和最终事务提交 | 读取并更新受控 Pi 逻辑上下文 |
+| Generation Session、消息、Creation、Agent Context | 创建、查询，并在暂停或成功收口时事务提交 | 读取并产出受控 Pi 逻辑上下文 |
 | 额度、Generation Task、Image Asset | 唯一写入业务表 | 执行 Provider 与 OSS I/O |
 | 浏览器 REST/SSE | 唯一入口 | 不直接暴露给浏览器 |
 | Pi Session、Skill、Tool、Loop | 不执行 | 唯一负责 |
-| Agent Worker Ledger | 不写入 | 保存执行防重、暂停 Context 与可重放 Completion |
+| Agent Worker Ledger | 不写入 | 保存执行防重、暂停请求临时投递与可重放 Completion |
 
 一次用户提问对应一个 Creation 和一个短生命周期 Pi Session。一个 Creation 可以创建零到多个 Generation Task；没有 Tool Call 且存在非空模型文本时，Pi Loop 正常成功。每个 Loop 最多 20 Turn。
 
@@ -37,11 +37,12 @@ TS Agent Worker
   → 加载本轮授权 OSS 图片为 Pi ImageContent
   → 将会话级 Agent Context 恢复进 Pi Session，注入本轮约束、Skill 元数据与 Tool
   → Pi 可调用 inspect_image 理解历史图片，并调用 text_to_image / image_to_image 零到多次
-  → 信息不足时可调用 request_user_input；先保存 PAUSE_READY，再由 Java 持久化表单并进入 WAITING_INPUT
+  → 信息不足时可调用 request_user_input；先保存 PAUSE_READY 投递记录，再由 Java 原子持久化 Context、表单、Activity 并进入 WAITING_INPUT
 Browser
   → 通过 SSE 立即收到完整表单；提交或跳过后由 Java 恢复 RUNNING 并再次派发 AGENT_EXECUTE
 TS Agent Worker
-  → 从 PAUSE_READY 恢复原 Pi Context，把持久化表单响应作为新的 USER 输入继续同一个 Creation
+  → 从 Execution Snapshot V4 恢复正式 Context，把权威表单结果替换进原 request_user_input Tool Result
+  → 追加固定续跑提示并继续同一个 Creation；PAUSE_READY 不再充当 Context 权威来源
 Agent Tool
   → PUT 创建或读取同一 Generation Task
 Java
@@ -94,6 +95,7 @@ Generation 与 Agent Completion 都最多重试 3 次网络错误或 5xx。仍�
 
 - 主模型为百炼 `qwen3.8-flash`，关闭 Thinking；图片生成模型为 `qwen-image-2.0`。
 - 中文系统提示词位于 `backend-ts/.pi/SYSTEM.md`。
+- 生成 Tool 的正向与负向提示词默认使用用户当前语言，不因模型惯例自动翻译成英文；用户明确的主体、数量、关系、准确文字和关键物件是模型级语义约束，只能补充未指定细节。数量、画幅与 Asset 授权继续由 Harness 机械校验；不增加容易误判专名或混合文案的语言检测器。
 - 内置 `poster-design`、`brand-design`、`cinematic-still`、`impasto-diorama`、`monumental-scale-poster`、`portrait-face-director`、`japanese-life-fragments` 与 `series-image-director` 分别位于 `backend-ts/.pi/skills/<name>/SKILL.md`。
 - Pi 先看到 Skill 的 `name/description/location`，命中后使用受限 `read` 渐进读取正文。
 - `read` 保留 Pi 官方 Tool 形态，但执行器只允许规范化后仍位于 `.pi/skills` 根目录内的路径。
@@ -120,13 +122,15 @@ Tool 无论成功或失败都返回 Pi 官方可消费的 `{ content, details }`
 
 `request_user_input` 只用于缺少会实质改变结果的信息。V1 只支持固定渲染组件 `TEXT` 与 `SINGLE_SELECT`；字段、选项和模型根据当前理解给出的初始值都由 Tool 参数提供。模型不得把普通说明伪装成表单，也不得在同一次 Tool 批次中混合表单与有副作用的生成 Tool。Harness 会在 Tool 执行前识别这种混合批次，阻止整批调用并把可修正错误返回模型，因此不会仅依赖提示词避免副作用。
 
-表单是 Creation 内独立的业务事实，不伪装成新的聊天气泡或 Activity。`creation_forms` 保存完整定义、`PENDING/SUBMITTED/SKIPPED` 状态及结构化答案；一个 Creation 可按 Loop 需要顺序产生多张表单，但任一时刻最多只有当前 `WAITING_INPUT` 表单可操作。用户可确认或跳过，二者都会持久化并恢复原 Pi Context；跳过会向模型明确表达“按已有信息和合理默认值继续”。
+表单是 Creation 内独立的业务事实，不伪装成新的聊天气泡或 Activity。`creation_forms` 保存完整定义、`PENDING/SUBMITTED/SKIPPED/CANCELLED` 状态及结构化答案；一个 Creation 可按 Loop 需要顺序产生多张表单，但任一时刻最多只有当前 `WAITING_INPUT` 表单可操作。用户可确认、跳过或取消本次 Creation；确认与跳过会持久化结果并恢复原 Pi Context，取消则把 Creation 与尚未处理的表单一起收口为 `CANCELLED`。
 
-Pi Tool Result 使用官方 `terminate: true` 在表单边界稳定结束当前 prompt。暂停期间不保留活跃 Pi Session、Tool Waiter 或未 ACK 的 MQ 消息；TS Ledger 的 `PAUSE_READY + payload_json` 保存清理过的 Pi Context 和原始表单请求。用户响应后，Java复用 `AGENT_EXECUTE` Outbox 派发新 revision，TS恢复 Context继续执行，不新增队列或恢复协议。
+Pi Tool Result 使用官方 `terminate: true` 在表单边界稳定结束当前 prompt。暂停期间不保留活跃 Pi Session、Tool Waiter 或未 ACK 的 MQ 消息。TS 先用 `PAUSE_READY + payload_json` 暂存一次可重放的 HTTP 投递请求；Java随后在同一事务内提交暂停 Context、表单、最终 Activity 和 `WAITING_INPUT`，确认后 TS 清空这份临时 payload。用户响应后，Java复用 `AGENT_EXECUTE` Outbox 派发新 revision；TS只从 Java快照恢复 Context，按 `toolCallId` 校验唯一的 Tool Call/Result 配对，将占位 Tool Result替换为结构化的 `SUBMITTED/SKIPPED` 结果，再追加不含答案的固定续跑 USER 提示。答案始终作为不受信任的用户数据进入 Tool Result，而不是拼成系统指令：模型可见 `content` 按表单字段顺序输出“字段标签：实际答案”的简洁摘要，选项答案显示用户看到的标签，并明确已回答字段不得重复询问、未回答的可选字段由模型合理决定；完整的表单与结构化答案只保留在 Tool Result `details`。
+
+内部 HTTP 契约中的 `form`、`answers` 与 `agentContext` 使用普通 JSON Object（Java wire DTO 为 `Map<String, Object>`）承载；进入 Service 后再转换为业务层使用的 Jackson 2 Tree 做结构校验和持久化。这样可与 Spring Boot 4 的 Jackson 3 HTTP Converter 保持兼容，同时避免把某一 Jackson 版本的 `JsonNode` 暴露为跨服务协议类型；对 TS 和浏览器看到的 JSON 结构没有影响。
 
 ## 5. 会话与 Agent Context
 
-Java Execution Snapshot V3 返回当前 USER prompt、当前会话唯一的 `agentContext`、本轮授权图片、Creation 级生成约束，以及恢复执行时最新一张已处理表单的响应。普通模式不读取或修改 Agent Context；上下文严格以 Generation Session 隔离。
+Java Execution Snapshot V4 返回当前 USER prompt、当前会话唯一的 `agentContext`、本轮授权图片、Creation 级生成约束，以及与该 Context 配对的 `pendingInput`。`pendingInput` 包含来源 Creation、`toolCallId`、`PENDING/SUBMITTED/SKIPPED/CANCELLED` 状态、表单定义和规范化答案；因此它也能在旧 Creation 取消或恢复失败后，供下一轮先完成占位 Tool Result 的确定性归一化。普通模式不读取或修改 Agent Context；上下文严格以 Generation Session 隔离。
 
 ```json
 {
@@ -141,8 +145,8 @@ Java Execution Snapshot V3 返回当前 USER prompt、当前会话唯一的 `age
 - 每轮启动时 Codec 将 Context 恢复到新的 `SessionManager.inMemory`；Pi 稳定结束后导出当前 active branch。
 - 当前明确引用的图片作为本轮 `ImageContent` 注入；导出时图片二进制替换为 Asset ID 文本引用，绝不落库 Base64/Data URI。
 - 历史图片默认只以 Asset ID 留在 Context。模型确需理解历史画面或质检本轮生成结果时调用 `inspect_image`；Java只允许读取当前用户在同一 Generation Session 中使用或成功生成、仍然有效的资产，并校验活动 Creation 的 revision。TS从私有 OSS恢复的 `ImageContent` 只存在于当前 Loop；Tool Result导出时再次删除 Base64并保留准确 Asset ID。历史图片若要作为图生图输入，仍应由用户在当前请求中明确选择。
-- 成功 Completion 才携带新 Context；Java从 Creation 获取可信 `sessionId`，并在同一事务内写 Context、最终消息、Activity 和 Creation 终态。失败或取消不覆盖上一次成功 Context。
-- `conversation_messages` 继续只负责前端长期展示，`agent_session_contexts` 负责下一轮模型输入；不增加消息游标、租约、版本列或另一套逐消息表。
+- `request_user_input` 暂停与成功 Completion 都会提交正式 Context：暂停事务同时写 Context、表单、Activity 和 `WAITING_INPUT`；成功事务同时写 Context、最终消息、Activity 和 Creation 终态。运行失败不会用半截 Loop 覆盖 Context；取消只把配套待处理输入标记为 `CANCELLED`，保留已提交的 Context 正文。
+- `conversation_messages` 继续只负责前端长期展示；`agent_session_contexts` 仍然每个会话一行，保存下一轮模型输入以及最小的 Context 来源 revision、待处理 `toolCallId/status` 元数据，不增加另一套逐消息表。
 
 ## 6. 实时事件与最终 Activity
 
@@ -158,9 +162,9 @@ Pi 原生事件由 `AgentEventNormalizer` 映射为最小产品事件：
 
 TS 将安全事件通过一个实例级 WebSocket发送给 Java；Java验证 Creation 所有权、模式、状态与 revision，补齐用户和会话路由，再通过用户级 SSE 发给浏览器。前端直接消费 `TEXT_DELTA`，不伪造逐字符输出。
 
-中间 Activity 不写数据库，也没有 Activity HTTP 接口。Java 的内存投影会聚合文字、Skill 和 Tool 状态；浏览器 SSE 新建或重连时收到 `RUN_SNAPSHOT`，以 `streamId + sequence` 恢复当前安全过程。表单不是瞬时 Activity：事务提交后，Java 通过 SSE 直接发送完整 `FORM_REQUESTED/FORM_RESOLVED` 快照，前端无需为每个表单事件再次 GET；页面刷新或 SSE 重连时再由 Turn REST 恢复。最终状态仍由 REST 快照兜底。
+瞬时 Activity 不按事件增量写数据库，也没有 Activity HTTP 接口。Java 的内存投影会聚合文字、Skill 和 Tool 状态；浏览器 SSE 新建或重连时收到 `RUN_SNAPSHOT`，以 `streamId + sequence` 恢复当前安全过程。执行分段在表单暂停时稳定收口后，Java会把该分段已完成的 Activity 与 Context、表单一起事务提交；最终分段的 Activity 则随 Completion 提交。表单不是瞬时 Activity：事务提交后，Java 通过 SSE 直接发送完整 `FORM_REQUESTED/FORM_RESOLVED` 快照，前端无需为每个表单事件再次 GET；页面刷新或 SSE 重连时再由 Turn REST 恢复。最终状态仍由 REST 快照兜底。
 
-Pi 的 `agent_settled` 只作为 Runtime 内部收口屏障，不作为产品事件。稳定结束后，TS 在 Agent Completion V2 中提交按顺序排列的最终 Activities 与 Agent Context。Java在同一事务内一次性写入 Activities、最终 ASSISTANT Message、Agent Context 和 Creation 终态。`creation_activities` 只保存不可变终态步骤：
+Pi 的 `agent_settled` 只作为 Runtime 内部收口屏障，不作为产品事件。最终稳定结束后，TS 在 Agent Completion V2 中提交本分段按顺序排列的 Activities 与 Agent Context。Java在同一事务内写入这些 Activities、最终 ASSISTANT Message、Agent Context 和 Creation 终态。`creation_activities` 只保存已经完成且不可再修改的步骤：
 
 ```text
 sequence_no + activity_type + outcome + content
@@ -179,7 +183,7 @@ sequence_no + activity_type + outcome + content
 | `creation_task_id` | 主键，也是 Agent 执行身份 |
 | `execution_revision` | 当前执行分段对应的 Creation revision |
 | `state` | `RUNNING / PAUSE_READY / COMPLETION_READY / INTERRUPTED` |
-| `payload_json` | `PAUSE_READY` 的 Pi Context/表单请求，或 Java尚未确认的最终 Completion |
+| `payload_json` | Java确认前可重放的暂停 HTTP 请求，或 Java尚未确认的最终 Completion；暂停确认后清空 |
 | `started_at/completed_at/updated_at` | 技术时间戳 |
 
 行为规则：
@@ -187,8 +191,8 @@ sequence_no + activity_type + outcome + content
 - 首次消费插入 `RUNNING` 后才开始 Pi Loop。
 - 当前进程存在同 revision 或更新 revision 的 active 执行时，重复/过期消息直接 ACK；更高 revision 的恢复命令等待上一执行分段退出后再启动，不能被误判成重复消息。
 - 重启后发现孤立 `RUNNING`，标记 `INTERRUPTED` 并把 Creation 收敛为 `AGENT_RUNTIME_INTERRUPTED`；不重跑非确定性 Loop。
-- Pi 请求用户输入时先保存 `PAUSE_READY + payload_json`，再幂等创建 Java 表单；MQ 重投可重放同一表单请求。
-- 表单处理后，新 revision 的 `AGENT_EXECUTE` 将 `PAUSE_READY` 原子恢复为 `RUNNING`，并从保存的 Pi Context 继续。
+- Pi 请求用户输入时先保存 `PAUSE_READY + payload_json`，再让 Java原子提交 Context、表单和 `WAITING_INPUT`；Java响应丢失时，MQ 重投仍可重放同一请求。
+- Java确认暂停后清空 Ledger 的 `payload_json`。表单处理后，新 revision 的 `AGENT_EXECUTE` 将 `PAUSE_READY` 原子恢复为 `RUNNING`，但 Context 始终从 Java Execution Snapshot V4 读取。
 - Pi 结束后先保存 `COMPLETION_READY + payload_json`（包括成功 Context），再提交 Java。
 - Java响应丢失或 MQ 重投时读取 `payload_json` 再次 PUT；Java终态检查保证不重复写消息或 Activity。
 
@@ -200,7 +204,7 @@ sequence_no + activity_type + outcome + content
 
 - `generation_sessions`：跨轮逻辑会话。
 - `conversation_messages`：USER/ASSISTANT 最终文本。
-- `agent_session_contexts`：每个 Agent 会话唯一的 Pi 压缩摘要与近期完整消息快照。
+- `agent_session_contexts`：每个 Agent 会话唯一的 Pi 压缩摘要、近期完整消息快照及最小待处理输入元数据。
 - `creation_tasks`：一次普通或 Agent 创作轮次；含 `mode/status/revision` 及用户比例、数量约束。
 - `generation_tasks`：一次图片模型调用；含 `revision` 和可空 `tool_call_id`。
 - `creation_activities`：Agent 最终可展示步骤。
@@ -231,14 +235,14 @@ sequence_no + activity_type + outcome + content
 
 ## 9. 取消语义
 
-用户可在 `RUNNING` 或 `WAITING_INPUT` 时取消。Java锁定并提交 Creation `CANCELLED`，revision 递增。事务提交后 Java广播 `RUN_CANCELLED`，并尽力通过 WebSocket发送 `CANCEL`。TS 对活动 Creation 持有 `AbortController`；取消会触发 Pi `session.abort()`，同一 `AbortSignal` 传入 Tool 和等待器；等待表单时没有活跃 Pi Session，Java状态本身即可终止后续恢复。
+用户可在 `RUNNING` 或 `WAITING_INPUT` 时取消，也可直接点击表单卡片的“取消本次创作”。Java锁定并提交 Creation `CANCELLED`，revision 递增；若正等待表单，会在同一事务内把表单和 Context 的待处理输入元数据标记为 `CANCELLED`。事务提交后 Java广播 `RUN_CANCELLED`，并尽力通过 WebSocket发送 `CANCEL`。TS 对活动 Creation 持有 `AbortController`；取消会触发 Pi `session.abort()`，同一 `AbortSignal` 传入 Tool 和等待器；等待表单时没有活跃 Pi Session，Java状态本身即可终止后续恢复。下一次新 Creation 会先把旧占位 Tool Result 归一化为取消结果，再追加真正的新用户 Prompt。
 
 `CANCELLED` 只能由 Java用户取消入口产生，TS Agent Completion 只允许 `SUCCEEDED/FAILED`。WebSocket断线恢复后，TS读取一次 Java权威快照；若状态或 revision 已变化，立即中止旧执行。
 
 ## 10. 安全边界
 
 - Worker HTTP 与 WebSocket使用内部 Worker Token；Token 不放 URL、不返回浏览器。
-- TS 不直接写 Java业务表，只写 `agent_worker_executions` 技术账本；Agent Context 通过 Completion 由 Java事务写入。
+- TS 不直接写 Java业务表，只写 `agent_worker_executions` 技术账本；Agent Context 通过暂停请求或 Completion 由 Java事务写入。
 - `image_to_image` 继续由 Tool 与 Java双重校验 Asset ID 属于当前 Creation 输入集合；`inspect_image` 由 Java校验当前用户、同一 Generation Session、资产有效性及活动 Creation revision。
 - Skill 正文、系统提示词、Tool 原始参数与结果不会作为产品事件发送前端。
 - `request_user_input` 的定义和答案都经过 TypeBox、Zod 与 Java信任边界校验；前端只渲染固定字段类型，不接受模型提供的 HTML 或组件代码。

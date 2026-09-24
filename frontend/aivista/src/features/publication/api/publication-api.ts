@@ -11,7 +11,10 @@ export const publicationQueryKeys = {
 
 export type SubmitPublicationInput = { title: string; description: string };
 
-export async function submitPublication(imageId: string, input: SubmitPublicationInput): Promise<PublicationRequestResult> {
+export async function submitPublication(
+  imageId: string,
+  input: SubmitPublicationInput,
+): Promise<PublicationRequestResult> {
   const response = await browserApiClient.post<ApiResponse<PublicationRequestResult>>(
     `/generation-images/${imageId}/publication`,
     input,

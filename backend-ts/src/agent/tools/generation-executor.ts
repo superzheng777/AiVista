@@ -2,25 +2,26 @@ import { JavaGenerationApiError, type JavaGenerationClient } from "../adapters/j
 import type { GenerationCompletionCoordinatorService } from "../../generation/generation-completion-coordinator.service.js";
 import type { GenerationToolExecutor, GenerationToolOutcome, GenerationToolRequest } from "./generation.js";
 
-export interface AgentGenerationExecutorOptions {
+export interface AgentGenerationToolExecutorOptions {
   creationId: string;
-  java: JavaGenerationClient;
-  completions: GenerationCompletionCoordinatorService;
+  generationClient: JavaGenerationClient;
+  completionCoordinator: GenerationCompletionCoordinatorService;
   toolWaitTimeoutMs?: number;
 }
 
 /** Creation-scoped executor used by the two formal Pi generation tools. */
 export class AgentGenerationToolExecutor implements GenerationToolExecutor {
-  constructor(private readonly options: AgentGenerationExecutorOptions) {}
+  constructor(private readonly options: AgentGenerationToolExecutorOptions) {}
 
   async execute(toolCallId: string, request: GenerationToolRequest,
       signal?: AbortSignal): Promise<GenerationToolOutcome> {
     try {
-      const timeout = AbortSignal.timeout(this.options.toolWaitTimeoutMs ?? 660_000);
-      const executionSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
-      const created = await this.options.java.createTask(this.options.creationId,
+      const timeoutSignal = AbortSignal.timeout(this.options.toolWaitTimeoutMs ?? 660_000);
+      const executionSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
+      const created = await this.options.generationClient.createTask(this.options.creationId,
         toolCallId, request, executionSignal);
-      const completed = await this.options.completions.wait(created.generationTaskId, executionSignal);
+      const completed = await this.options.completionCoordinator.wait(
+        created.generationTaskId, executionSignal);
       if ((completed.status === "SUCCEEDED" || completed.status === "PARTIALLY_SUCCEEDED")
           && completed.assets.length > 0) {
         return { outcome: "SUCCEEDED", generationTaskId: completed.generationTaskId,

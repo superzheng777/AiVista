@@ -1,5 +1,4 @@
-export type GenerationTaskStatus = "QUEUED" | "GENERATING" | "SAVING"
-  | "SUCCEEDED" | "PARTIALLY_SUCCEEDED" | "FAILED";
+export type GenerationTaskStatus = "QUEUED" | "GENERATING" | "SAVING" | "SUCCEEDED" | "PARTIALLY_SUCCEEDED" | "FAILED";
 
 export function isActiveGenerationStatus(status: GenerationTaskStatus): boolean {
   return status === "QUEUED" || status === "GENERATING" || status === "SAVING";
@@ -24,6 +23,25 @@ export type GenerationTask = {
   createdAt: string;
   completedAt: string | null;
 };
+
+type GenerationProgressTask = Pick<GenerationTask, "requestedImageCount" | "completedImageCount" | "failedImageCount">;
+
+/** Image progress comes only from real generation tasks, never from Agent Tool attempts. */
+export function generationImageProgress(tasks: readonly GenerationProgressTask[]) {
+  const requested = tasks.reduce((total, task) => total + task.requestedImageCount, 0);
+  const completed = tasks.reduce((total, task) => total + task.completedImageCount, 0);
+  const failed = tasks.reduce((total, task) => total + task.failedImageCount, 0);
+  return { completed, failed, total: Math.max(requested, completed + failed) };
+}
+
+const SESSION_TITLE_DISPLAY_LENGTH = 10;
+
+/** Keep session titles compact without changing their persisted value. */
+export function formatSessionTitle(title: string): string {
+  const characters = Array.from(title);
+  if (characters.length <= SESSION_TITLE_DISPLAY_LENGTH) return title;
+  return `${characters.slice(0, SESSION_TITLE_DISPLAY_LENGTH).join("")}...`;
+}
 
 export type GenerationSession = {
   id: string;
@@ -57,16 +75,23 @@ export type GenerationTurn = {
 
 export type AgentInputFormOption = { value: string; label: string };
 export type AgentInputFormField =
-  | { id: string; type: "TEXT"; label: string; required: boolean;
-      initialValue?: string; placeholder?: string }
-  | { id: string; type: "SINGLE_SELECT"; label: string; required: boolean;
-      initialValue?: string; options: AgentInputFormOption[]; allowCustom: boolean;
-      customLabel?: string; customInitialValue?: string };
+  | { id: string; type: "TEXT"; label: string; required: boolean; initialValue?: string; placeholder?: string }
+  | {
+      id: string;
+      type: "SINGLE_SELECT";
+      label: string;
+      required: boolean;
+      initialValue?: string;
+      options: AgentInputFormOption[];
+      allowCustom: boolean;
+      customLabel?: string;
+      customInitialValue?: string;
+    };
 export type AgentInputForm = { schemaVersion: 1; title: string; fields: AgentInputFormField[] };
 export type AgentFormAnswer = { kind: "TEXT" | "OPTION" | "CUSTOM"; value: string };
 export type CreationForm = {
   id: string;
-  status: "PENDING" | "SUBMITTED" | "SKIPPED";
+  status: "PENDING" | "SUBMITTED" | "SKIPPED" | "CANCELLED";
   form: AgentInputForm;
   answers: Record<string, AgentFormAnswer> | null;
   requestedAt: string;

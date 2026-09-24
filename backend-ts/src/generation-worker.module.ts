@@ -22,6 +22,7 @@ import { AgentExecutionService } from "./agent/agent-execution.service.js";
 import { AgentCommandListenerService } from "./agent/agent-command-listener.service.js";
 import { AgentCommandConsumerService } from "./agent/agent-command-consumer.service.js";
 import { JavaAgentRealtimeClient } from "./agent/adapters/java-agent-realtime-client.js";
+import { AgentObservabilityService } from "./observability/agent-observability.service.js";
 
 @Module({ imports: [ConfigModule.forRoot({ isGlobal: true, validate: validateEnvironment }), DatabaseModule],
   providers: [GenerationImageUrlService, GenerationBailianClientService, GenerationProviderCallGateService,
@@ -30,6 +31,6 @@ import { JavaAgentRealtimeClient } from "./agent/adapters/java-agent-realtime-cl
     GenerationPipelineExecutionService, GenerationCompletionCoordinatorService,
     JavaGenerationClient, JavaAgentCompletionClient, JavaAgentFormClient,
     AgentExecutionStateService, AgentImageLoaderService,
-    AgentModelService, JavaAgentRealtimeClient, AgentExecutionService,
+    AgentModelService, JavaAgentRealtimeClient, AgentObservabilityService, AgentExecutionService,
     AgentCommandListenerService, AgentCommandConsumerService] })
 export class GenerationWorkerModule {}

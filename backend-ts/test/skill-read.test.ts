@@ -120,6 +120,8 @@ describe("project Skill resources", () => {
     expect(portraitFaceContent).toContain("第二阶段：五官结构覆盖");
     expect(portraitFaceContent).toContain("用户的自定义值和 `refinements` 优先级最高");
     expect(portraitFaceContent).toContain("不复刻明星、网红、公众人物");
+    expect(portraitFaceContent).toContain("Prompt 默认使用用户当前语言");
+    expect(portraitFaceContent).not.toContain("英文 Prompt");
     expect(portraitFaceContent).not.toContain("generate_form_for_info_collection");
     expect(portraitFaceContent).not.toContain("get_resource_status");
 
@@ -131,6 +133,8 @@ describe("project Skill resources", () => {
     expect(faceArchetypesContent).toContain("脸谱名称只是检索入口");
     expect(faceArchetypesContent).toContain("电影感辨识脸");
     expect(faceArchetypesContent).toContain("用户自定义与自然语言微调优先于本库");
+    expect(faceArchetypesContent).toContain("Prompt 语义骨架");
+    expect(faceArchetypesContent).not.toContain("英文 Prompt 骨架");
 
     const lifeFragments = await tool.execute("read-life-fragments",
       { path: ".pi/skills/japanese-life-fragments/SKILL.md" }, undefined, undefined, {} as never);

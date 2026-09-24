@@ -38,7 +38,14 @@ function useContainerWidth() {
   return { containerRef, containerWidth };
 }
 
-function layoutItems<T>(items: readonly T[], containerWidth: number, getItemHeight: (item: T, laneWidth: number) => number, minLaneWidth: number, maxLanes: number, gap: number) {
+function layoutItems<T>(
+  items: readonly T[],
+  containerWidth: number,
+  getItemHeight: (item: T, laneWidth: number) => number,
+  minLaneWidth: number,
+  maxLanes: number,
+  gap: number,
+) {
   if (containerWidth <= 0) return { items: [] as PositionedItem<T>[], height: 0 };
   const laneCount = getLaneCount(containerWidth, minLaneWidth, maxLanes, gap);
   const laneWidth = (containerWidth - gap * (laneCount - 1)) / laneCount;
@@ -47,12 +54,16 @@ function layoutItems<T>(items: readonly T[], containerWidth: number, getItemHeig
 
   for (const item of items) {
     let laneIndex = 0;
+    let laneHeight = laneHeights[0] ?? 0;
     for (let index = 1; index < laneHeights.length; index += 1) {
-      if (laneHeights[index] < laneHeights[laneIndex]) laneIndex = index;
+      const candidateHeight = laneHeights[index];
+      if (candidateHeight !== undefined && candidateHeight < laneHeight) {
+        laneIndex = index;
+        laneHeight = candidateHeight;
+      }
     }
-    const top = laneHeights[laneIndex];
-    positionedItems.push({ item, left: laneIndex * (laneWidth + gap), top, width: laneWidth });
-    laneHeights[laneIndex] += getItemHeight(item, laneWidth) + gap;
+    positionedItems.push({ item, left: laneIndex * (laneWidth + gap), top: laneHeight, width: laneWidth });
+    laneHeights[laneIndex] = laneHeight + getItemHeight(item, laneWidth) + gap;
   }
 
   return { items: positionedItems, height: Math.max(0, ...laneHeights) - (items.length ? gap : 0) };
@@ -62,9 +73,35 @@ function layoutItems<T>(items: readonly T[], containerWidth: number, getItemHeig
  * Keeps item order deterministic while placing each next item into the current
  * shortest lane. Cards must provide a deterministic height for their lane width.
  */
-export function ShortestLaneFeed<T>({ items, getItemKey, getItemHeight, renderItem, minLaneWidth = 220, maxLanes = 5, gap = 18, priorityCount = 4, className }: ShortestLaneFeedProps<T>) {
+export function ShortestLaneFeed<T>({
+  items,
+  getItemKey,
+  getItemHeight,
+  renderItem,
+  minLaneWidth = 220,
+  maxLanes = 5,
+  gap = 18,
+  priorityCount = 4,
+  className,
+}: ShortestLaneFeedProps<T>) {
   const { containerRef, containerWidth } = useContainerWidth();
-  const layout = useMemo(() => layoutItems(items, containerWidth, getItemHeight, minLaneWidth, maxLanes, gap), [containerWidth, gap, getItemHeight, items, maxLanes, minLaneWidth]);
+  const layout = useMemo(
+    () => layoutItems(items, containerWidth, getItemHeight, minLaneWidth, maxLanes, gap),
+    [containerWidth, gap, getItemHeight, items, maxLanes, minLaneWidth],
+  );
 
-  return <div ref={containerRef} className={className ?? "relative w-full"} style={{ height: layout.height }} aria-busy={containerWidth <= 0}>{layout.items.map(({ item, left, top, width }, index) => <div key={getItemKey(item)} className="absolute" style={{ left, top, width }}>{renderItem(item, index < priorityCount)}</div>)}</div>;
+  return (
+    <div
+      ref={containerRef}
+      className={className ?? "relative w-full"}
+      style={{ height: layout.height }}
+      aria-busy={containerWidth <= 0}
+    >
+      {layout.items.map(({ item, left, top, width }, index) => (
+        <div key={getItemKey(item)} className="absolute" style={{ left, top, width }}>
+          {renderItem(item, index < priorityCount)}
+        </div>
+      ))}
+    </div>
+  );
 }

@@ -2,15 +2,17 @@ import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { z } from "zod";
 import type { Environment } from "../../config/environment.js";
+import { agentActivitySchema, MAX_AGENT_ACTIVITY_COUNT } from "../agent-activity.js";
+import { agentSessionContextSchema } from "../agent-context.js";
 import { agentInputFormSchema } from "../agent-form-contract.js";
-import { activitySchema } from "./java-agent-completion-client.js";
 import { putJavaWorker } from "../../common/java-worker-http.js";
 
 export const agentInputRequestCommandSchema = z.object({
-  contractVersion: z.literal(1),
+  contractVersion: z.literal(2),
   expectedRevision: z.number().int().nonnegative(),
   form: agentInputFormSchema,
-  activities: z.array(activitySchema).max(100),
+  activities: z.array(agentActivitySchema).max(MAX_AGENT_ACTIVITY_COUNT),
+  agentContext: agentSessionContextSchema,
 });
 
 export type AgentInputRequestCommand = z.infer<typeof agentInputRequestCommandSchema>;
@@ -27,7 +29,7 @@ export class JavaAgentFormClient {
     this.timeoutMs = config.get("AIVISTA_JAVA_REQUEST_TIMEOUT_MS", { infer: true });
   }
 
-  async request(creationId: string, toolCallId: string, command: AgentInputRequestCommand,
+  async requestInput(creationId: string, toolCallId: string, command: AgentInputRequestCommand,
       signal?: AbortSignal): Promise<void> {
     if (!this.token) throw new Error("Generation worker token is not configured");
     if (!/^[1-9]\d*$/.test(creationId)) throw new TypeError("creationId must be a positive integer ID");

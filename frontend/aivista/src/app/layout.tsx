@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 
-import { AuthProviders } from "@/features/auth/ui/auth-providers";
-import { QueryProvider } from "@/shared/api/query-provider";
+import { AppProviders } from "@/app/providers";
 
 export const metadata: Metadata = {
   title: "AiVista",
@@ -17,9 +16,7 @@ export default function RootLayout({
   return (
     <html lang="zh-CN" className="h-full antialiased">
       <body className="min-h-full flex flex-col">
-        <QueryProvider>
-          <AuthProviders>{children}</AuthProviders>
-        </QueryProvider>
+        <AppProviders>{children}</AppProviders>
       </body>
     </html>
   );

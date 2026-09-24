@@ -12,12 +12,12 @@ const aspectRatioSchema = Type.Union([
 const promptSchema = Type.String({
   minLength: 1,
   maxLength: 1000,
-  description: "交给图像生成模型的完整正向提示词。",
+  description: "交给图像生成模型的完整正向提示词。默认使用用户当前语言，并保留用户指定的主体、数量、关系、准确文字和关键物件。",
 });
 
 const negativePromptSchema = Type.Optional(Type.String({
   maxLength: 500,
-  description: "可选负向提示词；仅在确有需要时填写。",
+  description: "可选负向提示词；仅在确有需要时填写，并默认使用用户当前语言。",
 }));
 
 const userFacingPlanSchema = Type.String({
@@ -86,7 +86,7 @@ export type AgentGenerationConstraints = {
 export function createGenerationTools(options: GenerationToolOptions): ToolDefinition[] {
   let allocatedImageCount = 0;
 
-  async function execute(request: GenerationToolRequest, toolCallId: string, signal?: AbortSignal) {
+  async function executeGeneration(request: GenerationToolRequest, toolCallId: string, signal?: AbortSignal) {
     if (options.constraints.aspectRatio !== "AUTO"
       && request.aspectRatio !== options.constraints.aspectRatio) {
       return resultOf({ outcome: "FAILED", code: "ASPECT_RATIO_CONSTRAINT_MISMATCH",
@@ -101,7 +101,11 @@ export function createGenerationTools(options: GenerationToolOptions): ToolDefin
     allocatedImageCount += request.imageCount;
     try {
       const outcome = await options.executor.execute(toolCallId, request, signal);
-      if (outcome.outcome === "FAILED") allocatedImageCount -= request.imageCount;
+      if (outcome.outcome === "FAILED") {
+        allocatedImageCount -= request.imageCount;
+      } else {
+        allocatedImageCount += outcome.imageAssetIds.length - request.imageCount;
+      }
       return resultOf(outcome);
     } catch (error) {
       allocatedImageCount -= request.imageCount;
@@ -114,10 +118,10 @@ export function createGenerationTools(options: GenerationToolOptions): ToolDefin
     label: "文生图",
     description: "根据完整文字描述生成一张新图片。没有参考图片时使用；不要用于修改已有图片。",
     parameters: textToImageParameters,
-    async execute(_toolCallId, params, signal) {
+    async execute(toolCallId, params, signal) {
       const prompt = params.prompt.trim();
       if (!prompt) return invalidPromptResult();
-      return execute({
+      return executeGeneration({
         operation: "TEXT_TO_IMAGE",
         prompt,
         negativePrompt: optionalText(params.negativePrompt),
@@ -125,7 +129,7 @@ export function createGenerationTools(options: GenerationToolOptions): ToolDefin
         inputAssetIds: [],
         promptExtend: true,
         imageCount: params.imageCount,
-      }, _toolCallId, signal);
+      }, toolCallId, signal);
     },
   });
 
@@ -134,7 +138,7 @@ export function createGenerationTools(options: GenerationToolOptions): ToolDefin
     label: "图生图",
     description: "根据一至三张当前请求已授权的参考图片进行修改或再创作。需要参考已有图片时使用。",
     parameters: imageToImageParameters,
-    async execute(_toolCallId, params, signal) {
+    async execute(toolCallId, params, signal) {
       const prompt = params.prompt.trim();
       if (!prompt) return invalidPromptResult();
       const unauthorized = params.inputAssetIds.filter((id) => !options.authorizedInputAssetIds.has(id));
@@ -150,7 +154,7 @@ export function createGenerationTools(options: GenerationToolOptions): ToolDefin
           retryable: true,
         });
       }
-      return execute({
+      return executeGeneration({
         operation: "IMAGE_TO_IMAGE",
         prompt,
         negativePrompt: optionalText(params.negativePrompt),
@@ -158,7 +162,7 @@ export function createGenerationTools(options: GenerationToolOptions): ToolDefin
         inputAssetIds: params.inputAssetIds,
         promptExtend: true,
         imageCount: params.imageCount,
-      }, _toolCallId, signal);
+      }, toolCallId, signal);
     },
   });
 

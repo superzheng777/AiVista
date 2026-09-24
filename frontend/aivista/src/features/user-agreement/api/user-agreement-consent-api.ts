@@ -25,7 +25,9 @@ function toConsent(dto: UserAgreementConsentDto): UserAgreementConsent {
 
 /** 查询当前用户对《用户协议》的确认状态与当前生效版本、文案。 */
 export async function getUserAgreementConsent(): Promise<UserAgreementConsent> {
-  const response = await browserApiClient.get<ApiResponse<UserAgreementConsentDto>>("/users/me/consents/user-agreement");
+  const response = await browserApiClient.get<ApiResponse<UserAgreementConsentDto>>(
+    "/users/me/consents/user-agreement",
+  );
   return toConsent(unwrapApiResponse(response.data));
 }
 

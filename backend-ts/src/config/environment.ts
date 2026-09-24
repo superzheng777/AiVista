@@ -39,6 +39,10 @@ export const environmentSchema = z.object({
   AIVISTA_AGENT_MAX_CONCURRENT: z.coerce.number().int().positive().default(4),
   AIVISTA_AGENT_TOOL_WAIT_TIMEOUT_MS: z.coerce.number().int().positive().default(660_000),
   AIVISTA_AGENT_LOOP_TIMEOUT_MS: z.coerce.number().int().positive().default(1_200_000),
+  AIVISTA_LANGFUSE_ENABLED: z.stringbool().default(false),
+  LANGFUSE_PUBLIC_KEY: optionalNonEmpty,
+  LANGFUSE_SECRET_KEY: optionalNonEmpty,
+  LANGFUSE_BASE_URL: z.string().url().default("https://cloud.langfuse.com"),
   AIVISTA_RABBITMQ_HOST: optionalNonEmpty,
   AIVISTA_RABBITMQ_PORT: z.coerce.number().int().min(1).max(65_535).default(5672),
   AIVISTA_RABBITMQ_USERNAME: optionalNonEmpty,
@@ -57,6 +61,14 @@ export const environmentSchema = z.object({
   if (value.AIVISTA_AGENT_ENABLED && !value.AIVISTA_GENERATION_QUEUE_ENABLED) {
     context.addIssue({ code: "custom", path: ["AIVISTA_GENERATION_QUEUE_ENABLED"],
       message: "Agent mode requires the Generation consumer because Agent tools reuse its pipeline" });
+  }
+  if (value.AIVISTA_LANGFUSE_ENABLED && !value.LANGFUSE_PUBLIC_KEY) {
+    context.addIssue({ code: "custom", path: ["LANGFUSE_PUBLIC_KEY"],
+      message: "LANGFUSE_PUBLIC_KEY is required when Langfuse observability is enabled" });
+  }
+  if (value.AIVISTA_LANGFUSE_ENABLED && !value.LANGFUSE_SECRET_KEY) {
+    context.addIssue({ code: "custom", path: ["LANGFUSE_SECRET_KEY"],
+      message: "LANGFUSE_SECRET_KEY is required when Langfuse observability is enabled" });
   }
 });
 

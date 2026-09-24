@@ -10,6 +10,7 @@ import com.superz.aivista.generation.mapper.ConversationMessageMapper;
 import com.superz.aivista.generation.mapper.CreationTaskMapper;
 import com.superz.aivista.generation.mapper.GenerationSessionMapper;
 import com.superz.aivista.generation.message.AgentCompletionCommand;
+import com.superz.aivista.generation.model.AgentJsonObjects;
 import com.superz.aivista.generation.model.ConversationRole;
 import java.time.Clock;
 import java.time.Instant;
@@ -43,7 +44,8 @@ public class AgentCompletionService {
 
     @Transactional
     public void complete(AgentCompletionCommand command) {
-        long creationTaskId = validate(command);
+        JsonNode agentContext = command == null ? null : AgentJsonObjects.toTree(objectMapper, command.agentContext());
+        long creationTaskId = validate(command, agentContext);
         CreationTask creation = creations.selectByIdForUpdate(creationTaskId);
         if (creation == null || !"AGENT".equals(creation.getMode())) {
             throw new IllegalArgumentException("Agent creation does not exist");
@@ -62,7 +64,10 @@ public class AgentCompletionService {
         String finalMessage = normalized(command.finalMessage());
         if (finalMessage != null) insertAssistant(creation, finalMessage, now);
         String status = expectedStatus(command.outcome());
-        if ("SUCCEEDED".equals(status)) persistContext(creation.getSessionId(), command.agentContext(), now);
+        if ("SUCCEEDED".equals(status)) {
+            persistContext(creation.getSessionId(), creationTaskId, command.expectedRevision() + 1,
+                    agentContext, now);
+        }
         String failureCode = "FAILED".equals(status) ? command.failureCode() : null;
         if (creations.completeRunning(creationTaskId, command.expectedRevision(), status, failureCode, now) != 1) {
             throw new IllegalStateException("Cannot complete Agent creation " + creationTaskId);
@@ -72,9 +77,11 @@ public class AgentCompletionService {
         creation.setRevision(command.expectedRevision() + 1);
     }
 
-    private void persistContext(long sessionId, JsonNode context, Instant now) {
+    private void persistContext(long sessionId, long creationTaskId, long revision,
+            JsonNode context, Instant now) {
         try {
-            contexts.upsert(sessionId, objectMapper.writeValueAsString(context), now);
+            contexts.upsertCompleted(sessionId, objectMapper.writeValueAsString(context),
+                    creationTaskId, revision, now);
         } catch (JsonProcessingException exception) {
             throw new IllegalArgumentException("Invalid Agent session context", exception);
         }
@@ -93,15 +100,15 @@ public class AgentCompletionService {
         sessions.updateLastMessageAt(creation.getSessionId(), now);
     }
 
-    private static long validate(AgentCompletionCommand command) {
+    private static long validate(AgentCompletionCommand command, JsonNode agentContext) {
         if (command == null) throw new IllegalArgumentException("Agent completion is required");
         long id = Long.parseLong(command.creationId());
         if (command.contractVersion() != 2 || id <= 0 || command.expectedRevision() < 0
                 || !List.of("SUCCEEDED", "FAILED").contains(command.outcome())
                 || ("SUCCEEDED".equals(command.outcome()) && normalized(command.finalMessage()) == null)
-                || ("SUCCEEDED".equals(command.outcome()) && !validContext(command.agentContext()))
+                || ("SUCCEEDED".equals(command.outcome()) && !validContext(agentContext))
                 || ("FAILED".equals(command.outcome()) && normalized(command.failureCode()) == null)
-                || ("FAILED".equals(command.outcome()) && command.agentContext() != null)
+                || ("FAILED".equals(command.outcome()) && agentContext != null)
                 || (normalized(command.failureCode()) != null && command.failureCode().length() > 64)
                 || (normalized(command.finalMessage()) != null
                     && command.finalMessage().codePointCount(0, command.finalMessage().length())

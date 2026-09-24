@@ -21,12 +21,12 @@ export async function putJavaWorker(options: {
   for (let attempt = 0; attempt < 3; attempt++) {
     options.signal?.throwIfAborted();
     try {
-      const timeout = AbortSignal.timeout(options.timeoutMs);
+      const timeoutSignal = AbortSignal.timeout(options.timeoutMs);
       const response = await fetch(options.url, {
         method: "PUT",
         headers: { "Content-Type": "application/json", "X-AiVista-Worker-Token": options.token },
         body: JSON.stringify(options.body),
-        signal: options.signal ? AbortSignal.any([options.signal, timeout]) : timeout,
+        signal: options.signal ? AbortSignal.any([options.signal, timeoutSignal]) : timeoutSignal,
       });
       if (response.ok) return response;
       const error = await javaWorkerError(response, options.fallbackError);

@@ -1,11 +1,6 @@
 "use client";
 
-import {
-  type InfiniteData,
-  useInfiniteQuery,
-  useMutation,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { type InfiniteData, useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowDown,
   ArrowUpRight,
@@ -17,6 +12,7 @@ import {
   Ellipsis,
   FolderClock,
   Heart,
+  Image as ImageIcon,
   ImageOff,
   LoaderCircle,
   MessageSquare,
@@ -24,11 +20,15 @@ import {
   Send,
   Sparkles,
   Trash2,
+  Wrench,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  formatSessionTitle,
+  generationImageProgress,
+  isActiveGenerationStatus,
   needsImageUrlRefresh,
   type AgentFormAnswer,
   type GenerationAsset,
@@ -52,37 +52,28 @@ import {
   listGenerationTurns,
   resolveAgentForm,
 } from "@/features/generation/api/generation-api";
-import {
-  GenerationComposer,
-  type GenerationComposerDraft,
-} from "@/features/generation/ui/generation-composer";
+import { GenerationComposer, type GenerationComposerDraft } from "@/features/generation/ui/generation-composer";
 import { AgentInputFormCard } from "@/features/generation/ui/agent-input-form-card";
 import {
+  useAgentLiveRuns,
   useGenerationEventStream,
   type GenerationSessionIndicator,
 } from "@/features/generation/model/generation-event-stream-provider";
-import {
-  BOTTOM_FOLLOW_THRESHOLD_PX,
-  nextBottomFollowState,
-} from "@/features/generation/model/conversation-scroll";
+import type { AgentLiveRun } from "@/features/generation/model/generation-event-stream-parsing";
+import { BOTTOM_FOLLOW_THRESHOLD_PX, nextBottomFollowState } from "@/features/generation/model/conversation-scroll";
+import { skillActivityText, skillDisplayName } from "@/features/generation/model/agent-activity-presentation";
 import {
   mergeGenerationTurnPageData,
   applyAgentFormUpdateToTurns,
   type GenerationTurnPage,
 } from "@/features/generation/model/generation-turn-cache";
 import { PublicationFormDialog } from "@/features/publication/ui/publication-form-dialog";
-import { cn } from "@/lib/utils";
-import {
-  AccentSquare,
-  DotMatrix,
-} from "@/shared/ui/editorial-ornaments/editorial-ornaments";
+import { cn } from "@/shared/lib/cn";
+import { AccentSquare, DotMatrix } from "@/shared/ui/editorial-ornaments/editorial-ornaments";
 
-function taskStatusText(
-  task: Pick<GenerationTask, "status" | "retryCount" | "maxRetryCount">,
-): string {
+function taskStatusText(task: Pick<GenerationTask, "status" | "retryCount" | "maxRetryCount">): string {
   const retryProgress = `${task.retryCount}/${task.maxRetryCount}`;
-  if (task.status === "QUEUED" && task.retryCount > 0)
-    return `模型调用失败，正在重试（${retryProgress}）`;
+  if (task.status === "QUEUED" && task.retryCount > 0) return `模型调用失败，正在重试（${retryProgress}）`;
   if (task.status === "QUEUED") return "图片排队中";
   if (task.status === "GENERATING") return "正在生成图片";
   if (task.status === "SAVING") return "正在保存图片";
@@ -105,9 +96,7 @@ export function GenerateWorkspace() {
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
   });
   const sessions = sessionsQuery.data?.pages.flatMap((page) => page.items);
-  const activeSessionTitle = sessionId
-    ? sessions?.find((session) => session.id === sessionId)?.title
-    : undefined;
+  const activeSessionTitle = sessionId ? sessions?.find((session) => session.id === sessionId)?.title : undefined;
   useEffect(() => {
     if (syncVersion > 0)
       void queryClient.refetchQueries({
@@ -156,10 +145,7 @@ export function GenerateWorkspace() {
           </div>
         </aside>
         {sessionId ? (
-          <ConversationPanel
-            sessionId={sessionId}
-            sessionTitle={activeSessionTitle}
-          />
+          <ConversationPanel key={sessionId} sessionId={sessionId} sessionTitle={activeSessionTitle} />
         ) : (
           <NewConversationPanel />
         )}
@@ -193,26 +179,18 @@ function NewConversationPanel() {
   );
 }
 
-function ConversationPanel({
-  sessionId,
-  sessionTitle,
-}: {
-  sessionId: string;
-  sessionTitle?: string;
-}) {
+function ConversationPanel({ sessionId, sessionTitle }: { sessionId: string; sessionTitle?: string }) {
   const queryClient = useQueryClient();
   const router = useRouter();
-  const { acknowledgeSession, agentRuns, sessionIndicators, syncVersion } =
-    useGenerationEventStream();
+  const { acknowledgeSession, sessionIndicators, syncVersion } = useGenerationEventStream();
+  const agentRuns = useAgentLiveRuns();
   const historyRef = useRef<HTMLElement>(null);
   const positionedSessionRef = useRef<string | null>(null);
   const lastScrollTopRef = useRef(0);
   const [isFollowingBottom, setIsFollowingBottom] = useState(true);
   const [isComposerCollapsed, setIsComposerCollapsed] = useState(false);
   const [detailAsset, setDetailAsset] = useState<GenerationAsset | null>(null);
-  const [publishAsset, setPublishAsset] = useState<GenerationAsset | null>(
-    null,
-  );
+  const [publishAsset, setPublishAsset] = useState<GenerationAsset | null>(null);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
   const [composerDraft, setComposerDraft] = useState<{
     key: number;
@@ -231,18 +209,14 @@ function ConversationPanel({
     getNextPageParam: (lastPage) => lastPage.nextBefore ?? undefined,
     structuralSharing: mergeGenerationTurnPageData,
   });
-  const turns = turnsQuery.data
-    ? [...turnsQuery.data.pages].reverse().flatMap((page) => page.items)
-    : undefined;
+  const turns = useMemo(
+    () => (turnsQuery.data ? [...turnsQuery.data.pages].reverse().flatMap((page) => page.items) : undefined),
+    [turnsQuery.data],
+  );
   const hasActiveCreation =
     turns?.some((turn) => turn.status === "RUNNING" || turn.status === "WAITING_INPUT") ?? false;
   useEffect(() => {
-    if (
-      turnsQuery.isLoading ||
-      !turns ||
-      positionedSessionRef.current === sessionId
-    )
-      return;
+    if (turnsQuery.isLoading || !turns || positionedSessionRef.current === sessionId) return;
     const frame = window.requestAnimationFrame(() => {
       const history = historyRef.current;
       if (history) {
@@ -255,11 +229,8 @@ function ConversationPanel({
     return () => window.cancelAnimationFrame(frame);
   }, [sessionId, turns, turnsQuery.isLoading]);
   useEffect(() => {
-    if (!isFollowingBottom || positionedSessionRef.current !== sessionId)
-      return;
-    const frame = window.requestAnimationFrame(() =>
-      scrollToConversationBottom("smooth"),
-    );
+    if (!isFollowingBottom || positionedSessionRef.current !== sessionId) return;
+    const frame = window.requestAnimationFrame(() => scrollToConversationBottom("smooth"));
     return () => window.cancelAnimationFrame(frame);
   }, [agentRuns, isFollowingBottom, sessionId, turns]);
   useEffect(() => {
@@ -270,13 +241,8 @@ function ConversationPanel({
       });
   }, [queryClient, sessionId, syncVersion]);
   const favoriteMutation = useMutation({
-    mutationFn: ({
-      imageId,
-      favorite,
-    }: {
-      imageId: string;
-      favorite: boolean;
-    }) => setGenerationImageFavorites([imageId], favorite),
+    mutationFn: ({ imageId, favorite }: { imageId: string; favorite: boolean }) =>
+      setGenerationImageFavorites([imageId], favorite),
     onSuccess: () =>
       void Promise.all([
         queryClient.invalidateQueries({ queryKey: assetQueryKeys.all }),
@@ -312,25 +278,19 @@ function ConversationPanel({
           type: "active",
         }),
       ]),
-    onError: () =>
-      setActionNotice("取消失败，创作可能已经结束，请刷新后重试。"),
+    onError: () => setActionNotice("取消失败，创作可能已经结束，请刷新后重试。"),
   });
   const formMutation = useMutation({
     mutationFn: resolveAgentForm,
     onSuccess: (result) => {
-      queryClient.setQueryData<InfiniteData<GenerationTurnPage>>(
-        generationQueryKeys.turns(sessionId),
-        (current) => applyAgentFormUpdateToTurns(current, result.creationId, result.revision,
-          result.form, "RUNNING"),
+      queryClient.setQueryData<InfiniteData<GenerationTurnPage>>(generationQueryKeys.turns(sessionId), (current) =>
+        applyAgentFormUpdateToTurns(current, result.creationId, result.revision, result.form, "RUNNING"),
       );
     },
     onError: () => setActionNotice("表单提交失败，请检查填写内容后重试。"),
   });
   useEffect(() => {
-    if (
-      sessionIndicators[sessionId] === "COMPLETED" ||
-      sessionIndicators[sessionId] === "ATTENTION"
-    )
+    if (sessionIndicators[sessionId] === "COMPLETED" || sessionIndicators[sessionId] === "ATTENTION")
       acknowledgeSession(sessionId);
   }, [acknowledgeSession, sessionId, sessionIndicators]);
   async function refreshAsset(imageId: string): Promise<GenerationAsset> {
@@ -344,17 +304,12 @@ function ConversationPanel({
   }
   async function openAsset(asset: GenerationAsset): Promise<void> {
     try {
-      setDetailAsset(
-        needsImageUrlRefresh(asset.imageUrls.display)
-          ? await refreshAsset(asset.id)
-          : asset,
-      );
+      setDetailAsset(needsImageUrlRefresh(asset.imageUrls.display) ? await refreshAsset(asset.id) : asset);
     } catch {
       setActionNotice("图片访问地址刷新失败，请稍后重试。 ");
     }
   }
-  const conversationImages = turns?.flatMap((turn) =>
-    turn.generations.flatMap((task) => task.images)) ?? [];
+  const conversationImages = turns?.flatMap((turn) => turn.generations.flatMap((task) => task.images)) ?? [];
   const detailNavigation = useImageDetailNavigation({
     items: conversationImages,
     currentImageId: detailAsset?.id ?? null,
@@ -362,15 +317,12 @@ function ConversationPanel({
     hasPreviousPage: Boolean(turnsQuery.hasNextPage),
     loadPreviousPage: async () => {
       const result = await turnsQuery.fetchNextPage();
-      const loadedTurns = result.data
-        ? [...result.data.pages].reverse().flatMap((page) => page.items)
-        : turns ?? [];
+      const loadedTurns = result.data ? [...result.data.pages].reverse().flatMap((page) => page.items) : (turns ?? []);
       return loadedTurns.flatMap((turn) => turn.generations.flatMap((task) => task.images));
     },
   });
   function requestPublish(asset: GenerationAsset): void {
-    if (asset.publicationReviewStatus === "PENDING")
-      return setActionNotice("该图片正在审核中。");
+    if (asset.publicationReviewStatus === "PENDING") return setActionNotice("该图片正在审核中。");
     if (asset.publicationReviewStatus === "APPROVED") {
       router.push(`/inspirations?imageId=${encodeURIComponent(asset.id)}`);
       return;
@@ -380,23 +332,18 @@ function ConversationPanel({
   function scrollToConversationBottom(behavior: ScrollBehavior): void {
     const history = historyRef.current;
     if (!history) return;
-    const reducedMotion = window.matchMedia(
-      "(prefers-reduced-motion: reduce)",
-    ).matches;
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     history.scrollTo({
       top: history.scrollHeight,
       behavior: reducedMotion ? "auto" : behavior,
     });
   }
   function handleHistoryScroll(history: HTMLElement): void {
-    const distanceFromBottom =
-      history.scrollHeight - history.scrollTop - history.clientHeight;
+    const distanceFromBottom = history.scrollHeight - history.scrollTop - history.clientHeight;
     const isScrollingUp = history.scrollTop < lastScrollTopRef.current - 1;
     lastScrollTopRef.current = history.scrollTop;
     setIsComposerCollapsed(distanceFromBottom > BOTTOM_FOLLOW_THRESHOLD_PX);
-    setIsFollowingBottom((current) =>
-      nextBottomFollowState(current, distanceFromBottom, isScrollingUp),
-    );
+    setIsFollowingBottom((current) => nextBottomFollowState(current, distanceFromBottom, isScrollingUp));
   }
   if (detailAsset)
     return (
@@ -413,6 +360,7 @@ function ConversationPanel({
           image={detailAsset}
           refreshImage={refreshAsset}
           navigation={detailNavigation}
+          onDownload={() => downloadOriginalGenerationImage(detailAsset)}
           allowCopy={detailAsset.publicationReviewStatus === "NONE"}
           onClose={() => setDetailAsset(null)}
           actions={
@@ -428,8 +376,7 @@ function ConversationPanel({
               }
               onPublish={() => requestPublish(detailAsset)}
               onDelete={() => {
-                if (window.confirm("确定删除这张图片？此操作无法撤销。"))
-                  deleteMutation.mutate(detailAsset.id);
+                if (window.confirm("确定删除这张图片？此操作无法撤销。")) deleteMutation.mutate(detailAsset.id);
               }}
             />
           }
@@ -440,11 +387,7 @@ function ConversationPanel({
             onClose={() => setPublishAsset(null)}
             onSuccess={(result) => {
               setPublishAsset(null);
-              setDetailAsset((asset) =>
-                asset
-                  ? { ...asset, publicationReviewStatus: result.status }
-                  : asset,
-              );
+              setDetailAsset((asset) => (asset ? { ...asset, publicationReviewStatus: result.status } : asset));
               setActionNotice("图片已发布，正在审核。");
               void Promise.all([
                 queryClient.invalidateQueries({ queryKey: assetQueryKeys.all }),
@@ -460,8 +403,8 @@ function ConversationPanel({
   return (
     <main className="relative flex min-h-[calc(100dvh-4rem)] min-w-0 flex-col bg-[var(--page-bg)] lg:h-dvh lg:min-h-0">
       <header className="flex min-h-[74px] items-center justify-between border-b border-[var(--border)] bg-[var(--surface-bg)]/80 px-5 sm:px-8">
-        <h1 className="min-w-0 truncate text-base font-bold sm:text-lg">
-          {sessionTitle ?? "创作会话"}
+        <h1 title={sessionTitle ?? "创作会话"} className="min-w-0 truncate text-base font-bold sm:text-lg">
+          {formatSessionTitle(sessionTitle ?? "创作会话")}
         </h1>
         <div className="ml-4 flex shrink-0 items-center gap-3">
           <Link
@@ -497,11 +440,7 @@ function ConversationPanel({
               <p>历史对话加载失败，请重试。</p>
               <button
                 type="button"
-                onClick={() =>
-                  void (turnsQuery.hasNextPage
-                    ? turnsQuery.fetchNextPage()
-                    : turnsQuery.refetch())
-                }
+                onClick={() => void (turnsQuery.hasNextPage ? turnsQuery.fetchNextPage() : turnsQuery.refetch())}
                 className="mt-1 font-medium underline"
               >
                 重试
@@ -516,9 +455,7 @@ function ConversationPanel({
                 disabled={turnsQuery.isFetchingNextPage}
                 className="inline-flex min-h-10 items-center gap-2 rounded-[6px] border border-[var(--border-strong)] bg-[var(--surface-bg)] px-3 text-sm text-[var(--text-secondary)] disabled:opacity-60"
               >
-                {turnsQuery.isFetchingNextPage ? (
-                  <LoaderCircle className="size-4 animate-spin" />
-                ) : null}
+                {turnsQuery.isFetchingNextPage ? <LoaderCircle className="size-4 animate-spin" /> : null}
                 加载更早的对话
               </button>
             </div>
@@ -527,14 +464,19 @@ function ConversationPanel({
             <ConversationTurn
               key={turn.id}
               turn={turn}
-              isCancelling={
-                cancelMutation.isPending && cancelMutation.variables === turn.id
-              }
+              live={agentRuns[turn.id]}
+              isCancelling={cancelMutation.isPending && cancelMutation.variables === turn.id}
               onCancel={() => cancelMutation.mutate(turn.id)}
-              resolvingFormId={formMutation.isPending ? formMutation.variables?.formId ?? null : null}
-              onResolveForm={(formId, action, answers) => formMutation.mutate({
-                creationId: turn.id, formId, expectedRevision: turn.revision, action, answers,
-              })}
+              resolvingFormId={formMutation.isPending ? (formMutation.variables?.formId ?? null) : null}
+              onResolveForm={(formId, action, answers) =>
+                formMutation.mutate({
+                  creationId: turn.id,
+                  formId,
+                  expectedRevision: turn.revision,
+                  action,
+                  answers,
+                })
+              }
               onContinue={(draft) => {
                 setComposerDraft({ key: Date.now(), value: draft });
                 setIsComposerCollapsed(false);
@@ -549,22 +491,21 @@ function ConversationPanel({
               }
               onPublish={requestPublish}
               onDelete={(image) => {
-                if (window.confirm("确定删除这张图片？此操作无法撤销。"))
-                  deleteMutation.mutate(image.id);
+                if (window.confirm("确定删除这张图片？此操作无法撤销。")) deleteMutation.mutate(image.id);
               }}
             />
           ))}
           {!turnsQuery.isLoading && !turns?.length ? (
             <div className="flex min-h-56 items-center justify-center">
-              <p className="text-sm text-[var(--text-secondary)]">
-                这个会话还没有可展示的历史内容。
-              </p>
+              <p className="text-sm text-[var(--text-secondary)]">这个会话还没有可展示的历史内容。</p>
             </div>
           ) : null}
         </div>
       </section>
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 px-5 pb-5 sm:px-8 lg:px-12">
-        <div className={`pointer-events-auto mx-auto w-full transition-[max-width] duration-300 ${isComposerCollapsed ? "max-w-[860px]" : "max-w-[1040px]"}`}>
+        <div
+          className={`pointer-events-auto mx-auto w-full transition-[max-width] duration-300 ${isComposerCollapsed ? "max-w-[860px]" : "max-w-[1040px]"}`}
+        >
           {!isFollowingBottom ? (
             <div className="mb-3 flex justify-end">
               <button
@@ -637,16 +578,9 @@ function SessionList({
     <div className="space-y-2">
       {isLoading ? <SessionSkeleton /> : null}
       {isError ? (
-        <div
-          role="alert"
-          className="px-2 py-3 text-sm text-[var(--accent-hover)]"
-        >
+        <div role="alert" className="px-2 py-3 text-sm text-[var(--accent-hover)]">
           <p>会话加载失败，请重试。</p>
-          <button
-            type="button"
-            onClick={onRetry}
-            className="mt-1 font-medium underline"
-          >
+          <button type="button" onClick={onRetry} className="mt-1 font-medium underline">
             重试
           </button>
         </div>
@@ -655,9 +589,7 @@ function SessionList({
         <SessionListItem
           key={session.id}
           session={session}
-          indicator={
-            activeSessionId === session.id ? undefined : indicators[session.id]
-          }
+          indicator={activeSessionId === session.id ? undefined : indicators[session.id]}
           active={activeSessionId === session.id}
           onSelect={onSelect}
         />
@@ -669,16 +601,12 @@ function SessionList({
           disabled={isFetchingNextPage}
           className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-[6px] px-3 text-sm text-[var(--text-secondary)] disabled:opacity-60"
         >
-          {isFetchingNextPage ? (
-            <LoaderCircle className="size-4 animate-spin" />
-          ) : null}
+          {isFetchingNextPage ? <LoaderCircle className="size-4 animate-spin" /> : null}
           加载更多会话
         </button>
       ) : null}
       {!isLoading && !sessions?.length ? (
-        <p className="px-2 py-2 text-xs leading-5 text-[var(--text-secondary)]">
-          尚无历史会话。
-        </p>
+        <p className="px-2 py-2 text-xs leading-5 text-[var(--text-secondary)]">尚无历史会话。</p>
       ) : null}
     </div>
   );
@@ -696,20 +624,11 @@ function SessionListItem({
   onSelect: (sessionId: string) => void;
 }) {
   const statusIndicator = session.hasActiveTask ? (
-    <LoaderCircle
-      aria-label="正在生成"
-      className="size-3.5 shrink-0 animate-spin text-[var(--accent)]"
-    />
+    <LoaderCircle aria-label="正在生成" className="size-3.5 shrink-0 animate-spin text-[var(--accent)]" />
   ) : indicator === "ATTENTION" ? (
-    <span
-      aria-label="生成失败"
-      className="size-2 shrink-0 bg-[var(--accent-hover)]"
-    />
+    <span aria-label="生成失败" className="size-2 shrink-0 bg-[var(--accent-hover)]" />
   ) : indicator === "COMPLETED" ? (
-    <CheckCircle2
-      aria-label="有新的生成结果"
-      className="size-3.5 shrink-0 text-[var(--accent)]"
-    />
+    <CheckCircle2 aria-label="有新的生成结果" className="size-3.5 shrink-0 text-[var(--accent)]" />
   ) : null;
   return (
     <button
@@ -723,20 +642,18 @@ function SessionListItem({
       )}
     >
       <MessageSquare className="size-[18px] shrink-0" />
-      <span className="min-w-0 flex-1 truncate">{session.title}</span>
+      <span title={session.title} className="min-w-0 flex-1 truncate">
+        {formatSessionTitle(session.title)}
+      </span>
       {statusIndicator}
-      {active ? (
-        <span
-          aria-label="当前会话"
-          className="size-[9px] shrink-0 bg-[var(--accent)]"
-        />
-      ) : null}
+      {active ? <span aria-label="当前会话" className="size-[9px] shrink-0 bg-[var(--accent)]" /> : null}
     </button>
   );
 }
 
 function ConversationTurn({
   turn,
+  live,
   isCancelling,
   onCancel,
   resolvingFormId,
@@ -749,11 +666,11 @@ function ConversationTurn({
   onDelete,
 }: {
   turn: GenerationTurn;
+  live: AgentLiveRun | undefined;
   isCancelling: boolean;
   onCancel: () => void;
   resolvingFormId: string | null;
-  onResolveForm: (formId: string, action: "SUBMIT" | "SKIP",
-    answers: Record<string, AgentFormAnswer> | null) => void;
+  onResolveForm: (formId: string, action: "SUBMIT" | "SKIP", answers: Record<string, AgentFormAnswer> | null) => void;
   onContinue: (draft: GenerationComposerDraft) => void;
   onOpenAsset: (asset: GenerationAsset) => Promise<void>;
   onRefreshAsset: (imageId: string) => Promise<GenerationAsset>;
@@ -761,30 +678,23 @@ function ConversationTurn({
   onPublish: (asset: GenerationAsset) => void;
   onDelete: (asset: GenerationAsset) => void;
 }) {
-  const live = useGenerationEventStream().agentRuns[turn.id];
+  const isResolvingForm = resolvingFormId !== null && turn.forms.some((form) => form.id === resolvingFormId);
   const transientTools = live?.tools;
   const transientSkills = live?.skills.filter(
     (skillName) =>
       !turn.activities.some(
-        (activity) =>
-          activity.type === "SKILL" &&
-          activity.content.includes(skillDisplayName(skillName)),
+        (activity) => activity.type === "SKILL" && activity.content.includes(skillDisplayName(skillName)),
       ),
   );
   const images = turn.generations.flatMap((task) => task.images);
-  const completedImageCount = turn.generations.reduce(
-    (total, task) => total + task.completedImageCount,
-    0,
-  );
-  const failedImageCount = turn.generations.reduce(
-    (total, task) => total + task.failedImageCount,
-    0,
-  );
+  const {
+    completed: completedImageCount,
+    failed: failedImageCount,
+    total: progressTotal,
+  } = generationImageProgress(turn.generations);
   const failures = [
     ...new Set(
-      turn.generations
-        .map((task) => task.failureMessage)
-        .filter((message): message is string => Boolean(message)),
+      turn.generations.map((task) => task.failureMessage).filter((message): message is string => Boolean(message)),
     ),
   ];
   const showProcess =
@@ -793,42 +703,26 @@ function ConversationTurn({
       Boolean(transientTools?.length) ||
       Boolean(transientSkills?.length) ||
       Boolean(live?.text));
-  const processActivities = turn.activities.filter(
-    (activity) => activity.type !== "TOOL",
-  );
-  const persistedToolCount = turn.activities.filter(
-    (activity) => activity.type === "TOOL",
-  ).length;
-  const visibleToolCount = persistedToolCount + (transientTools?.length ?? 0);
-  const requestedImageCount = turn.generations.reduce(
-    (total, task) => total + task.requestedImageCount,
-    0,
-  );
-  const progressTotal = Math.max(
-    requestedImageCount,
-    visibleToolCount,
-    completedImageCount + failedImageCount,
-  );
+  const processActivities = turn.activities.filter((activity) => activity.type !== "TOOL");
   const persistedNarration = turn.activities
     .filter((activity) => activity.type === "NARRATION")
     .map((activity) => activity.content)
     .join("\n");
-  const liveText =
-    live?.text && !persistedNarration.includes(live.text.trim())
-      ? live.text
-      : "";
-  const suggestions =
-    turn.mode === "AGENT" && turn.status === "SUCCEEDED"
-      ? continuationSuggestions(images)
-      : [];
+  const liveText = live?.text && !persistedNarration.includes(live.text.trim()) ? live.text : "";
+  const suggestions = turn.mode === "AGENT" && turn.status === "SUCCEEDED" ? continuationSuggestions(images) : [];
+  const firstGeneration = turn.generations[0];
+  const isStatusActive =
+    turn.mode === "NORMAL"
+      ? firstGeneration
+        ? isActiveGenerationStatus(firstGeneration.status)
+        : turn.status === "RUNNING"
+      : turn.status === "RUNNING";
   return (
     <article className="py-7 first:pt-0">
       {turn.mode === "AGENT" ? (
         <div className="flex justify-end" aria-label="用户消息">
           <div className="w-fit max-w-[92%] rounded-[12px] border border-[var(--accent-border)] bg-[var(--active-bg)] px-5 py-3 text-[var(--primary)] sm:max-w-[82%] sm:px-6">
-            <p className="whitespace-pre-wrap break-words text-sm leading-7">
-              {turn.userMessage.content}
-            </p>
+            <p className="whitespace-pre-wrap break-words text-sm leading-7">{turn.userMessage.content}</p>
           </div>
         </div>
       ) : null}
@@ -840,16 +734,22 @@ function ConversationTurn({
               AiVista
             </p>
             <div className="flex items-center gap-2">
-              <span className="rounded-[5px] bg-[var(--accent-soft)] px-2 py-1 text-xs font-medium text-[var(--accent)]">
-                {turn.mode === "NORMAL" && turn.generations[0]
-                  ? taskStatusText(turn.generations[0])
+              <span className="inline-flex items-center gap-1.5 rounded-[5px] bg-[var(--accent-soft)] px-2 py-1 text-xs font-medium text-[var(--accent)]">
+                {isStatusActive ? (
+                  <LoaderCircle
+                    aria-hidden="true"
+                    className="size-3.5 shrink-0 animate-spin motion-reduce:animate-none"
+                  />
+                ) : null}
+                {turn.mode === "NORMAL" && firstGeneration
+                  ? taskStatusText(firstGeneration)
                   : creationStatusText(turn.status)}
               </span>
               {turn.mode === "AGENT" && (turn.status === "RUNNING" || turn.status === "WAITING_INPUT") ? (
                 <button
                   type="button"
                   onClick={onCancel}
-                  disabled={isCancelling}
+                  disabled={isCancelling || isResolvingForm}
                   className="inline-flex h-7 items-center gap-1 rounded-[5px] border border-[var(--border-strong)] px-2 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-soft)] disabled:opacity-50"
                 >
                   <CircleStop className="size-3.5" />
@@ -864,8 +764,7 @@ function ConversationTurn({
               className="group mt-3 rounded-[7px] border border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2"
             >
               <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-xs font-medium text-[var(--text-secondary)] marker:content-none">
-                创作过程{" "}
-                <ChevronDown className="size-4 transition-transform group-open:rotate-180" />
+                创作过程 <ChevronDown className="size-4 transition-transform group-open:rotate-180" />
               </summary>
               {processActivities.length || transientSkills?.length ? (
                 <ol
@@ -875,48 +774,42 @@ function ConversationTurn({
                   {processActivities.map((activity) => (
                     <li
                       key={activity.sequenceNo}
-                      className="flex items-start gap-2"
+                      className={
+                        activity.type === "NARRATION"
+                          ? "text-sm leading-7 text-[var(--primary)]"
+                          : "flex items-start gap-2 text-sm leading-6 text-[var(--text-secondary)]"
+                      }
                     >
-                      <ActivityStateMark state={activity.outcome} />
-                      <span
-                        className={cn(
-                          "leading-5",
-                          activity.type === "NARRATION" &&
-                            "text-sm leading-7 text-[var(--primary)]",
-                        )}
-                      >
-                        {activity.content}
-                      </span>
+                      {activity.type === "SKILL" ? (
+                        <Wrench aria-hidden="true" strokeWidth={1.5} className="mt-1 size-4 shrink-0" />
+                      ) : null}
+                      <span>{activity.type === "SKILL" ? skillActivityText(activity.content) : activity.content}</span>
                     </li>
                   ))}
                   {transientSkills?.map((skillName) => (
                     <li
                       key={`live-skill:${skillName}`}
-                      className="flex items-start gap-2"
+                      className="flex items-start gap-2 text-sm leading-6 text-[var(--text-secondary)]"
                     >
-                      <ActivityStateMark state="COMPLETED" />
-                      <span className="leading-5">
-                        已启用{skillDisplayName(skillName)}能力。
-                      </span>
+                      <Wrench aria-hidden="true" strokeWidth={1.5} className="mt-1 size-4 shrink-0" />
+                      <span>已加载技能：{skillDisplayName(skillName)}</span>
                     </li>
                   ))}
                 </ol>
               ) : null}
               {liveText ? <StreamingText text={liveText} /> : null}
               {progressTotal > 0 ? (
-                <p className="mt-3 inline-flex items-center gap-2 text-xs text-[var(--text-secondary)]">
-                  <ActivityStateMark
-                    state={
-                      completedImageCount + failedImageCount >= progressTotal
-                        ? "COMPLETED"
-                        : "RUNNING"
-                    }
-                  />
-                  {generationToolDisplayName(turn, live)} · （
-                  {completedImageCount}/{progressTotal}）图片
-                  {completedImageCount + failedImageCount >= progressTotal
-                    ? "已生成"
-                    : "生成中…"}
+                <p className="mt-3 inline-flex items-center gap-2 text-sm leading-6 text-[var(--text-secondary)]">
+                  {completedImageCount + failedImageCount >= progressTotal ? (
+                    <ImageIcon aria-hidden="true" className="size-4 shrink-0" />
+                  ) : (
+                    <LoaderCircle
+                      aria-label="图片生成中"
+                      className="size-4 shrink-0 animate-spin text-[var(--accent)]"
+                    />
+                  )}
+                  {generationToolDisplayName(turn, live)} · （{completedImageCount}/{progressTotal}）图片
+                  {completedImageCount + failedImageCount >= progressTotal ? "已生成" : "生成中…"}
                 </p>
               ) : null}
             </details>
@@ -927,14 +820,14 @@ function ConversationTurn({
               value={form}
               enabled={turn.status === "WAITING_INPUT" && form.status === "PENDING"}
               submitting={resolvingFormId === form.id}
+              cancelling={isCancelling}
+              onCancel={onCancel}
               onResolve={(action, answers) => onResolveForm(form.id, action, answers)}
             />
           ))}
           {turn.mode === "NORMAL" ? (
             <div className="mt-3">
-              <p className="whitespace-pre-wrap text-sm leading-7">
-                {turn.userMessage.content}
-              </p>
+              <p className="whitespace-pre-wrap text-sm leading-7">{turn.userMessage.content}</p>
               {turn.normalGenerationRequest?.negativePrompt ? (
                 <p className="mt-2 text-xs leading-5 text-[var(--text-secondary)]">
                   负面提示词：{turn.normalGenerationRequest.negativePrompt}
@@ -942,33 +835,22 @@ function ConversationTurn({
               ) : null}
             </div>
           ) : turn.assistantMessage?.content ? (
-            <p className="mt-3 whitespace-pre-wrap text-sm leading-7">
-              {turn.assistantMessage.content}
-            </p>
+            <p className="mt-3 whitespace-pre-wrap text-sm leading-7">{turn.assistantMessage.content}</p>
           ) : null}
           {turn.mode === "NORMAL" && progressTotal > 0 ? (
             <p className="mt-3 text-xs leading-5 text-[var(--text-secondary)]">
               （{completedImageCount}/{progressTotal}）图片
-              {completedImageCount + failedImageCount >= progressTotal
-                ? "已生成"
-                : "生成中…"}
+              {completedImageCount + failedImageCount >= progressTotal ? "已生成" : "生成中…"}
               {failedImageCount > 0 ? `，${failedImageCount} 张失败` : ""}
             </p>
           ) : null}
           {failures.map((message) => (
-            <p
-              key={message}
-              role="alert"
-              className="mt-2 text-xs leading-5 text-[var(--accent-hover)]"
-            >
+            <p key={message} role="alert" className="mt-2 text-xs leading-5 text-[var(--accent-hover)]">
               {message}
             </p>
           ))}
           {images.length ? (
-            <div
-              aria-label={`${images.length} 张生成图片`}
-              className="mt-4 flex gap-2 overflow-x-auto pb-2"
-            >
+            <div aria-label={`${images.length} 张生成图片`} className="mt-4 flex gap-2 overflow-x-auto pb-2">
               {images.map((image) => (
                 <div key={image.id} className="w-[180px] shrink-0 sm:w-[220px]">
                   <GenerationImageCard
@@ -985,9 +867,7 @@ function ConversationTurn({
           ) : null}
           {suggestions.length ? (
             <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-[var(--border)] pt-3">
-              <span className="text-xs font-medium text-[var(--text-secondary)]">
-                你可以继续：
-              </span>
+              <span className="text-xs font-medium text-[var(--text-secondary)]">你可以继续：</span>
               {suggestions.map((suggestion) => (
                 <button
                   key={`${suggestion.asset.id}:${suggestion.prompt}`}
@@ -1016,30 +896,14 @@ function ConversationTurn({
 
 function StreamingText({ text }: { text: string }) {
   return (
-    <p
-      aria-label="实时回复"
-      aria-live="polite"
-      className="mt-3 whitespace-pre-wrap border-t border-[var(--border)] pt-3 text-sm leading-7"
-    >
+    <p aria-label="实时回复" aria-live="polite" className="mt-3 whitespace-pre-wrap text-sm leading-7">
       {text}
-      <span
-        aria-hidden="true"
-        className="ml-0.5 inline-block h-4 w-px animate-pulse bg-current align-middle"
-      />
+      <span aria-hidden="true" className="ml-0.5 inline-block h-4 w-px animate-pulse bg-current align-middle" />
     </p>
   );
 }
 
-function skillDisplayName(skillName: string): string {
-  return skillName === "poster-design" ? "海报设计" : skillName;
-}
-
-function generationToolDisplayName(
-  turn: GenerationTurn,
-  live:
-    | ReturnType<typeof useGenerationEventStream>["agentRuns"][string]
-    | undefined,
-): string {
+function generationToolDisplayName(turn: GenerationTurn, live: AgentLiveRun | undefined): string {
   const toolNames = [
     ...turn.activities.map((activity) => activity.toolName),
     ...(live?.tools.map((tool) => tool.toolName) ?? []),
@@ -1050,14 +914,14 @@ function generationToolDisplayName(
 function continuationSuggestions(
   images: GenerationAsset[],
 ): Array<{ label: string; prompt: string; asset: GenerationAsset }> {
-  if (!images.length) return [];
+  const [asset] = images;
+  if (!asset) return [];
   if (images.length > 1)
     return images.slice(0, 3).map((asset, index) => ({
       label: `继续优化第 ${index + 1} 张`,
       prompt: `基于第 ${index + 1} 张图片继续优化，保留核心主题和构图，并提升画面细节与完成度。`,
       asset,
     }));
-  const asset = images[0];
   return [
     {
       label: "调整配色",
@@ -1075,32 +939,6 @@ function continuationSuggestions(
       asset,
     },
   ];
-}
-function ActivityStateMark({
-  state,
-}: {
-  state: "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED";
-}) {
-  if (state === "RUNNING")
-    return (
-      <LoaderCircle
-        aria-label="执行中"
-        className="size-3.5 shrink-0 animate-spin text-[var(--accent)]"
-      />
-    );
-  if (state === "COMPLETED")
-    return (
-      <CheckCircle2
-        aria-label="已完成"
-        className="size-3.5 shrink-0 text-[var(--accent)]"
-      />
-    );
-  return (
-    <CircleStop
-      aria-label={state === "CANCELLED" ? "已取消" : "未完成"}
-      className="size-3.5 shrink-0 text-[var(--accent-hover)]"
-    />
-  );
 }
 function creationStatusText(status: GenerationTurn["status"]): string {
   if (status === "RUNNING") return "创作中";
@@ -1147,8 +985,7 @@ function GenerationImageCard({
   async function copy(): Promise<void> {
     try {
       let current = image;
-      if (needsImageUrlRefresh(current.imageUrls.display))
-        current = await onRefresh();
+      if (needsImageUrlRefresh(current.imageUrls.display)) current = await onRefresh();
       const fetchDisplay = async (asset: GenerationAsset) => {
         const url = asset.imageUrls.display?.url;
         if (!url) throw new Error("missing display");
@@ -1165,11 +1002,8 @@ function GenerationImageCard({
       } catch {
         blob = await fetchDisplay(await onRefresh());
       }
-      if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined")
-        throw new Error("clipboard unavailable");
-      await navigator.clipboard.write([
-        new ClipboardItem({ [blob.type || "image/webp"]: blob }),
-      ]);
+      if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined") throw new Error("clipboard unavailable");
+      await navigator.clipboard.write([new ClipboardItem({ [blob.type || "image/webp"]: blob })]);
     } catch {
       setActionError("复制失败，请使用下载。");
     }
@@ -1247,13 +1081,7 @@ function GenerationImageCard({
               }}
               className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-[var(--surface-soft)]"
             >
-              <Heart
-                className={cn(
-                  "size-3.5",
-                  image.favorited &&
-                    "fill-[var(--accent)] text-[var(--accent)]",
-                )}
-              />
+              <Heart className={cn("size-3.5", image.favorited && "fill-[var(--accent)] text-[var(--accent)]")} />
               {image.favorited ? "取消收藏" : "收藏"}
             </button>
             <button
@@ -1265,9 +1093,7 @@ function GenerationImageCard({
               className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-[var(--surface-soft)]"
             >
               <Send className="size-3.5" />
-              {image.publicationReviewStatus === "APPROVED"
-                ? "查看发布"
-                : "发布"}
+              {image.publicationReviewStatus === "APPROVED" ? "查看发布" : "发布"}
             </button>
             <button
               type="button"
@@ -1311,9 +1137,7 @@ function ConversationAssetActions({
 }) {
   return (
     <section>
-      <p className="text-xs font-medium tracking-wide text-muted-foreground">
-        作品操作
-      </p>
+      <p className="text-xs font-medium tracking-wide text-muted-foreground">作品操作</p>
       <div className="mt-3 grid grid-cols-2 gap-2">
         <button
           type="button"
@@ -1321,12 +1145,7 @@ function ConversationAssetActions({
           disabled={isFavoriteUpdating}
           className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-border text-sm font-medium hover:bg-muted disabled:opacity-50"
         >
-          <Heart
-            className={cn(
-              "size-4",
-              asset.favorited && "fill-current text-[var(--accent)]",
-            )}
-          />
+          <Heart className={cn("size-4", asset.favorited && "fill-current text-[var(--accent)]")} />
           {asset.favorited ? "已收藏" : "收藏"}
         </button>
         <button
@@ -1352,20 +1171,10 @@ function ConversationAssetActions({
 }
 function WorkspaceDecorations() {
   return (
-    <div
-      aria-hidden="true"
-      className="pointer-events-none absolute inset-0 select-none"
-    >
+    <div aria-hidden="true" className="pointer-events-none absolute inset-0 select-none">
       <span className="absolute right-[7%] top-[94px] hidden h-[390px] w-[290px] bg-[var(--active-bg)] lg:block" />
       <div className="absolute left-[13%] top-[150px] hidden h-[57px] w-[109px] lg:block">
-        <DotMatrix
-          columns={5}
-          rows={5}
-          dotSize={3}
-          gap={7}
-          opacity={0.55}
-          className="absolute left-0 top-0"
-        />
+        <DotMatrix columns={5} rows={5} dotSize={3} gap={7} opacity={0.55} className="absolute left-0 top-0" />
         <AccentSquare size={17} className="absolute bottom-0 right-0" />
       </div>
     </div>
@@ -1373,10 +1182,7 @@ function WorkspaceDecorations() {
 }
 function ArchiveLine({ label }: { label: string }) {
   return (
-    <div
-      aria-hidden="true"
-      className="relative z-0 mt-auto hidden items-center gap-[14px] pb-[58px] pt-8 lg:flex"
-    >
+    <div aria-hidden="true" className="relative z-0 mt-auto hidden items-center gap-[14px] pb-[58px] pt-8 lg:flex">
       <span className="size-2 shrink-0 bg-[var(--text-secondary)]" />
       <span className="h-px flex-1 bg-[var(--border-strong)]" />
       <span className="shrink-0 whitespace-nowrap text-[10px] font-medium tracking-[0.18em] text-[var(--text-secondary)]">
@@ -1407,7 +1213,5 @@ function HistorySkeleton() {
   );
 }
 function SessionSkeleton() {
-  return (
-    <div className="h-[52px] animate-pulse rounded-[7px] bg-[var(--skeleton-light)]" />
-  );
+  return <div className="h-[52px] animate-pulse rounded-[7px] bg-[var(--skeleton-light)]" />;
 }

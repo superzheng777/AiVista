@@ -6,7 +6,7 @@ export interface AgentExecuteMessage {
 }
 
 const schema = z.object({
-  creationId: z.string().regex(/^\d+$/),
+  creationId: z.string().regex(/^[1-9]\d*$/),
   expectedRevision: z.number().int().nonnegative(),
 }).passthrough();
 

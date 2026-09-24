@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 
-import { cn } from "@/lib/utils";
+import { cn } from "@/shared/lib/cn";
 
 type DotMatrixProps = {
   columns: number;
@@ -30,9 +30,17 @@ export function DotMatrix({
     opacity,
   } satisfies CSSProperties;
 
-  return <span aria-hidden="true" className={cn("pointer-events-none grid w-fit", className)} style={style}>
-    {Array.from({ length: columns * rows }, (_, index) => <span key={index} className="block rounded-full" style={{ width: size, height: size, backgroundColor: color }} />)}
-  </span>;
+  return (
+    <span aria-hidden="true" className={cn("pointer-events-none grid w-fit", className)} style={style}>
+      {Array.from({ length: columns * rows }, (_, index) => (
+        <span
+          key={index}
+          className="block rounded-full"
+          style={{ width: size, height: size, backgroundColor: color }}
+        />
+      ))}
+    </span>
+  );
 }
 
 type AccentSquareProps = {
@@ -45,7 +53,11 @@ type AccentSquareProps = {
 
 /** A purely decorative accent block. Position it through the parent layout or `className`. */
 export function AccentSquare({ size, width, height, color = "var(--accent)", className }: AccentSquareProps) {
-  const normalized = (value: number | string | undefined) => typeof value === "number" ? `${value}px` : value;
-  const style = { width: normalized(width ?? size), height: normalized(height ?? size), backgroundColor: color } satisfies CSSProperties;
+  const normalized = (value: number | string | undefined) => (typeof value === "number" ? `${value}px` : value);
+  const style = {
+    width: normalized(width ?? size),
+    height: normalized(height ?? size),
+    backgroundColor: color,
+  } satisfies CSSProperties;
   return <span aria-hidden="true" className={cn("pointer-events-none block", className)} style={style} />;
 }

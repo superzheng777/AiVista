@@ -7,7 +7,16 @@ import { AgentInputFormCard } from "@/features/generation/ui/agent-input-form-ca
 describe("AgentInputFormCard", () => {
   it("prefills model suggestions and submits the typed answer object", () => {
     const onResolve = vi.fn();
-    render(<AgentInputFormCard value={pendingForm()} enabled submitting={false} onResolve={onResolve} />);
+    render(
+      <AgentInputFormCard
+        value={pendingForm()}
+        enabled
+        submitting={false}
+        cancelling={false}
+        onResolve={onResolve}
+        onCancel={vi.fn()}
+      />,
+    );
 
     expect(screen.getByDisplayValue("关爱流浪猫")).toBeInTheDocument();
     expect(screen.getByDisplayValue("关爱流浪猫")).toHaveAttribute("maxlength", "300");
@@ -25,11 +34,75 @@ describe("AgentInputFormCard", () => {
 
   it("persists skip as a distinct user choice", () => {
     const onResolve = vi.fn();
-    render(<AgentInputFormCard value={pendingForm()} enabled submitting={false} onResolve={onResolve} />);
+    render(
+      <AgentInputFormCard
+        value={pendingForm()}
+        enabled
+        submitting={false}
+        cancelling={false}
+        onResolve={onResolve}
+        onCancel={vi.fn()}
+      />,
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "跳过" }));
 
     expect(onResolve).toHaveBeenCalledWith("SKIP", null);
+  });
+
+  it("cancels the whole Creation without resolving the form", () => {
+    const onResolve = vi.fn();
+    const onCancel = vi.fn();
+    render(
+      <AgentInputFormCard
+        value={pendingForm()}
+        enabled
+        submitting={false}
+        cancelling={false}
+        onResolve={onResolve}
+        onCancel={onCancel}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "取消本次创作" }));
+
+    expect(onCancel).toHaveBeenCalledOnce();
+    expect(onResolve).not.toHaveBeenCalled();
+  });
+
+  it("disables competing actions while resolving or cancelling", () => {
+    const onResolve = vi.fn();
+    const onCancel = vi.fn();
+    const { rerender } = render(
+      <AgentInputFormCard
+        value={pendingForm()}
+        enabled
+        submitting
+        cancelling={false}
+        onResolve={onResolve}
+        onCancel={onCancel}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "取消本次创作" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "跳过" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "提交中" })).toBeDisabled();
+
+    rerender(
+      <AgentInputFormCard
+        value={pendingForm()}
+        enabled
+        submitting={false}
+        cancelling
+        onResolve={onResolve}
+        onCancel={onCancel}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "取消中" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "跳过" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "确认" })).toBeDisabled();
+    expect(screen.getByDisplayValue("关爱流浪猫")).toBeDisabled();
   });
 
   it("renders the immutable submitted summary after refresh", () => {
@@ -41,10 +114,39 @@ describe("AgentInputFormCard", () => {
     };
     value.resolvedAt = "2026-09-20T01:01:00Z";
 
-    render(<AgentInputFormCard value={value} enabled={false} submitting={false} onResolve={vi.fn()} />);
+    render(
+      <AgentInputFormCard
+        value={value}
+        enabled={false}
+        submitting={false}
+        cancelling={false}
+        onResolve={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
 
     expect(screen.getByLabelText("已处理的需求确认表单")).toHaveTextContent("关爱野生小猫");
     expect(screen.getByLabelText("已处理的需求确认表单")).toHaveTextContent("温暖纪实");
+  });
+
+  it("renders a cancelled form as an immutable cancellation summary", () => {
+    const value = pendingForm();
+    value.status = "CANCELLED";
+    value.resolvedAt = "2026-09-20T01:01:00Z";
+
+    render(
+      <AgentInputFormCard
+        value={value}
+        enabled={false}
+        submitting={false}
+        cancelling={false}
+        onResolve={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByLabelText("已处理的需求确认表单")).toHaveTextContent("本次创作已取消，此表单无需继续填写。");
+    expect(screen.queryByRole("button", { name: "取消本次创作" })).not.toBeInTheDocument();
   });
 });
 
@@ -56,13 +158,28 @@ function pendingForm(): CreationForm {
       schemaVersion: 1,
       title: "确认海报方向",
       fields: [
-        { id: "subject", type: "TEXT", label: "主题", required: true,
-          initialValue: "关爱流浪猫", placeholder: "填写活动主题" },
-        { id: "style", type: "SINGLE_SELECT", label: "视觉风格", required: true,
-          initialValue: "WARM", options: [
+        {
+          id: "subject",
+          type: "TEXT",
+          label: "主题",
+          required: true,
+          initialValue: "关爱流浪猫",
+          placeholder: "填写活动主题",
+        },
+        {
+          id: "style",
+          type: "SINGLE_SELECT",
+          label: "视觉风格",
+          required: true,
+          initialValue: "WARM",
+          options: [
             { value: "WARM", label: "温暖纪实" },
             { value: "FLAT", label: "扁平插画" },
-          ], allowCustom: true, customLabel: "自定义", customInitialValue: "" },
+          ],
+          allowCustom: true,
+          customLabel: "自定义",
+          customInitialValue: "",
+        },
       ],
     },
     answers: null,

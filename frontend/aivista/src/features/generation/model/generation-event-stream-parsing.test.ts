@@ -14,7 +14,7 @@ import {
 
 describe("parseSseBlock", () => {
   it("解析事件名与单行 data", () => {
-    expect(parseSseBlock("event: publication.updated\ndata: {\"imageId\":\"img-1\"}")).toEqual({
+    expect(parseSseBlock('event: publication.updated\ndata: {"imageId":"img-1"}')).toEqual({
       eventName: "publication.updated",
       data: '{"imageId":"img-1"}',
     });
@@ -50,6 +50,9 @@ describe("isTaskUpdateEvent", () => {
   it("拒绝缺失字段或非法状态", () => {
     expect(isTaskUpdateEvent({ ...valid, generationTaskId: undefined })).toBe(false);
     expect(isTaskUpdateEvent({ ...valid, revision: "3" })).toBe(false);
+    expect(isTaskUpdateEvent({ ...valid, revision: 1.5 })).toBe(false);
+    expect(isTaskUpdateEvent({ ...valid, status: "UNKNOWN" })).toBe(false);
+    expect(isTaskUpdateEvent({ ...valid, retryCount: -1 })).toBe(false);
     expect(isTaskUpdateEvent(null)).toBe(false);
     expect(isTaskUpdateEvent("payload")).toBe(false);
   });
@@ -89,76 +92,212 @@ describe("isTerminalStatus", () => {
 });
 
 describe("Agent realtime projection", () => {
-  const base = { creationId: "31", sessionId: "9", revision: 4, streamId: "stream-1",
-    sequence: 1, eventType: "RUN_STARTED" as const, payload: {} };
+  const base = {
+    creationId: "31",
+    sessionId: "9",
+    revision: 4,
+    streamId: "stream-1",
+    sequence: 1,
+    eventType: "RUN_STARTED" as const,
+    payload: {},
+  };
 
   it("validates, orders and deduplicates deltas within one stream", () => {
     expect(isAgentRealtimeEvent(base)).toBe(true);
     let run = applyAgentRealtimeEvent(undefined, base);
-    run = applyAgentRealtimeEvent(run, { ...base, sequence: 2, eventType: "TEXT_DELTA",
-      payload: { contentIndex: 0, delta: "正在构图" } });
-    const duplicate = applyAgentRealtimeEvent(run, { ...base, sequence: 2, eventType: "TEXT_DELTA",
-      payload: { contentIndex: 0, delta: "重复" } });
+    run = applyAgentRealtimeEvent(run, {
+      ...base,
+      sequence: 2,
+      eventType: "TEXT_DELTA",
+      payload: { contentIndex: 0, delta: "正在构图" },
+    });
+    const duplicate = applyAgentRealtimeEvent(run, {
+      ...base,
+      sequence: 2,
+      eventType: "TEXT_DELTA",
+      payload: { contentIndex: 0, delta: "重复" },
+    });
     expect(duplicate).toBe(run);
     expect(run.text).toBe("正在构图");
   });
 
   it("把 Tool 参数兜底产生的创作说明加入实时文本", () => {
-    const event = { creationId: "creation-1", sessionId: "session-1", revision: 0,
-      streamId: "stream-1", sequence: 1, eventType: "NARRATION" as const,
-      payload: { text: "我会生成四版不同构图的竖版海报。" } };
+    const event = {
+      creationId: "creation-1",
+      sessionId: "session-1",
+      revision: 0,
+      streamId: "stream-1",
+      sequence: 1,
+      eventType: "NARRATION" as const,
+      payload: { text: "我会生成四版不同构图的竖版海报。" },
+    };
     expect(applyAgentRealtimeEvent(undefined, event).text).toBe("我会生成四版不同构图的竖版海报。");
   });
 
   it("立即投影模型选择的 Skill", () => {
-    const run = applyAgentRealtimeEvent(undefined, { ...base, sequence: 2,
-      eventType: "SKILL_SELECTED", payload: { skillName: "poster-design" } });
+    const run = applyAgentRealtimeEvent(undefined, {
+      ...base,
+      sequence: 2,
+      eventType: "SKILL_SELECTED",
+      payload: { skillName: "poster-design" },
+    });
     expect(run.skills).toEqual(["poster-design"]);
   });
 
   it("accepts Java-owned terminal lifecycle events", () => {
-    expect(isAgentRealtimeEvent({ ...base, revision: 5, sequence: 9, eventType: "RUN_FINISHED",
-      payload: { status: "SUCCEEDED" } })).toBe(true);
-    expect(isAgentRealtimeEvent({ ...base, revision: 5, sequence: 9, eventType: "RUN_CANCELLED",
-      payload: { status: "CANCELLED" } })).toBe(true);
+    expect(
+      isAgentRealtimeEvent({
+        ...base,
+        revision: 5,
+        sequence: 9,
+        eventType: "RUN_FINISHED",
+        payload: { status: "SUCCEEDED" },
+      }),
+    ).toBe(true);
+    expect(
+      isAgentRealtimeEvent({
+        ...base,
+        revision: 5,
+        sequence: 9,
+        eventType: "RUN_CANCELLED",
+        payload: { status: "CANCELLED" },
+      }),
+    ).toBe(true);
   });
 
   it("extracts the complete persistent form projection from a form event", () => {
-    const event = { ...base, revision: 5, streamId: "form-31", eventType: "FORM_REQUESTED" as const,
-      payload: { form: { formId: "701", status: "PENDING", form: { schemaVersion: 1,
-        title: "确认海报方向", fields: [] }, answers: null,
-        requestedAt: "2026-09-20T01:00:00Z", resolvedAt: null } } };
+    const event = {
+      ...base,
+      revision: 5,
+      streamId: "form-31",
+      eventType: "FORM_REQUESTED" as const,
+      payload: {
+        form: {
+          formId: "701",
+          status: "PENDING",
+          form: { schemaVersion: 1, title: "确认海报方向", fields: [] },
+          answers: null,
+          requestedAt: "2026-09-20T01:00:00Z",
+          resolvedAt: null,
+        },
+      },
+    };
     expect(isAgentRealtimeEvent(event)).toBe(true);
-    expect(agentFormFromEvent(event)).toMatchObject({ id: "701", status: "PENDING",
-      form: { title: "确认海报方向" } });
+    expect(agentFormFromEvent(event)).toMatchObject({ id: "701", status: "PENDING", form: { title: "确认海报方向" } });
+
+    const cancelledEvent = {
+      ...event,
+      revision: 6,
+      sequence: 2,
+      eventType: "FORM_RESOLVED" as const,
+      payload: { form: { ...event.payload.form, status: "CANCELLED", resolvedAt: "2026-09-20T01:01:00Z" } },
+    };
+    expect(agentFormFromEvent(cancelledEvent)).toMatchObject({ id: "701", status: "CANCELLED" });
+  });
+
+  it("rejects malformed form fields and answers instead of trusting nested payloads", () => {
+    const event = {
+      ...base,
+      eventType: "FORM_REQUESTED" as const,
+      payload: {
+        form: {
+          formId: "701",
+          status: "PENDING",
+          requestedAt: "2026-09-20T01:00:00Z",
+          resolvedAt: null,
+          form: {
+            schemaVersion: 1,
+            title: "确认方向",
+            fields: [
+              {
+                id: "style",
+                type: "SINGLE_SELECT",
+                label: "风格",
+                required: true,
+                allowCustom: false,
+                options: [{ value: "warm" }],
+              },
+            ],
+          },
+          answers: null,
+        },
+      },
+    };
+    expect(agentFormFromEvent(event)).toBeNull();
+
+    const validForm = {
+      ...event,
+      payload: {
+        form: {
+          ...event.payload.form,
+          form: { schemaVersion: 1, title: "确认方向", fields: [] },
+          answers: { style: { kind: "UNSUPPORTED", value: "warm" } },
+        },
+      },
+    };
+    expect(agentFormFromEvent(validForm)).toBeNull();
   });
 
   it("projects safe Tool lifecycle state", () => {
     let run = applyAgentRealtimeEvent(undefined, base);
-    run = applyAgentRealtimeEvent(run, { ...base, sequence: 2, eventType: "TOOL_STARTED",
-      payload: { toolCallId: "call-1", toolName: "text_to_image" } });
-    run = applyAgentRealtimeEvent(run, { ...base, sequence: 3, eventType: "TOOL_FINISHED",
-      payload: { toolCallId: "call-1", toolName: "text_to_image", outcome: "SUCCEEDED" } });
+    run = applyAgentRealtimeEvent(run, {
+      ...base,
+      sequence: 2,
+      eventType: "TOOL_STARTED",
+      payload: { toolCallId: "call-1", toolName: "text_to_image" },
+    });
+    run = applyAgentRealtimeEvent(run, {
+      ...base,
+      sequence: 3,
+      eventType: "TOOL_FINISHED",
+      payload: { toolCallId: "call-1", toolName: "text_to_image", outcome: "SUCCEEDED" },
+    });
     expect(run.tools).toEqual([{ toolCallId: "call-1", toolName: "text_to_image", state: "SUCCEEDED" }]);
   });
 
   it("restores the safe live projection from a reconnect snapshot", () => {
-    const run = applyAgentRealtimeEvent(undefined, { ...base, sequence: 6, eventType: "RUN_SNAPSHOT",
-      payload: { text: "正在生成", skills: ["poster-design"], tools: [
-        { toolCallId: "call-1", toolName: "text_to_image", state: "RUNNING" },
-      ] } });
-    expect(run).toMatchObject({ sequence: 6, text: "正在生成", skills: ["poster-design"],
-      tools: [{ toolCallId: "call-1", toolName: "text_to_image", state: "RUNNING" }] });
+    const run = applyAgentRealtimeEvent(undefined, {
+      ...base,
+      sequence: 6,
+      eventType: "RUN_SNAPSHOT",
+      payload: {
+        text: "正在生成",
+        skills: ["poster-design"],
+        tools: [{ toolCallId: "call-1", toolName: "text_to_image", state: "RUNNING" }],
+      },
+    });
+    expect(run).toMatchObject({
+      sequence: 6,
+      text: "正在生成",
+      skills: ["poster-design"],
+      tools: [{ toolCallId: "call-1", toolName: "text_to_image", state: "RUNNING" }],
+    });
   });
 
   it("preserves the visible first segment when a submitted form resumes the same Creation", () => {
     let run = applyAgentRealtimeEvent(undefined, base);
-    run = applyAgentRealtimeEvent(run, { ...base, sequence: 2, eventType: "TEXT_DELTA",
-      payload: { delta: "我先确认一下设计方向。" } });
-    run = applyAgentRealtimeEvent(run, { ...base, revision: 6, streamId: "stream-2", sequence: 1,
-      eventType: "RUN_STARTED", payload: {} });
-    run = applyAgentRealtimeEvent(run, { ...base, revision: 6, streamId: "stream-2", sequence: 2,
-      eventType: "TEXT_DELTA", payload: { delta: "现在开始生成。" } });
+    run = applyAgentRealtimeEvent(run, {
+      ...base,
+      sequence: 2,
+      eventType: "TEXT_DELTA",
+      payload: { delta: "我先确认一下设计方向。" },
+    });
+    run = applyAgentRealtimeEvent(run, {
+      ...base,
+      revision: 6,
+      streamId: "stream-2",
+      sequence: 1,
+      eventType: "RUN_STARTED",
+      payload: {},
+    });
+    run = applyAgentRealtimeEvent(run, {
+      ...base,
+      revision: 6,
+      streamId: "stream-2",
+      sequence: 2,
+      eventType: "TEXT_DELTA",
+      payload: { delta: "现在开始生成。" },
+    });
 
     expect(run.text).toBe("我先确认一下设计方向。现在开始生成。");
   });
@@ -175,13 +314,15 @@ describe("reconnectDelayMs", () => {
 
 describe("consumeSseStream", () => {
   function streamOf(blocks: string[]): Response {
-    return new Response(new ReadableStream({
-      start(controller) {
-        const encoder = new TextEncoder();
-        for (const block of blocks) controller.enqueue(encoder.encode(block));
-        controller.close();
-      },
-    }));
+    return new Response(
+      new ReadableStream({
+        start(controller) {
+          const encoder = new TextEncoder();
+          for (const block of blocks) controller.enqueue(encoder.encode(block));
+          controller.close();
+        },
+      }),
+    );
   }
 
   it("触发 ready,解析 task 与 publication 事件并分发", async () => {
@@ -190,8 +331,8 @@ describe("consumeSseStream", () => {
     const onPublicationUpdate = vi.fn();
     const body = [
       "event: generation.stream.ready\ndata: {}\n\n",
-      "event: generation.task.updated\ndata: {\"sessionId\":\"s1\",\"generationTaskId\":\"t1\",\"revision\":1,\"status\":\"SUCCEEDED\",\"retryCount\":0,\"maxRetryCount\":2}\n\n",
-      "event: publication.updated\ndata: {\"imageId\":\"img-1\",\"publicationVersion\":1,\"status\":\"APPROVED\",\"publicAt\":\"2026-08-10T00:00:00Z\"}\n\n",
+      'event: generation.task.updated\ndata: {"sessionId":"s1","generationTaskId":"t1","revision":1,"status":"SUCCEEDED","retryCount":0,"maxRetryCount":2}\n\n',
+      'event: publication.updated\ndata: {"imageId":"img-1","publicationVersion":1,"status":"APPROVED","publicAt":"2026-08-10T00:00:00Z"}\n\n',
     ];
     await consumeSseStream(streamOf(body), onReady, onTaskUpdate, onPublicationUpdate);
     expect(onReady).toHaveBeenCalledTimes(1);
@@ -201,29 +342,37 @@ describe("consumeSseStream", () => {
 
   it("把 Java 以字符串 ID 输出的 Agent 增量交给前端", async () => {
     const onAgentEvent = vi.fn();
-    await consumeSseStream(streamOf([
-      "event: agent.creation.event\ndata: {\"creationId\":\"1\",\"sessionId\":\"1\",\"revision\":0,\"streamId\":\"stream-1\",\"sequence\":1,\"eventType\":\"TEXT_DELTA\",\"payload\":{\"contentIndex\":1,\"delta\":\"正在构图\"}}\n\n",
-    ]), vi.fn(), vi.fn(), vi.fn(), vi.fn(), onAgentEvent);
-    expect(onAgentEvent).toHaveBeenCalledWith(expect.objectContaining({ creationId: "1",
-      eventType: "TEXT_DELTA" }));
+    await consumeSseStream(
+      streamOf([
+        'event: agent.creation.event\ndata: {"creationId":"1","sessionId":"1","revision":0,"streamId":"stream-1","sequence":1,"eventType":"TEXT_DELTA","payload":{"contentIndex":1,"delta":"正在构图"}}\n\n',
+      ]),
+      vi.fn(),
+      vi.fn(),
+      vi.fn(),
+      vi.fn(),
+      onAgentEvent,
+    );
+    expect(onAgentEvent).toHaveBeenCalledWith(expect.objectContaining({ creationId: "1", eventType: "TEXT_DELTA" }));
   });
 
   it("跨 chunk 拼接多行事件,并忽略非法事件与坏 JSON", async () => {
     const onReady = vi.fn();
     const onTaskUpdate = vi.fn();
     const onPublicationUpdate = vi.fn();
-    const stream = new Response(new ReadableStream({
-      start(controller) {
-        const encoder = new TextEncoder();
-        controller.enqueue(encoder.encode("event: publication.up"));
-        controller.enqueue(encoder.encode("dated\ndata: {\"imageId\":\"img-"));
-        controller.enqueue(encoder.encode("2\",\"publicationVersion\":1,\"status\":\"FAILED\",\"publicAt\":null}\n"));
-        controller.enqueue(encoder.encode("\n"));
-        controller.enqueue(encoder.encode("event: publication.updated\ndata: not-json\n\n"));
-        controller.enqueue(encoder.encode("event: publication.updated\ndata: {\"status\":\"PENDING\"}\n\n"));
-        controller.close();
-      },
-    }));
+    const stream = new Response(
+      new ReadableStream({
+        start(controller) {
+          const encoder = new TextEncoder();
+          controller.enqueue(encoder.encode("event: publication.up"));
+          controller.enqueue(encoder.encode('dated\ndata: {"imageId":"img-'));
+          controller.enqueue(encoder.encode('2","publicationVersion":1,"status":"FAILED","publicAt":null}\n'));
+          controller.enqueue(encoder.encode("\n"));
+          controller.enqueue(encoder.encode("event: publication.updated\ndata: not-json\n\n"));
+          controller.enqueue(encoder.encode('event: publication.updated\ndata: {"status":"PENDING"}\n\n'));
+          controller.close();
+        },
+      }),
+    );
     await consumeSseStream(stream, onReady, onTaskUpdate, onPublicationUpdate);
     expect(onPublicationUpdate).toHaveBeenCalledTimes(1);
     expect(onPublicationUpdate).toHaveBeenCalledWith(expect.objectContaining({ imageId: "img-2", status: "FAILED" }));
@@ -233,7 +382,6 @@ describe("consumeSseStream", () => {
 
   it("无响应体时抛错", async () => {
     const response = new Response(null);
-    await expect(consumeSseStream(response, vi.fn(), vi.fn(), vi.fn()))
-      .rejects.toThrow("no response body");
+    await expect(consumeSseStream(response, vi.fn(), vi.fn(), vi.fn())).rejects.toThrow("no response body");
   });
 });

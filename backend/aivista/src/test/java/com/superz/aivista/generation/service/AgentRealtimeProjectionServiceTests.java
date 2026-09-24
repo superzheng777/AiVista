@@ -113,9 +113,13 @@ class AgentRealtimeProjectionServiceTests {
     @Test
     void publishesTheFullCommittedFormWithoutASecondRestRead() {
         when(creations.selectSnapshotById(31L)).thenReturn(creation("AGENT", "WAITING_INPUT", 5L));
-        var definition = new ObjectMapper().createObjectNode().put("schemaVersion", 1)
-                .put("title", "确认需求").putArray("fields");
-        var form = new CreationFormResponse("701", "PENDING", definition, null,
+        var definition = new ObjectMapper().createObjectNode();
+        definition.put("schemaVersion", 1).put("title", "确认需求");
+        definition.putArray("fields");
+        @SuppressWarnings("unchecked")
+        var definitionMap = (java.util.Map<String, Object>) new ObjectMapper().convertValue(
+                definition, java.util.Map.class);
+        var form = new CreationFormResponse("701", "call-form-1", "PENDING", definitionMap, null,
                 Instant.parse("2026-09-20T01:00:00Z"), null);
 
         service.publishFormRequested(31L, 5L, form);

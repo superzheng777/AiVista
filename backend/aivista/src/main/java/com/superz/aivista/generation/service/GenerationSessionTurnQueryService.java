@@ -21,10 +21,9 @@ import com.superz.aivista.generation.mapper.GenerationSessionMapper;
 import com.superz.aivista.generation.mapper.GenerationTaskMapper;
 import com.superz.aivista.generation.mapper.CreationActivityMapper;
 import com.superz.aivista.generation.mapper.CreationFormMapper;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.superz.aivista.generation.model.ConversationRole;
+import com.superz.aivista.generation.model.AgentJsonObjects;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -169,17 +168,13 @@ public class GenerationSessionTurnQueryService {
     }
 
     private CreationFormResponse responseOf(CreationForm form) {
-        return new CreationFormResponse(form.getId().toString(), form.getStatus(), readJson(form.getFormJson()),
-                readJson(form.getAnswerJson()), form.getRequestedAt(), form.getResolvedAt());
+        return new CreationFormResponse(form.getId().toString(), form.getToolCallId(), form.getStatus(),
+                readJson(form.getFormJson()), readJson(form.getAnswerJson()),
+                form.getRequestedAt(), form.getResolvedAt());
     }
 
-    private JsonNode readJson(String value) {
-        if (value == null) return null;
-        try {
-            return objectMapper.readTree(value);
-        } catch (JsonProcessingException exception) {
-            throw new IllegalStateException("Stored creation form JSON is invalid", exception);
-        }
+    private Map<String, Object> readJson(String value) {
+        return AgentJsonObjects.read(objectMapper, value, "Stored creation form JSON");
     }
 
     private ConversationMessageResponse responseOf(ConversationMessage message) {

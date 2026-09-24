@@ -7,7 +7,7 @@ import {
   confirmUserAgreement,
   getUserAgreementConsent,
   userAgreementQueryKeys,
-} from "@/shared/api/user-agreement-consent-api";
+} from "@/features/user-agreement/api/user-agreement-consent-api";
 
 /**
  * 当前用户《用户协议》确认状态与确认动作。

@@ -13,13 +13,52 @@ Java 已提供 `/agent-creations`，并通过同一个 Outbox/Direct Exchange �
 - TS 只消费一个生成命令；旧 Transfer Queue、Worker Result Queue、分段消费者和运行切换开关均已删除。
 - 排队超时和资产清理由 Java 保留，因为它们会修改 Java 拥有的业务状态。
 - 发布审核属于 Java 发布领域，由 Java 完成审核调用、状态、通知与失败恢复；TS 不参与。
-- Agent Runtime 按 Java、TS 各单实例的边界实现，不引入跨实例租约。主模型固定为支持图片输入与 Function Calling 的百炼 `qwen3.8-flash`；`qwen-image-2.0` 只承担实际图片生成。一次 Creation 创建一个短生命周期、`SessionManager.inMemory(explicitCwd)` 的 Pi Session 和最多 20 Turn 的 Loop；Generation Session 是 MySQL 中的跨轮逻辑会话。每轮从 Execution Snapshot V3 恢复 `agent_session_contexts` 中的 Pi 逻辑上下文和可选表单响应，使用 Pi `SettingsManager` 原生自动压缩，并在成功 Completion V2 中由 Java原子保存新 Context。Context保留近期完整 Tool Call/Result，但导出前会把图片二进制替换为 Asset ID引用；不保存 Data URI、Pi JSONL、Thinking 或逐 Token。共享 ModelRuntime、受控 ResourceLoader、系统提示词、active Tool 白名单、内联 Harness Extension 和事件 Adapter 构成 Runtime 外壳。Assistant 有 Tool Call时由 Pi执行并继续，没有 Tool Call且有文字时自然结束。Tool 等待同进程 Generation Worker，Completion 被 Java确认后由单 Waiter Coordinator 唤醒。八个内置 Skill 已按 Pi 的 Skill 索引→受限 `read`→正文渐进披露链路接通；`read` 不能越过 `.pi/skills`。`request_user_input` 通过 Pi 官方 `terminate` 语义暂停当前 prompt，Ledger 保存清理后的 Context，Java持久化表单并在用户提交或跳过后复用 `AGENT_EXECUTE` 恢复执行。内部 WebSocket只传实时文字、Tool 进度、表单事件、取消和心跳。Agent Creation 支持 `AUTO/0` 或用户指定的画幅与总数量约束；约束通过执行快照注入 Pi。每次 Tool 的 `imageCount` 支持 1～6，同方向可单任务多图，不同方向可拆为多个 Tool。详见 `../backend/aivista/Agent模式模块.md`。
+- Agent Runtime 按 Java、TS 各单实例的边界实现，不引入跨实例租约。主模型固定为支持图片输入与 Function Calling 的百炼 `qwen3.8-flash`；`qwen-image-2.0` 只承担实际图片生成。一次 Creation 创建一个短生命周期、`SessionManager.inMemory(explicitCwd)` 的 Pi Session 和最多 20 Turn 的 Loop；Generation Session 是 MySQL 中的跨轮逻辑会话。每轮从 Execution Snapshot V4 恢复 `agent_session_contexts` 中的 Pi 逻辑上下文和可选 `pendingInput`，使用 Pi `SettingsManager` 原生自动压缩；Java在表单暂停事务与成功 Completion V2 事务中分别提交正式 Context。Context保留近期完整 Tool Call/Result，但导出前会把图片二进制替换为 Asset ID引用；不保存 Data URI、Pi JSONL、Thinking 或逐 Token。共享 ModelRuntime、受控 ResourceLoader、系统提示词、active Tool 白名单、内联 Harness Extension 和事件 Adapter 构成 Runtime 外壳。Assistant 有 Tool Call时由 Pi执行并继续，没有 Tool Call且有文字时自然结束。Tool 等待同进程 Generation Worker，Completion 被 Java确认后由单 Waiter Coordinator 唤醒。八个内置 Skill 已按 Pi 的 Skill 索引→受限 `read`→正文渐进披露链路接通；`read` 不能越过 `.pi/skills`。`request_user_input` 通过 Pi 官方 `terminate` 语义结束当前执行分段；Ledger只在 Java确认前保存可重放的暂停 HTTP 请求，Java原子提交 Context、表单和 `WAITING_INPUT`。提交或跳过后，Runtime按 `toolCallId` 把权威结果替换进原 Tool Result，再使用固定续跑提示继续；取消则终止本次 Creation，并由下一轮归一化旧占位结果。内部 WebSocket只传实时文字、Tool 进度、表单事件、取消和心跳。Agent Creation 支持 `AUTO/0` 或用户指定的画幅与总数量约束；约束通过执行快照注入 Pi。每次 Tool 的 `imageCount` 支持 1～6，同方向可单任务多图，不同方向可拆为多个 Tool。详见 `../backend/aivista/Agent模式模块.md`。
 
 共享线协议位于 `../contracts/generation-worker/v1`。
 
+## Agent 代码结构
+
+```text
+.pi/
+├── SYSTEM.md                     # Agent 全局系统规则
+└── skills/                       # 按需读取的领域 Skill 与参考资料
+src/agent/
+├── adapters/                     # Java HTTP / WebSocket 边界与线协议校验
+├── providers/                    # Pi 模型注册与百炼绑定
+├── tools/                        # 生图、看图、表单与受限 Skill read
+├── agent-command-*.service.ts    # RabbitMQ 接入与 ACK/NACK
+├── agent-execution.service.ts    # 单条命令的可靠编排边界
+├── agent-execution-state.service.ts # Worker Ledger 与重放决策
+├── agent-runtime.ts              # 短生命周期 Pi Session 与 Harness
+├── agent-context.ts              # Context 校验、恢复、导出与表单结果替换
+├── agent-activity.ts             # 最终可持久化 Activity 投影
+└── agent-event-normalizer.ts     # 瞬时实时事件投影与文本批处理
+src/observability/
+├── agent-observability.service.ts # 默认关闭的 Langfuse 生命周期管理
+└── agent-trace-recorder.ts        # 每次 Agent 分段的模型与 Tool 观测
+```
+
+执行依赖保持单向：`Consumer → Listener → AgentExecutionService → Ledger / Java Adapters / Pi Runtime → Tools`。`AgentActivityCollector` 只生成最终可持久化步骤，`AgentEventNormalizer` 只生成允许丢失的实时事件；两者刻意分开，避免把瞬时流当成业务事实。Langfuse 通过 Runtime 的最小 Observer 接口旁路记录，不参与状态机，也不改变 ACK、暂停或 Completion 语义。
+
+## Agent 运行观测（默认关闭）
+
+Agent Worker 可选接入 Langfuse Cloud。实现复用现有 Pi Harness 事件，并在同一进程内以 OpenTelemetry Trace 批量发送；不会启动额外服务或创建第二套 Pi 扩展。一次实际执行分段对应 `AGENT_RUN`，其下记录每次 `LLM_GENERATION` 和 Tool 调用。系统提示词在根节点记录一次，每次模型请求记录当时的完整 messages；最终结果只记录必要摘要，不重复上传持久化 Context。
+
+默认配置保持关闭，先在本地环境中填写自己的 Langfuse Project Keys，再显式开启：
+
+```dotenv
+AIVISTA_LANGFUSE_ENABLED=true
+LANGFUSE_PUBLIC_KEY=pk-lf-...
+LANGFUSE_SECRET_KEY=sk-lf-...
+LANGFUSE_BASE_URL=https://cloud.langfuse.com
+```
+
+图片二进制、Thinking 内容及其签名不会进入 Trace，媒体自动上传也已关闭。观测初始化或单次记录失败会降级为正常执行，不改变 Agent 状态机；进程关闭时会等待已缓存 Span 刷新。
+
 单命令 Pipeline 已完成切换：Java completion 接口、真实文生图和图生图均已验证；旧 Transfer/Result MQ 代码以及 `generation_tasks` 的 Provider 快照、Transfer 时间字段由 Flyway V19 清理。普通 Generation Worker 不再维护数据库 Ledger，只用进程内 active 集合阻止同进程并发重复执行；任务阶段和终态都以 Java `generation_tasks` 为权威。
 
-Agent Runtime 当前实现：中文系统提示词位于 Pi 原生 `.pi/SYSTEM.md`；Provider 位于 `src/agent/providers/`，正式 `text_to_image` / `image_to_image` / `inspect_image` / `request_user_input` 位于 `src/agent/tools/` 并由 `index.ts` 汇总。`poster-design` 描述单画布传播设计，`brand-design` 描述 Logo 与品牌视觉概念，`cinematic-still` 描述真人叙事剧照与连续镜头，`impasto-diorama` 描述逐张照片驱动的油彩厚涂立体微景观，`monumental-scale-poster` 描述巨物压近、明亮呼吸带、尺度标记与透明反射介质构成的清透海报，`portrait-face-director` 将脸谱审美拆成可执行五官结构并通过顺序表单确认覆盖，`japanese-life-fragments` 将每张照片分别转译为真实摄影与亚克力生活碎片 Scene Map，`series-image-director` 从母版建立 Series Lock 与 Variation Matrix 后生成统一但不重复的系列套图；八者只承载各自领域的任务门禁、事实约束、需求确认门槛、视觉方法、Prompt 编译和质量检查。通用表单行为留在系统提示词，各 Skill 只定义哪些领域缺口值得暂停以及可使用的字段；参数与权限边界留在 Tool Schema/Harness。`agent-context.ts` 负责 Pi Context 的校验、恢复、active branch 导出与图片二进制清理；最多 20 Turn 的 Harness 和 Pi 原生文本事件投影已完成。当前请求图片按顺序注入为 `ImageContent`，同时在本轮受信任系统上下文中绑定准确 Asset ID；历史 Context 只保存 Asset ID，模型确需理解历史图片或质检本轮生成结果时可调用 `inspect_image`，由 Java按当前用户、Generation Session、Creation 状态和 revision 授权后，TS从 OSS恢复为一次性的 Pi `ImageContent`。Tool Result进入下一 Turn后，持久化 Codec再次移除图片 Base64，只保留稳定 Asset ID。`request_user_input` 使用固定 TEXT/SINGLE_SELECT Schema，先把暂停 Context 写入 Ledger，再由 Java持久化表单；提交或跳过后按新 revision 恢复，不伪造聊天消息或 Activity；Harness 会在执行前整批阻断表单 Tool 与其他 Tool 的混合调用。`text_to_image` 与 `image_to_image` 已通过本地 Faux Provider验证 Tool Call → Tool Result → 下一 Turn，并通过真实端到端文生图、图生图验证；Faux 只存在于测试。`AgentGenerationToolExecutor` 使用 Pi `toolCallId` 幂等创建 Java Generation Task，由同进程单 Waiter `GenerationCompletionCoordinatorService` 等待 Java已提交的权威结果。独立 Agent Consumer 读取 Java快照、运行 Pi，并根据结果先保存 `PAUSE_READY` 或 `COMPLETION_READY`；只有 Java事务确认暂停表单或最终消息、Activity、Context 与 Creation 后才 ACK。同一 Creation 的更高恢复 revision 会等待上一执行分段完全退出，避免被进程内防重误吞。
+Agent Runtime 当前实现：中文系统提示词位于 Pi 原生 `.pi/SYSTEM.md`；Provider 位于 `src/agent/providers/`，正式 `text_to_image` / `image_to_image` / `inspect_image` / `request_user_input` 位于 `src/agent/tools/` 并由 `index.ts` 汇总。`poster-design` 描述单画布传播设计，`brand-design` 描述 Logo 与品牌视觉概念，`cinematic-still` 描述真人叙事剧照与连续镜头，`impasto-diorama` 描述逐张照片驱动的油彩厚涂立体微景观，`monumental-scale-poster` 描述巨物压近、明亮呼吸带、尺度标记与透明反射介质构成的清透海报，`portrait-face-director` 将脸谱审美拆成可执行五官结构并通过顺序表单确认覆盖，`japanese-life-fragments` 将每张照片分别转译为真实摄影与亚克力生活碎片 Scene Map，`series-image-director` 从母版建立 Series Lock 与 Variation Matrix 后生成统一但不重复的系列套图；八者只承载各自领域的任务门禁、事实约束、需求确认门槛、视觉方法、Prompt 编译和质量检查。通用表单行为留在系统提示词，各 Skill 只定义哪些领域缺口值得暂停以及可使用的字段；参数与权限边界留在 Tool Schema/Harness。`agent-context.ts` 负责 Pi Context 的校验、恢复、active branch 导出、图片二进制清理，以及按唯一 `toolCallId` 校验并替换暂停 Tool Result；最多 20 Turn 的 Harness 和 Pi 原生文本事件投影已完成。当前请求图片按顺序注入为 `ImageContent`，同时在本轮受信任系统上下文中绑定准确 Asset ID；历史 Context 只保存 Asset ID，模型确需理解历史图片或质检本轮生成结果时可调用 `inspect_image`，由 Java按当前用户、Generation Session、Creation 状态和 revision 授权后，TS从 OSS恢复为一次性的 Pi `ImageContent`。Tool Result进入下一 Turn后，持久化 Codec再次移除图片 Base64，只保留稳定 Asset ID。`request_user_input` 使用固定 TEXT/SINGLE_SELECT Schema；TS先写可重放的 `PAUSE_READY` 投递，Java再原子持久化暂停 Context、表单与状态，确认后清空暂停 payload。提交或跳过后按新 revision 从 Java快照恢复，把答案作为不受信任的用户数据写回原 Tool Result，不伪造产品聊天消息或 Activity。模型可见正文按表单字段顺序输出“字段标签：实际答案”的简洁摘要，选项答案显示用户看到的标签；完整表单和结构化答案仍保留在 Tool Result `details`，未回答的可选字段由模型根据已有信息合理决定且不得重复询问。Harness 会在执行前整批阻断表单 Tool 与其他 Tool 的混合调用。`text_to_image` 与 `image_to_image` 已通过本地 Faux Provider验证 Tool Call → Tool Result → 下一 Turn，并通过真实端到端文生图、图生图验证；Faux 只存在于测试。`AgentGenerationToolExecutor` 使用 Pi `toolCallId` 幂等创建 Java Generation Task，由同进程单 Waiter `GenerationCompletionCoordinatorService` 等待 Java已提交的权威结果。独立 Agent Consumer 读取 Java快照、运行 Pi，并根据结果先保存 `PAUSE_READY` 或 `COMPLETION_READY`；只有 Java事务确认暂停表单或最终消息、Activity、Context 与 Creation 后才 ACK。同一 Creation 的更高恢复 revision 会等待上一执行分段完全退出，避免被进程内防重误吞。
 
 ## Agent 模型冒烟测试
 

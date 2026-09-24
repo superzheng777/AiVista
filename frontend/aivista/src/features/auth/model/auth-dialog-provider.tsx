@@ -12,10 +12,7 @@ const AuthDialogContext = createContext<AuthDialogContextValue | null>(null);
 
 export function AuthDialogProvider({ children }: { children: ReactNode }) {
   const [isOpen, setIsOpen] = useState(false);
-  const value = useMemo(
-    () => ({ isOpen, open: () => setIsOpen(true), close: () => setIsOpen(false) }),
-    [isOpen],
-  );
+  const value = useMemo(() => ({ isOpen, open: () => setIsOpen(true), close: () => setIsOpen(false) }), [isOpen]);
 
   return <AuthDialogContext value={value}>{children}</AuthDialogContext>;
 }

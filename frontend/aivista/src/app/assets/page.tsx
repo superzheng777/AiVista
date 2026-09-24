@@ -9,7 +9,11 @@ export default function AssetsPage() {
 
   return (
     <AppShell>
-      {status === "authenticated" ? <AssetsWorkspace /> : <main className="min-h-screen" aria-busy="true" aria-label="正在加载个人资产" />}
+      {status === "authenticated" ? (
+        <AssetsWorkspace />
+      ) : (
+        <main className="min-h-screen" aria-busy="true" aria-label="正在加载个人资产" />
+      )}
     </AppShell>
   );
 }

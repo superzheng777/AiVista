@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { mapGenerationAssetImage, needsImageUrlRefresh, type GenerationAssetImageDto } from "@/entities/generation/model/generation";
+import {
+  formatSessionTitle,
+  mapGenerationAssetImage,
+  needsImageUrlRefresh,
+  type GenerationAssetImageDto,
+} from "@/entities/generation/model/generation";
 
 const dto: GenerationAssetImageDto = {
   imageId: "img-1",
@@ -26,7 +31,10 @@ describe("mapGenerationAssetImage", () => {
     expect(mapGenerationAssetImage(dto)).toEqual({
       id: "img-1",
       sourceIndex: 0,
-      imageUrls: { thumbnail: { url: "https://signed.example/img-1", expiresAt: "2026-08-10T00:10:00Z" }, display: null },
+      imageUrls: {
+        thumbnail: { url: "https://signed.example/img-1", expiresAt: "2026-08-10T00:10:00Z" },
+        display: null,
+      },
       createdAt: "2026-08-09T00:00:00Z",
       favorited: true,
       finalPrompt: "一只戴帽子的猫",
@@ -47,7 +55,13 @@ describe("mapGenerationAssetImage", () => {
   });
 
   it("透传 null 业务字段", () => {
-    const mapped = mapGenerationAssetImage({ ...dto, finalNegativePrompt: null, publicAt: null, title: null, description: null });
+    const mapped = mapGenerationAssetImage({
+      ...dto,
+      finalNegativePrompt: null,
+      publicAt: null,
+      title: null,
+      description: null,
+    });
     expect(mapped.finalNegativePrompt).toBeNull();
     expect(mapped.publicAt).toBeNull();
     expect(mapped.title).toBeNull();
@@ -57,11 +71,38 @@ describe("mapGenerationAssetImage", () => {
 
 describe("needsImageUrlRefresh", () => {
   it("keeps a URL that has not expired", () => {
-    expect(needsImageUrlRefresh({ url: "https://example.test", expiresAt: "2026-08-11T12:00:01.000Z" }, Date.parse("2026-08-11T12:00:00.000Z"))).toBe(false);
+    expect(
+      needsImageUrlRefresh(
+        { url: "https://example.test", expiresAt: "2026-08-11T12:00:01.000Z" },
+        Date.parse("2026-08-11T12:00:00.000Z"),
+      ),
+    ).toBe(false);
   });
 
   it("refreshes an expired or malformed URL", () => {
-    expect(needsImageUrlRefresh({ url: "https://example.test", expiresAt: "2026-08-11T12:00:00.000Z" }, Date.parse("2026-08-11T12:00:00.000Z"))).toBe(true);
-    expect(needsImageUrlRefresh({ url: "https://example.test", expiresAt: "not-a-date" }, Date.parse("2026-08-11T12:00:00.000Z"))).toBe(true);
+    expect(
+      needsImageUrlRefresh(
+        { url: "https://example.test", expiresAt: "2026-08-11T12:00:00.000Z" },
+        Date.parse("2026-08-11T12:00:00.000Z"),
+      ),
+    ).toBe(true);
+    expect(
+      needsImageUrlRefresh(
+        { url: "https://example.test", expiresAt: "not-a-date" },
+        Date.parse("2026-08-11T12:00:00.000Z"),
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("formatSessionTitle", () => {
+  it("keeps titles with no more than ten characters unchanged", () => {
+    expect(formatSessionTitle("一二三四五六七八九十")).toBe("一二三四五六七八九十");
+    expect(formatSessionTitle("短标题")).toBe("短标题");
+  });
+
+  it("shows the first ten characters followed by three dots", () => {
+    expect(formatSessionTitle("一二三四五六七八九十一")).toBe("一二三四五六七八九十...");
+    expect(formatSessionTitle("123456789😀x")).toBe("123456789😀...");
   });
 });

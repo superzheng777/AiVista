@@ -17,6 +17,7 @@ import com.superz.aivista.generation.dto.ResolveCreationFormRequest;
 import com.superz.aivista.generation.entity.CreationForm;
 import com.superz.aivista.generation.entity.CreationTask;
 import com.superz.aivista.generation.entity.OutboxEvent;
+import com.superz.aivista.generation.mapper.AgentSessionContextMapper;
 import com.superz.aivista.generation.mapper.CreationFormMapper;
 import com.superz.aivista.generation.mapper.CreationTaskMapper;
 import com.superz.aivista.generation.mapper.GenerationSessionMapper;
@@ -26,6 +27,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -37,8 +39,9 @@ class AgentFormServiceTests {
     private final OutboxEventMapper outbox = mock(OutboxEventMapper.class);
     private final GenerationSessionMapper sessions = mock(GenerationSessionMapper.class);
     private final AgentActivityService activities = mock(AgentActivityService.class);
+    private final AgentSessionContextMapper contexts = mock(AgentSessionContextMapper.class);
     private final AgentFormService service = new AgentFormService(creations, forms, outbox, sessions, activities,
-            new AgentFormSchemaValidator(), objectMapper, Clock.fixed(NOW, ZoneOffset.UTC));
+            contexts, new AgentFormSchemaValidator(), objectMapper, Clock.fixed(NOW, ZoneOffset.UTC));
 
     @Test
     void persistsFormAndAtomicallyPausesCreation() {
@@ -49,12 +52,15 @@ class AgentFormServiceTests {
             return 1;
         }).when(forms).insertForm(any(CreationForm.class));
 
-        var result = service.request(151L, "call-form-1", new AgentInputRequestCommand(1, 0, form(), List.of()));
+        var result = service.request(151L, "call-form-1",
+                new AgentInputRequestCommand(2, 0, map(context()), map(form()), List.of()));
 
         assertThat(result.created()).isTrue();
         assertThat(result.revision()).isEqualTo(1);
         assertThat(result.form().status()).isEqualTo("PENDING");
+        assertThat(result.form().toolCallId()).isEqualTo("call-form-1");
         verify(activities).persistLocked(151L, List.of());
+        verify(contexts).upsertPending(101L, write(context()), 151L, 1L, "call-form-1", NOW);
         verify(creations).pauseForInput(151L, 0L, NOW);
     }
 
@@ -66,13 +72,14 @@ class AgentFormServiceTests {
         when(forms.selectByToolCallForUpdate(151L, "call-form-1")).thenReturn(form);
 
         var result = service.request(151L, "call-form-1",
-                new AgentInputRequestCommand(1, 0, form(), List.of()));
+                new AgentInputRequestCommand(2, 0, map(context()), map(form()), List.of()));
 
         assertThat(result.created()).isFalse();
         assertThat(result.revision()).isEqualTo(1);
         assertThat(result.form().status()).isEqualTo("PENDING");
         verify(forms, never()).insertForm(any());
         verify(activities, never()).persistLocked(151L, List.of());
+        verify(contexts, never()).upsertPending(101L, write(context()), 151L, 1L, "call-form-1", NOW);
         verify(creations, never()).pauseForInput(151L, 0L, NOW);
     }
 
@@ -82,14 +89,18 @@ class AgentFormServiceTests {
         when(forms.selectByIdForUpdate(701L)).thenReturn(pendingForm());
         when(forms.resolvePending(701L, "SUBMITTED", "{\"subject\":{\"kind\":\"TEXT\",\"value\":\"关爱流浪猫\"}}", NOW))
                 .thenReturn(1);
+        when(contexts.transitionPending(101L, 151L, 1L, 2L, "call-form-1",
+                "PENDING", "SUBMITTED", NOW)).thenReturn(1);
         when(creations.resumeAfterInput(151L, 1L, NOW)).thenReturn(1);
 
         var result = service.resolve(7L, 151L, 701L,
-                new ResolveCreationFormRequest(1L, "SUBMIT", answers()));
+                new ResolveCreationFormRequest(1L, "SUBMIT", map(answers())));
 
         assertThat(result.transitioned()).isTrue();
         assertThat(result.response().revision()).isEqualTo(2);
         assertThat(result.response().form().status()).isEqualTo("SUBMITTED");
+        verify(contexts).transitionPending(101L, 151L, 1L, 2L, "call-form-1",
+                "PENDING", "SUBMITTED", NOW);
         ArgumentCaptor<OutboxEvent> event = ArgumentCaptor.forClass(OutboxEvent.class);
         verify(outbox).insertSelective(event.capture());
         assertThat(event.getValue()).extracting(OutboxEvent::getEventType, OutboxEvent::getAggregateVersion)
@@ -102,6 +113,8 @@ class AgentFormServiceTests {
         when(creations.selectByIdForUpdate(151L)).thenReturn(creation("WAITING_INPUT", 1));
         when(forms.selectByIdForUpdate(701L)).thenReturn(pendingForm());
         when(forms.resolvePending(701L, "SKIPPED", null, NOW)).thenReturn(1);
+        when(contexts.transitionPending(101L, 151L, 1L, 2L, "call-form-1",
+                "PENDING", "SKIPPED", NOW)).thenReturn(1);
         when(creations.resumeAfterInput(151L, 1L, NOW)).thenReturn(1);
 
         var result = service.resolve(7L, 151L, 701L,
@@ -125,7 +138,7 @@ class AgentFormServiceTests {
         when(forms.selectByIdForUpdate(701L)).thenReturn(form);
 
         var result = service.resolve(7L, 151L, 701L,
-                new ResolveCreationFormRequest(1L, "SUBMIT", answers()));
+                new ResolveCreationFormRequest(1L, "SUBMIT", map(answers())));
 
         assertThat(result.transitioned()).isFalse();
         assertThat(result.response().revision()).isEqualTo(2);
@@ -140,7 +153,7 @@ class AgentFormServiceTests {
                 objectMapper.createObjectNode().put("kind", "TEXT").put("value", "x"));
 
         assertThatThrownBy(() -> service.resolve(7L, 151L, 701L,
-                new ResolveCreationFormRequest(1L, "SUBMIT", answers)))
+                new ResolveCreationFormRequest(1L, "SUBMIT", map(answers))))
                 .isInstanceOfSatisfying(BusinessException.class,
                         error -> assertThat(error.getErrorCode()).isEqualTo(ErrorCode.VALIDATION_ERROR));
     }
@@ -151,6 +164,14 @@ class AgentFormServiceTests {
         ((com.fasterxml.jackson.databind.node.ObjectNode) invalid).put("schemaVersion", "1");
 
         assertThatThrownBy(() -> new AgentFormSchemaValidator().validateForm(invalid))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        error -> assertThat(error.getErrorCode()).isEqualTo(ErrorCode.VALIDATION_ERROR));
+    }
+
+    @Test
+    void rejectsTheLegacyInputContractWithoutAnAgentContext() {
+        assertThatThrownBy(() -> service.request(151L, "call-form-1",
+                new AgentInputRequestCommand(1, 0, null, map(form()), List.of())))
                 .isInstanceOfSatisfying(BusinessException.class,
                         error -> assertThat(error.getErrorCode()).isEqualTo(ErrorCode.VALIDATION_ERROR));
     }
@@ -189,11 +210,21 @@ class AgentFormServiceTests {
                 objectMapper.createObjectNode().put("kind", "TEXT").put("value", "关爱流浪猫"));
     }
 
+    private JsonNode context() {
+        return objectMapper.createObjectNode().put("schemaVersion", 1).putNull("compaction")
+                .set("messages", objectMapper.createArrayNode());
+    }
+
     private String write(JsonNode value) {
         try {
             return objectMapper.writeValueAsString(value);
         } catch (Exception exception) {
             throw new AssertionError(exception);
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> map(JsonNode value) {
+        return objectMapper.convertValue(value, Map.class);
     }
 }

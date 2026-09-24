@@ -9,7 +9,11 @@ import static org.mockito.Mockito.when;
 
 import com.superz.aivista.common.exception.BusinessException;
 import com.superz.aivista.common.exception.ErrorCode;
+import com.superz.aivista.generation.entity.AgentSessionContext;
+import com.superz.aivista.generation.entity.CreationForm;
 import com.superz.aivista.generation.entity.CreationTask;
+import com.superz.aivista.generation.mapper.AgentSessionContextMapper;
+import com.superz.aivista.generation.mapper.CreationFormMapper;
 import com.superz.aivista.generation.mapper.CreationTaskMapper;
 import java.time.Clock;
 import java.time.Instant;
@@ -19,8 +23,10 @@ import org.junit.jupiter.api.Test;
 class AgentCancellationServiceTests {
     private static final Instant NOW = Instant.parse("2026-09-10T01:00:00Z");
     private final CreationTaskMapper creations = mock(CreationTaskMapper.class);
+    private final CreationFormMapper forms = mock(CreationFormMapper.class);
+    private final AgentSessionContextMapper contexts = mock(AgentSessionContextMapper.class);
     private final AgentCancellationService service = new AgentCancellationService(
-            creations, Clock.fixed(NOW, ZoneOffset.UTC));
+            creations, forms, contexts, Clock.fixed(NOW, ZoneOffset.UTC));
 
     @Test
     void atomicallyCancelsTheOwnedRunningAgent() {
@@ -42,7 +48,16 @@ class AgentCancellationServiceTests {
     @Test
     void cancelsAnAgentWaitingForFormInput() {
         CreationTask creation = creation(7L, "WAITING_INPUT", 5L);
+        AgentSessionContext context = context(5L, "PENDING");
+        CreationForm form = new CreationForm();
+        form.setId(701L);
+        form.setStatus("PENDING");
         when(creations.selectByIdForUpdate(31L)).thenReturn(creation);
+        when(contexts.selectBySessionId(9L)).thenReturn(context);
+        when(forms.selectByToolCallForUpdate(31L, "call-form-1")).thenReturn(form);
+        when(forms.cancelPending(701L, NOW)).thenReturn(1);
+        when(contexts.transitionPending(9L, 31L, 5L, 6L, "call-form-1",
+                "PENDING", "CANCELLED", NOW)).thenReturn(1);
         when(creations.cancelActive(31L, 5L, NOW)).thenReturn(1);
 
         var result = service.cancel(7L, 31L);
@@ -50,7 +65,26 @@ class AgentCancellationServiceTests {
         assertThat(result.response().status()).isEqualTo("CANCELLED");
         assertThat(result.response().revision()).isEqualTo(6L);
         assertThat(result.executionRevision()).isEqualTo(5L);
+        verify(forms).cancelPending(701L, NOW);
+        verify(contexts).transitionPending(9L, 31L, 5L, 6L, "call-form-1",
+                "PENDING", "CANCELLED", NOW);
         verify(creations).cancelActive(31L, 5L, NOW);
+    }
+
+    @Test
+    void marksResolvedPendingMetadataCancelledWhenTheResumedSegmentIsCancelled() {
+        CreationTask creation = creation(7L, "RUNNING", 6L);
+        when(creations.selectByIdForUpdate(31L)).thenReturn(creation);
+        when(contexts.selectBySessionId(9L)).thenReturn(context(6L, "SUBMITTED"));
+        when(contexts.transitionPending(9L, 31L, 6L, 7L, "call-form-1",
+                "SUBMITTED", "CANCELLED", NOW)).thenReturn(1);
+        when(creations.cancelActive(31L, 6L, NOW)).thenReturn(1);
+
+        var result = service.cancel(7L, 31L);
+
+        assertThat(result.response().revision()).isEqualTo(7L);
+        verify(contexts).transitionPending(9L, 31L, 6L, 7L, "call-form-1",
+                "SUBMITTED", "CANCELLED", NOW);
     }
 
     @Test
@@ -92,5 +126,15 @@ class AgentCancellationServiceTests {
         creation.setStatus(status);
         creation.setRevision(revision);
         return creation;
+    }
+
+    private static AgentSessionContext context(long revision, String status) {
+        AgentSessionContext context = new AgentSessionContext();
+        context.setSessionId(9L);
+        context.setSnapshotCreationTaskId(31L);
+        context.setSnapshotRevision(revision);
+        context.setPendingToolCallId("call-form-1");
+        context.setPendingInputStatus(status);
+        return context;
     }
 }

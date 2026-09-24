@@ -19,6 +19,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -45,8 +46,10 @@ class AgentCompletionServiceTests {
         assertThat(message.getValue().getSequenceNo()).isEqualTo(4);
         assertThat(message.getValue().getContent()).isEqualTo("海报已生成。");
         verify(sessions).updateLastMessageAt(101L, NOW);
-        verify(contexts).upsert(org.mockito.ArgumentMatchers.eq(101L),
+        verify(contexts).upsertCompleted(org.mockito.ArgumentMatchers.eq(101L),
                 org.mockito.ArgumentMatchers.contains("\"schemaVersion\":1"),
+                org.mockito.ArgumentMatchers.eq(151L),
+                org.mockito.ArgumentMatchers.eq(1L),
                 org.mockito.ArgumentMatchers.eq(NOW));
     }
 
@@ -92,12 +95,13 @@ class AgentCompletionServiceTests {
         return new AgentCompletionCommand(2, "151", 0, outcome, failure, message, java.util.List.of(), context);
     }
 
-    private static com.fasterxml.jackson.databind.JsonNode context() {
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> context() {
         var context = new ObjectMapper().createObjectNode();
         context.put("schemaVersion", 1);
         context.putNull("compaction");
         context.putArray("messages");
-        return context;
+        return new ObjectMapper().convertValue(context, Map.class);
     }
 
     private static CreationTask running() {

@@ -26,7 +26,10 @@ export type UploadedGenerationAsset = {
 export async function uploadGenerationReferenceImage(file: File): Promise<UploadedGenerationAsset> {
   const formData = new FormData();
   formData.append("file", file);
-  const response = await browserApiClient.post<ApiResponse<UploadedGenerationAsset>>("/generation-images/uploads", formData);
+  const response = await browserApiClient.post<ApiResponse<UploadedGenerationAsset>>(
+    "/generation-images/uploads",
+    formData,
+  );
   return unwrapApiResponse(response.data);
 }
 
@@ -43,6 +46,9 @@ export async function deleteGenerationAssets(imageIds: string[]): Promise<void> 
 
 /** 将图片批量设置为收藏或未收藏；不是易产生竞态的“切换”操作。 */
 export async function setGenerationImageFavorites(imageIds: string[], favorite: boolean): Promise<void> {
-  const response = await browserApiClient.post<ApiResponse<null>>("/generation-images/favorites", { imageIds, favorite });
+  const response = await browserApiClient.post<ApiResponse<null>>("/generation-images/favorites", {
+    imageIds,
+    favorite,
+  });
   unwrapApiResponse(response.data);
 }

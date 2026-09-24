@@ -45,16 +45,20 @@ describe("violationText", () => {
   });
 
   it("映射字段与原因码", () => {
-    expect(violationText([{ field: "title", reasonCode: "SENSITIVE_INFO" }]))
-      .toBe("安全提示：标题包含个人敏感信息，请修改后重新提交。");
-    expect(violationText([
-      { field: "title", reasonCode: "CONTENT_POLICY" },
-      { field: "description", reasonCode: "SENSITIVE_INFO" },
-    ])).toBe("安全提示：标题包含可能违规的内容；描述包含个人敏感信息，请修改后重新提交。");
+    expect(violationText([{ field: "title", reasonCode: "SENSITIVE_INFO" }])).toBe(
+      "安全提示：标题包含个人敏感信息，请修改后重新提交。",
+    );
+    expect(
+      violationText([
+        { field: "title", reasonCode: "CONTENT_POLICY" },
+        { field: "description", reasonCode: "SENSITIVE_INFO" },
+      ]),
+    ).toBe("安全提示：标题包含可能违规的内容；描述包含个人敏感信息，请修改后重新提交。");
   });
 
   it("未知原因码兜底为“存在不安全内容”", () => {
-    expect(violationText([{ field: "description", reasonCode: "UNKNOWN_CODE" }]))
-      .toBe("安全提示：描述存在不安全内容，请修改后重新提交。");
+    expect(violationText([{ field: "description", reasonCode: "UNKNOWN_CODE" }])).toBe(
+      "安全提示：描述存在不安全内容，请修改后重新提交。",
+    );
   });
 });

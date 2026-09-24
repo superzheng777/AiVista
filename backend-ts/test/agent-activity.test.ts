@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { AgentActivityCollector } from "../src/agent/agent-activity.js";
+import { agentActivitySchema, AgentActivityCollector, MAX_AGENT_ACTIVITY_COUNT } from
+  "../src/agent/agent-activity.js";
 
 describe("AgentActivityCollector", () => {
   it("keeps live Tool starts in memory and snapshots only final user-visible steps", () => {
@@ -38,6 +39,51 @@ describe("AgentActivityCollector", () => {
       content: "图生图未完成。", generationTaskId: "9002" })]);
   });
 
+  it("ignores duplicate Tool endings after recording the first terminal outcome", () => {
+    const times = [new Date("2026-09-09T01:00:00Z"), new Date("2026-09-09T01:01:00Z")];
+    const collector = new AgentActivityCollector(() => times.shift()!);
+    collector.accept({ type: "tool_start", toolCallId: "call-duplicate",
+      toolName: "text_to_image", args: {} });
+    collector.accept({ type: "tool_end", toolCallId: "call-duplicate", toolName: "text_to_image",
+      result: { details: { outcome: "SUCCEEDED", generationTaskId: "9001" } }, isError: false });
+    collector.accept({ type: "tool_end", toolCallId: "call-duplicate", toolName: "text_to_image",
+      result: { details: { outcome: "FAILED", generationTaskId: "9002" } }, isError: true });
+
+    expect(collector.snapshot()).toEqual([expect.objectContaining({
+      outcome: "COMPLETED",
+      generationTaskId: "9001",
+      completedAt: "2026-09-09T01:01:00.000Z",
+    })]);
+  });
+
+  it("limits persisted snapshots to the shared contract maximum", () => {
+    const collector = new AgentActivityCollector(() => new Date("2026-09-09T01:00:00Z"));
+    for (let index = 0; index <= MAX_AGENT_ACTIVITY_COUNT; index++) {
+      const toolCallId = `call-${index}`;
+      collector.accept({ type: "tool_start", toolCallId, toolName: "text_to_image", args: {} });
+      collector.accept({ type: "tool_end", toolCallId, toolName: "text_to_image",
+        result: { details: { outcome: "SUCCEEDED" } }, isError: false });
+    }
+
+    expect(collector.snapshot()).toHaveLength(MAX_AGENT_ACTIVITY_COUNT);
+  });
+
+  it("validates Activity content length by Unicode code point", () => {
+    const activity = {
+      type: "NARRATION" as const,
+      outcome: "COMPLETED" as const,
+      toolName: null,
+      generationTaskId: null,
+      startedAt: "2026-09-09T01:00:00.000Z",
+      completedAt: "2026-09-09T01:00:00.000Z",
+    };
+
+    expect(agentActivitySchema.parse({ ...activity, content: "😀".repeat(1_000) }).content)
+      .toBe("😀".repeat(1_000));
+    expect(() => agentActivitySchema.parse({ ...activity, content: "😀".repeat(1_001) })).toThrow();
+    expect(() => agentActivitySchema.parse({ ...activity, generationTaskId: "0" })).toThrow();
+  });
+
   it("persists a successfully read Skill as SKILL rather than a generic Tool", () => {
     const collector = new AgentActivityCollector(() => new Date("2026-09-09T01:00:00Z"));
     collector.accept({ type: "tool_start", toolCallId: "read-1", toolName: "read",
@@ -45,7 +91,7 @@ describe("AgentActivityCollector", () => {
     collector.accept({ type: "tool_end", toolCallId: "read-1", toolName: "read",
       result: { content: [{ type: "text", text: "skill body" }] }, isError: false });
     expect(collector.snapshot()).toEqual([expect.objectContaining({ type: "SKILL",
-      outcome: "COMPLETED", content: "已启用海报设计能力。" })]);
+      outcome: "COMPLETED", content: "已加载技能：海报设计" })]);
   });
 
   it("uses the public label for the brand-design Skill", () => {
@@ -55,7 +101,7 @@ describe("AgentActivityCollector", () => {
     collector.accept({ type: "tool_end", toolCallId: "read-brand", toolName: "read",
       result: { content: [{ type: "text", text: "skill body" }] }, isError: false });
     expect(collector.snapshot()).toEqual([expect.objectContaining({ type: "SKILL",
-      outcome: "COMPLETED", content: "已启用品牌设计能力。" })]);
+      outcome: "COMPLETED", content: "已加载技能：品牌设计" })]);
   });
 
   it("uses the public label for the cinematic-still Skill", () => {
@@ -65,7 +111,7 @@ describe("AgentActivityCollector", () => {
     collector.accept({ type: "tool_end", toolCallId: "read-cinematic", toolName: "read",
       result: { content: [{ type: "text", text: "skill body" }] }, isError: false });
     expect(collector.snapshot()).toEqual([expect.objectContaining({ type: "SKILL",
-      outcome: "COMPLETED", content: "已启用电影感摄影能力。" })]);
+      outcome: "COMPLETED", content: "已加载技能：电影感摄影" })]);
   });
 
   it("uses the public label for the impasto-diorama Skill", () => {
@@ -75,7 +121,7 @@ describe("AgentActivityCollector", () => {
     collector.accept({ type: "tool_end", toolCallId: "read-impasto", toolName: "read",
       result: { content: [{ type: "text", text: "skill body" }] }, isError: false });
     expect(collector.snapshot()).toEqual([expect.objectContaining({ type: "SKILL",
-      outcome: "COMPLETED", content: "已启用油彩立体厚涂能力。" })]);
+      outcome: "COMPLETED", content: "已加载技能：油彩立体厚涂" })]);
   });
 
   it("uses the public label for the monumental-scale-poster Skill", () => {
@@ -85,7 +131,7 @@ describe("AgentActivityCollector", () => {
     collector.accept({ type: "tool_end", toolCallId: "read-monumental", toolName: "read",
       result: { content: [{ type: "text", text: "skill body" }] }, isError: false });
     expect(collector.snapshot()).toEqual([expect.objectContaining({ type: "SKILL",
-      outcome: "COMPLETED", content: "已启用巨物尺度清透海报能力。" })]);
+      outcome: "COMPLETED", content: "已加载技能：巨物尺度清透海报" })]);
   });
 
   it("uses the public label for the portrait-face-director Skill", () => {
@@ -95,7 +141,7 @@ describe("AgentActivityCollector", () => {
     collector.accept({ type: "tool_end", toolCallId: "read-portrait-face", toolName: "read",
       result: { content: [{ type: "text", text: "skill body" }] }, isError: false });
     expect(collector.snapshot()).toEqual([expect.objectContaining({ type: "SKILL",
-      outcome: "COMPLETED", content: "已启用人像捏脸能力。" })]);
+      outcome: "COMPLETED", content: "已加载技能：人像捏脸" })]);
   });
 
   it("uses the public label for the japanese-life-fragments Skill", () => {
@@ -105,7 +151,7 @@ describe("AgentActivityCollector", () => {
     collector.accept({ type: "tool_end", toolCallId: "read-life-fragments", toolName: "read",
       result: { content: [{ type: "text", text: "skill body" }] }, isError: false });
     expect(collector.snapshot()).toEqual([expect.objectContaining({ type: "SKILL",
-      outcome: "COMPLETED", content: "已启用日系生活碎片能力。" })]);
+      outcome: "COMPLETED", content: "已加载技能：日系生活碎片" })]);
   });
 
   it("uses the public label for the series-image-director Skill", () => {
@@ -115,7 +161,17 @@ describe("AgentActivityCollector", () => {
     collector.accept({ type: "tool_end", toolCallId: "read-series-director", toolName: "read",
       result: { content: [{ type: "text", text: "skill body" }] }, isError: false });
     expect(collector.snapshot()).toEqual([expect.objectContaining({ type: "SKILL",
-      outcome: "COMPLETED", content: "已启用系列套图能力。" })]);
+      outcome: "COMPLETED", content: "已加载技能：系列套图" })]);
+  });
+
+  it("keeps an unknown Skill name visible", () => {
+    const collector = new AgentActivityCollector(() => new Date("2026-09-09T01:00:00Z"));
+    collector.accept({ type: "tool_start", toolCallId: "read-custom", toolName: "read",
+      args: { path: "C:/app/.pi/skills/custom-layout/SKILL.md" } });
+    collector.accept({ type: "tool_end", toolCallId: "read-custom", toolName: "read",
+      result: { content: [{ type: "text", text: "skill body" }] }, isError: false });
+    expect(collector.snapshot()).toEqual([expect.objectContaining({ type: "SKILL",
+      outcome: "COMPLETED", content: "已加载技能：custom-layout" })]);
   });
 
   it("keeps narration before a subsequently selected Skill in persisted order", () => {

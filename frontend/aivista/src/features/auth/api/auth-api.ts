@@ -84,10 +84,7 @@ export async function getCurrentUser(): Promise<CurrentUser> {
   return toCurrentUser(unwrapApiResponse(response.data));
 }
 
-export async function updateCurrentUser(
-  input: UpdateProfileInput,
-  accessToken: string,
-): Promise<CurrentUser> {
+export async function updateCurrentUser(input: UpdateProfileInput, accessToken: string): Promise<CurrentUser> {
   const response = await browserApiClient.put<ApiResponse<CurrentUserDto>>("/users/me", input, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });

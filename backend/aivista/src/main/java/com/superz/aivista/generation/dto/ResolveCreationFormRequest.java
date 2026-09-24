@@ -1,6 +1,6 @@
 package com.superz.aivista.generation.dto;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import java.util.Map;
 
-public record ResolveCreationFormRequest(Long expectedRevision, String action, JsonNode answers) {
+public record ResolveCreationFormRequest(Long expectedRevision, String action, Map<String, Object> answers) {
 }

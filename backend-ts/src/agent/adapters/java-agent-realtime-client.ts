@@ -34,9 +34,9 @@ export class JavaAgentRealtimeClient implements OnModuleInit, OnModuleDestroy {
   }
 
   publish(creationId: string, revision: number, event: AgentRealtimeEvent): boolean {
-    if (!this.ready || this.socket?.readyState !== OPEN) return false;
-    this.socket.send(JSON.stringify({ type: "EVENT", event: { creationId, revision, ...event } }));
-    return true;
+    const socket = this.socket;
+    if (!this.ready || socket?.readyState !== OPEN) return false;
+    return this.sendFrame(socket, JSON.stringify({ type: "EVENT", event: { creationId, revision, ...event } }));
   }
 
   subscribeControl(listener: (control: AgentRuntimeControl) => void): () => void {
@@ -75,7 +75,7 @@ export class JavaAgentRealtimeClient implements OnModuleInit, OnModuleDestroy {
     this.socket = socket;
     socket.addEventListener("open", () => {
       if (this.socket !== socket || this.stopped) return;
-      socket.send(JSON.stringify({ type: "HELLO", contractVersion: 1,
+      this.sendFrame(socket, JSON.stringify({ type: "HELLO", contractVersion: 1,
         token: this.config.get("AIVISTA_GENERATION_WORKER_TOKEN", { infer: true }) }));
     });
     socket.addEventListener("message", (message) => {
@@ -94,16 +94,9 @@ export class JavaAgentRealtimeClient implements OnModuleInit, OnModuleDestroy {
         }
       } catch { /* Invalid server frames do not enter the runtime. */ }
     });
-    const disconnected = () => {
-      if (this.socket !== socket) return;
-      this.ready = false;
-      if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
-      this.heartbeatTimer = undefined;
-      this.scheduleReconnect();
-    };
-    socket.addEventListener("close", disconnected);
+    socket.addEventListener("close", () => this.handleDisconnect(socket));
     // undici may dispatch another error from close(); treating error as a disconnect avoids recursive close loops.
-    socket.addEventListener("error", disconnected);
+    socket.addEventListener("error", () => this.handleDisconnect(socket));
   }
 
   private emitControl(control: AgentRuntimeControl): void {
@@ -114,9 +107,27 @@ export class JavaAgentRealtimeClient implements OnModuleInit, OnModuleDestroy {
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     this.heartbeatTimer = setInterval(() => {
       if (this.socket === socket && this.ready && socket.readyState === OPEN) {
-        socket.send('{"type":"PING"}');
+        this.sendFrame(socket, '{"type":"PING"}');
       }
     }, 15_000);
+  }
+
+  private sendFrame(socket: WebSocket, frame: string): boolean {
+    try {
+      socket.send(frame);
+      return true;
+    } catch {
+      this.handleDisconnect(socket);
+      return false;
+    }
+  }
+
+  private handleDisconnect(socket: WebSocket): void {
+    if (this.socket !== socket) return;
+    this.ready = false;
+    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+    this.heartbeatTimer = undefined;
+    this.scheduleReconnect();
   }
 
   private scheduleReconnect(): void {

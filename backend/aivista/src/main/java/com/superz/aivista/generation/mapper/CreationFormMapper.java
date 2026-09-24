@@ -35,20 +35,20 @@ public interface CreationFormMapper extends BaseMapper<CreationForm> {
             SELECT id, creation_task_id, tool_call_id, status, form_json, answer_json,
                    requested_at, resolved_at
             FROM creation_forms
-            WHERE id = #{formId}
-            FOR UPDATE
+            WHERE creation_task_id = #{creationTaskId} AND tool_call_id = #{toolCallId}
+            LIMIT 1
             """)
-    CreationForm selectByIdForUpdate(@Param("formId") long formId);
+    CreationForm selectByToolCall(@Param("creationTaskId") long creationTaskId,
+            @Param("toolCallId") String toolCallId);
 
     @Select("""
             SELECT id, creation_task_id, tool_call_id, status, form_json, answer_json,
                    requested_at, resolved_at
             FROM creation_forms
-            WHERE creation_task_id = #{creationTaskId} AND status IN ('SUBMITTED', 'SKIPPED')
-            ORDER BY id DESC
-            LIMIT 1
+            WHERE id = #{formId}
+            FOR UPDATE
             """)
-    CreationForm selectLatestResolved(@Param("creationTaskId") long creationTaskId);
+    CreationForm selectByIdForUpdate(@Param("formId") long formId);
 
     @Select("""
             <script>
@@ -73,4 +73,11 @@ public interface CreationFormMapper extends BaseMapper<CreationForm> {
             """)
     int resolvePending(@Param("formId") long formId, @Param("status") String status,
             @Param("answerJson") String answerJson, @Param("resolvedAt") Instant resolvedAt);
+
+    @Update("""
+            UPDATE creation_forms
+            SET status = 'CANCELLED', resolved_at = #{resolvedAt}
+            WHERE id = #{formId} AND status = 'PENDING'
+            """)
+    int cancelPending(@Param("formId") long formId, @Param("resolvedAt") Instant resolvedAt);
 }

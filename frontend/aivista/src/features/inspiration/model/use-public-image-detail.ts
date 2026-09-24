@@ -6,8 +6,13 @@ import { needsImageUrlRefresh, type GenerationAsset } from "@/entities/generatio
 
 import { getInspiration } from "../api/inspiration-api";
 
-function buildPublicImagePath(imageId: string) {
-  return `/inspirations?imageId=${encodeURIComponent(imageId)}`;
+function buildDetailHistoryPath(imageId: string) {
+  if (window.location.pathname === "/inspirations") {
+    const searchParams = new URLSearchParams(window.location.search);
+    searchParams.set("imageId", imageId);
+    return `/inspirations?${searchParams.toString()}`;
+  }
+  return `${window.location.pathname}${window.location.search}`;
 }
 
 /** 一个公开列表专用的临时详情状态；不跨页面持久化。 */
@@ -51,15 +56,18 @@ export function usePublicImageDetail() {
       }
       const requestSequence = ++requestSequenceRef.current;
       setOpeningImageId(imageId);
-      void getInspiration(imageId).then((detail) => {
-        if (requestSequence === requestSequenceRef.current) setImage(detail);
-      }).catch(() => {
-        if (requestSequence !== requestSequenceRef.current) return;
-        pushedHistoryEntryRef.current = false;
-        setOpenError("该作品已撤销或暂时不可访问。");
-      }).finally(() => {
-        if (requestSequence === requestSequenceRef.current) setOpeningImageId(null);
-      });
+      void getInspiration(imageId)
+        .then((detail) => {
+          if (requestSequence === requestSequenceRef.current) setImage(detail);
+        })
+        .catch(() => {
+          if (requestSequence !== requestSequenceRef.current) return;
+          pushedHistoryEntryRef.current = false;
+          setOpenError("该作品已撤销或暂时不可访问。");
+        })
+        .finally(() => {
+          if (requestSequence === requestSequenceRef.current) setOpeningImageId(null);
+        });
     };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
@@ -71,8 +79,8 @@ export function usePublicImageDetail() {
     const commit = (detail: GenerationAsset) => {
       if (requestSequence !== requestSequenceRef.current) return;
       const state = { aivistaPublicImageDetail: true, imageId: detail.id };
-      if (historyMode === "push") window.history.pushState(state, "", buildPublicImagePath(detail.id));
-      else window.history.replaceState(state, "", buildPublicImagePath(detail.id));
+      if (historyMode === "push") window.history.pushState(state, "", buildDetailHistoryPath(detail.id));
+      else window.history.replaceState(state, "", buildDetailHistoryPath(detail.id));
       pushedHistoryEntryRef.current = true;
       setImage(detail);
     };
@@ -93,8 +101,17 @@ export function usePublicImageDetail() {
   const open = useCallback((listImage: GenerationAsset) => show(listImage, "push"), [show]);
   const navigate = useCallback((listImage: GenerationAsset) => show(listImage, "replace"), [show]);
   const updateImage = useCallback((nextImage: GenerationAsset) => {
-    setImage((current) => current?.id === nextImage.id ? nextImage : current);
+    setImage((current) => (current?.id === nextImage.id ? nextImage : current));
   }, []);
 
-  return { image, openingImageId, openError, open, navigate, close, updateImage, dismissOpenError: () => setOpenError(null) };
+  return {
+    image,
+    openingImageId,
+    openError,
+    open,
+    navigate,
+    close,
+    updateImage,
+    dismissOpenError: () => setOpenError(null),
+  };
 }

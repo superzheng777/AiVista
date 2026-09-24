@@ -8,7 +8,7 @@ import { browserApiClient } from "@/shared/api/browser-client";
 import {
   confirmUserAgreement,
   getUserAgreementConsent,
-} from "@/shared/api/user-agreement-consent-api";
+} from "@/features/user-agreement/api/user-agreement-consent-api";
 
 const client = vi.mocked(browserApiClient);
 const okEnvelope = { code: 0, message: "ok" } as const;
@@ -42,7 +42,9 @@ describe("user-agreement-consent-api", () => {
   });
 
   it("confirmUserAgreement 提交版本并映射确认结果", async () => {
-    client.post.mockResolvedValue(responseData({ ...consentDto, consented: true, consentedAt: "2026-08-10T00:00:00Z" }));
+    client.post.mockResolvedValue(
+      responseData({ ...consentDto, consented: true, consentedAt: "2026-08-10T00:00:00Z" }),
+    );
     const result = await confirmUserAgreement("v1");
     expect(client.post).toHaveBeenCalledWith("/users/me/consents/user-agreement", { policyVersion: "v1" });
     expect(result).toEqual({

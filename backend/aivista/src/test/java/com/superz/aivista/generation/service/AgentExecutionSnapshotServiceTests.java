@@ -6,6 +6,8 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.superz.aivista.generation.entity.ConversationMessage;
+import com.superz.aivista.generation.entity.AgentSessionContext;
+import com.superz.aivista.generation.entity.CreationForm;
 import com.superz.aivista.generation.entity.CreationTask;
 import com.superz.aivista.generation.entity.ImageAsset;
 import com.superz.aivista.generation.mapper.ConversationMessageMapper;
@@ -43,8 +45,11 @@ class AgentExecutionSnapshotServiceTests {
         ImageAsset uploaded = asset(502L, "UPLOADED", "users/7/uploads/x/original.jpg", "image/jpeg");
         when(creations.selectSnapshotById(151L)).thenReturn(creation);
         when(messages.selectUserByCreationTaskId(151L)).thenReturn(user);
-        when(contexts.selectContextJson(101L)).thenReturn(
+        AgentSessionContext context = new AgentSessionContext();
+        context.setSessionId(101L);
+        context.setContextJson(
                 "{\"schemaVersion\":1,\"compaction\":null,\"messages\":[{\"role\":\"user\",\"content\":\"上一轮请求\"}]}");
+        when(contexts.selectBySessionId(101L)).thenReturn(context);
         when(inputs.selectAssetIdsByCreationTaskId(151L)).thenReturn(List.of(502L, 501L));
         when(assets.selectByAssetIds(List.of(502L, 501L))).thenReturn(List.of(generated, uploaded));
 
@@ -52,9 +57,9 @@ class AgentExecutionSnapshotServiceTests {
                 contexts, mock(CreationFormMapper.class), new ObjectMapper()).get(151L);
 
         assertThat(snapshot.prompt()).isEqualTo("把这张图改成海报");
-        assertThat(snapshot.contractVersion()).isEqualTo(3);
-        assertThat(snapshot.agentContext().path("messages").get(0).path("content").asText())
-                .isEqualTo("上一轮请求");
+        assertThat(snapshot.contractVersion()).isEqualTo(4);
+        var contextMessages = (List<?>) snapshot.agentContext().get("messages");
+        assertThat(((java.util.Map<?, ?>) contextMessages.getFirst()).get("content")).isEqualTo("上一轮请求");
         assertThat(snapshot.inputAssets()).extracting(asset -> asset.assetId())
                 .containsExactly("502", "501");
         assertThat(snapshot.inputAssets().get(0).objectKey()).isEqualTo("users/7/uploads/x/original.jpg");
@@ -63,6 +68,51 @@ class AgentExecutionSnapshotServiceTests {
         assertThat(snapshot.inputAssets().get(1).contentType()).isEqualTo("image/webp");
         assertThat(snapshot.constraints().aspectRatio()).isEqualTo("3:4");
         assertThat(snapshot.constraints().imageCount()).isEqualTo(3);
+        assertThat(snapshot.pendingInput()).isNull();
+    }
+
+    @Test
+    void returnsCancelledPendingInputFromAnEarlierCreationInTheSession() {
+        CreationTaskMapper creations = mock(CreationTaskMapper.class);
+        ConversationMessageMapper messages = mock(ConversationMessageMapper.class);
+        CreationTaskInputAssetMapper inputs = mock(CreationTaskInputAssetMapper.class);
+        ImageAssetMapper assets = mock(ImageAssetMapper.class);
+        AgentSessionContextMapper contexts = mock(AgentSessionContextMapper.class);
+        CreationFormMapper forms = mock(CreationFormMapper.class);
+        CreationTask current = creation();
+        current.setId(152L);
+        current.setRequestedAspectRatio("AUTO");
+        current.setRequestedImageCount(0);
+        ConversationMessage user = new ConversationMessage();
+        user.setContent("重新开始");
+        AgentSessionContext context = new AgentSessionContext();
+        context.setSessionId(101L);
+        context.setContextJson("{\"schemaVersion\":1,\"compaction\":null,\"messages\":[]}");
+        context.setSnapshotCreationTaskId(151L);
+        context.setSnapshotRevision(6L);
+        context.setPendingToolCallId("call-form-1");
+        context.setPendingInputStatus("CANCELLED");
+        CreationForm form = new CreationForm();
+        form.setCreationTaskId(151L);
+        form.setToolCallId("call-form-1");
+        form.setStatus("SUBMITTED");
+        form.setFormJson("{\"schemaVersion\":1,\"title\":\"确认需求\",\"fields\":["
+                + "{\"id\":\"subject\",\"type\":\"TEXT\",\"label\":\"主题\",\"required\":true}]}");
+        form.setAnswerJson("{\"subject\":{\"kind\":\"TEXT\",\"value\":\"旧答案\"}}");
+        when(creations.selectSnapshotById(152L)).thenReturn(current);
+        when(messages.selectUserByCreationTaskId(152L)).thenReturn(user);
+        when(inputs.selectAssetIdsByCreationTaskId(152L)).thenReturn(List.of());
+        when(contexts.selectBySessionId(101L)).thenReturn(context);
+        when(forms.selectByToolCall(151L, "call-form-1")).thenReturn(form);
+
+        var snapshot = new AgentExecutionSnapshotService(creations, messages, inputs, assets,
+                contexts, forms, new ObjectMapper()).get(152L);
+
+        assertThat(snapshot.pendingInput().creationId()).isEqualTo("151");
+        assertThat(snapshot.pendingInput().toolCallId()).isEqualTo("call-form-1");
+        assertThat(snapshot.pendingInput().status()).isEqualTo("CANCELLED");
+        assertThat(snapshot.pendingInput().form().get("title")).isEqualTo("确认需求");
+        assertThat(snapshot.pendingInput().answers()).isNull();
     }
 
     @Test

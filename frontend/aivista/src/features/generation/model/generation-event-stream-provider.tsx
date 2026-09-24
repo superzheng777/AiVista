@@ -1,7 +1,7 @@
 "use client";
 
 import { type InfiniteData, useQueryClient } from "@tanstack/react-query";
-import { createContext, type ReactNode, use, useCallback, useEffect, useRef, useState } from "react";
+import { createContext, type ReactNode, use, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { generationQueryKeys } from "@/features/generation/api/generation-api";
 import { useAuthStore } from "@/features/auth/model/auth-store";
@@ -39,10 +39,11 @@ type GenerationEventStreamContextValue = {
   /** 发布相关的刷新信号：收到 publication.updated 时自增。 */
   publicationRefreshVersion: number;
   notificationRefreshVersion: number;
-  agentRuns: Record<string, AgentLiveRun>;
   acknowledgeSession: (sessionId: string) => void;
   acknowledgeCompletedResults: () => void;
 };
+
+type AgentLiveRunsContextValue = Record<string, AgentLiveRun>;
 
 const READY_TIMEOUT_MS = 5_000;
 /** 提交路径等待实时连接就绪的上限，避免后端不可用时提交无限挂起。 */
@@ -50,6 +51,7 @@ const READY_WAIT_MS = 10_000;
 const SYNC_POLL_MS = 25;
 
 const GenerationEventStreamContext = createContext<GenerationEventStreamContextValue | null>(null);
+const AgentLiveRunsContext = createContext<AgentLiveRunsContextValue | null>(null);
 
 function wait(delay: number, signal: AbortSignal): Promise<void> {
   if (!delay) return Promise.resolve();
@@ -85,69 +87,92 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
   const batchRef = useRef<Promise<boolean> | null>(null);
   const inFlightRef = useRef(false);
   const startBatchRef = useRef<() => Promise<boolean>>(() => Promise.resolve(false));
-  const applyTaskUpdate = useCallback((event: GenerationTaskUpdateEvent) => {
-    if (event.status === "SUCCEEDED" || event.status === "PARTIALLY_SUCCEEDED") {
-      setCompletedSessionIds((current) => current.has(event.sessionId) ? current : new Set(current).add(event.sessionId));
-    }
-    if (event.status === "FAILED") {
-      setAttentionSessionIds((current) => current.has(event.sessionId) ? current : new Set(current).add(event.sessionId));
-    }
-    void (async () => {
-      await queryClient.cancelQueries({ queryKey: generationQueryKeys.turns(event.sessionId) });
-      queryClient.setQueryData<InfiniteData<GenerationTurnPage>>(generationQueryKeys.turns(event.sessionId), (current) =>
-        applyGenerationTaskUpdateToTurns(current, event));
-      await Promise.all([
-        queryClient.refetchQueries({ queryKey: generationQueryKeys.sessions(), type: "active" }),
-        queryClient.refetchQueries({ queryKey: generationQueryKeys.turns(event.sessionId), type: "active" }),
-      ]);
-      if (isTerminalStatus(event.status)) {
-        if (event.status === "SUCCEEDED" || event.status === "PARTIALLY_SUCCEEDED") {
-          await queryClient.invalidateQueries({ queryKey: ["assets"] });
-        }
+  const applyTaskUpdate = useCallback(
+    (event: GenerationTaskUpdateEvent) => {
+      if (event.status === "SUCCEEDED" || event.status === "PARTIALLY_SUCCEEDED") {
+        setCompletedSessionIds((current) =>
+          current.has(event.sessionId) ? current : new Set(current).add(event.sessionId),
+        );
       }
-    })();
-  }, [queryClient]);
+      if (event.status === "FAILED") {
+        setAttentionSessionIds((current) =>
+          current.has(event.sessionId) ? current : new Set(current).add(event.sessionId),
+        );
+      }
+      void (async () => {
+        await queryClient.cancelQueries({ queryKey: generationQueryKeys.turns(event.sessionId) });
+        queryClient.setQueryData<InfiniteData<GenerationTurnPage>>(
+          generationQueryKeys.turns(event.sessionId),
+          (current) => applyGenerationTaskUpdateToTurns(current, event),
+        );
+        await Promise.all([
+          queryClient.refetchQueries({ queryKey: generationQueryKeys.sessions(), type: "active" }),
+          queryClient.refetchQueries({ queryKey: generationQueryKeys.turns(event.sessionId), type: "active" }),
+        ]);
+        if (isTerminalStatus(event.status)) {
+          if (event.status === "SUCCEEDED" || event.status === "PARTIALLY_SUCCEEDED") {
+            await queryClient.invalidateQueries({ queryKey: ["assets"] });
+          }
+        }
+      })();
+    },
+    [queryClient],
+  );
 
   const applyPublicationUpdate = useCallback(() => {
     // The SSE event carries no unread count or message body; consumers refresh their own queries.
     setPublicationRefreshVersion((current) => current + 1);
   }, []);
-  const applyAgentEvent = useCallback((event: AgentRealtimeEvent) => {
-    if (event.eventType === "RUN_FINISHED" || event.eventType === "RUN_FAILED"
-        || event.eventType === "RUN_CANCELLED") {
-      void Promise.all([
-        queryClient.refetchQueries({ queryKey: generationQueryKeys.sessions(), type: "active" }),
-        queryClient.refetchQueries({ queryKey: generationQueryKeys.turns(event.sessionId), type: "active" }),
-      ]).finally(() => setAgentRuns((current) => {
-        if (!(event.creationId in current)) return current;
-        const next = { ...current };
-        delete next[event.creationId];
-        return next;
-      }));
-      return;
-    }
-    const form = agentFormFromEvent(event);
-    if (form) {
-      queryClient.setQueryData<InfiniteData<GenerationTurnPage>>(
-        generationQueryKeys.turns(event.sessionId),
-        (current) => applyAgentFormUpdateToTurns(current, event.creationId, event.revision, form,
-          event.eventType === "FORM_REQUESTED" ? "WAITING_INPUT" : "RUNNING"),
-      );
-      return;
-    }
-    setAgentRuns((current) => {
-      const next = applyAgentRealtimeEvent(current[event.creationId], event);
-      return next === current[event.creationId] ? current : { ...current, [event.creationId]: next };
-    });
-    if (event.eventType === "RUN_STARTED") {
-      // The transient event can arrive before the POST success handler has loaded the new Creation.
-      // Load its shell immediately so subsequent text/tool deltas have a visible turn to render into.
-      void Promise.all([
-        queryClient.refetchQueries({ queryKey: generationQueryKeys.sessions(), type: "active" }),
-        queryClient.refetchQueries({ queryKey: generationQueryKeys.turns(event.sessionId), type: "active" }),
-      ]);
-    }
-  }, [queryClient]);
+  const applyAgentEvent = useCallback(
+    (event: AgentRealtimeEvent) => {
+      if (
+        event.eventType === "RUN_FINISHED" ||
+        event.eventType === "RUN_FAILED" ||
+        event.eventType === "RUN_CANCELLED"
+      ) {
+        void Promise.all([
+          queryClient.refetchQueries({ queryKey: generationQueryKeys.sessions(), type: "active" }),
+          queryClient.refetchQueries({ queryKey: generationQueryKeys.turns(event.sessionId), type: "active" }),
+        ]).finally(() =>
+          setAgentRuns((current) => {
+            if (!(event.creationId in current)) return current;
+            const next = { ...current };
+            delete next[event.creationId];
+            return next;
+          }),
+        );
+        return;
+      }
+      const form = agentFormFromEvent(event);
+      if (form) {
+        queryClient.setQueryData<InfiniteData<GenerationTurnPage>>(
+          generationQueryKeys.turns(event.sessionId),
+          (current) =>
+            applyAgentFormUpdateToTurns(
+              current,
+              event.creationId,
+              event.revision,
+              form,
+              event.eventType === "FORM_REQUESTED" ? "WAITING_INPUT" : "RUNNING",
+            ),
+        );
+        return;
+      }
+      setAgentRuns((current) => {
+        const next = applyAgentRealtimeEvent(current[event.creationId], event);
+        return next === current[event.creationId] ? current : { ...current, [event.creationId]: next };
+      });
+      if (event.eventType === "RUN_STARTED") {
+        // The transient event can arrive before the POST success handler has loaded the new Creation.
+        // Load its shell immediately so subsequent text/tool deltas have a visible turn to render into.
+        void Promise.all([
+          queryClient.refetchQueries({ queryKey: generationQueryKeys.sessions(), type: "active" }),
+          queryClient.refetchQueries({ queryKey: generationQueryKeys.turns(event.sessionId), type: "active" }),
+        ]);
+      }
+    },
+    [queryClient],
+  );
 
   const startBatch = useCallback((): Promise<boolean> => {
     if (readyRef.current) return Promise.resolve(true);
@@ -191,9 +216,16 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
 
           let serverReady = false;
           let connectionAccepted = false;
-          const streamDone = consumeSseStream(response, () => { serverReady = true; },
-            applyTaskUpdate, applyPublicationUpdate,
-            () => setNotificationRefreshVersion((current) => current + 1), applyAgentEvent)
+          const streamDone = consumeSseStream(
+            response,
+            () => {
+              serverReady = true;
+            },
+            applyTaskUpdate,
+            applyPublicationUpdate,
+            () => setNotificationRefreshVersion((current) => current + 1),
+            applyAgentEvent,
+          )
             .catch(() => undefined)
             .finally(() => {
               if (connectionSequenceRef.current !== sequence || lifecycleController.signal.aborted) return;
@@ -201,7 +233,9 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
               readyRef.current = false;
               if (connectionAccepted) {
                 setStatus("RECONNECTING");
-                window.setTimeout(() => { void startBatchRef.current(); }, 0);
+                window.setTimeout(() => {
+                  void startBatchRef.current();
+                }, 0);
               }
             });
           const readyDeadline = window.setTimeout(() => streamController.abort(), READY_TIMEOUT_MS);
@@ -306,17 +340,49 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
 
   const acknowledgeCompletedResults = useCallback(() => setCompletedSessionIds(new Set()), []);
 
-  const sessionIndicators: Record<string, GenerationSessionIndicator> = {};
-  for (const sessionId of completedSessionIds) sessionIndicators[sessionId] = "COMPLETED";
-  for (const sessionId of attentionSessionIds) sessionIndicators[sessionId] = "ATTENTION";
+  const sessionIndicators = useMemo(() => {
+    const indicators: Record<string, GenerationSessionIndicator> = {};
+    for (const sessionId of completedSessionIds) indicators[sessionId] = "COMPLETED";
+    for (const sessionId of attentionSessionIds) indicators[sessionId] = "ATTENTION";
+    return indicators;
+  }, [attentionSessionIds, completedSessionIds]);
+  const hasCompletedResults = completedSessionIds.size > 0;
+  const hasAttention = attentionSessionIds.size > 0;
+  const streamValue = useMemo<GenerationEventStreamContextValue>(
+    () => ({
+      status: authStatus === "authenticated" ? status : "DISCONNECTED",
+      reconnectAttempt: authStatus === "authenticated" ? reconnectAttempt : 0,
+      ensureReady,
+      retryNow,
+      sessionIndicators,
+      hasCompletedResults,
+      hasAttention,
+      syncVersion,
+      publicationRefreshVersion,
+      notificationRefreshVersion,
+      acknowledgeSession,
+      acknowledgeCompletedResults,
+    }),
+    [
+      acknowledgeCompletedResults,
+      acknowledgeSession,
+      authStatus,
+      ensureReady,
+      hasAttention,
+      hasCompletedResults,
+      notificationRefreshVersion,
+      publicationRefreshVersion,
+      reconnectAttempt,
+      retryNow,
+      sessionIndicators,
+      status,
+      syncVersion,
+    ],
+  );
 
   return (
-    <GenerationEventStreamContext value={{ status: authStatus === "authenticated" ? status : "DISCONNECTED",
-      reconnectAttempt: authStatus === "authenticated" ? reconnectAttempt : 0,
-      ensureReady, retryNow, sessionIndicators, hasCompletedResults: completedSessionIds.size > 0, hasAttention: attentionSessionIds.size > 0,
-      syncVersion, publicationRefreshVersion, notificationRefreshVersion, agentRuns,
-      acknowledgeSession, acknowledgeCompletedResults }}>
-      {children}
+    <GenerationEventStreamContext value={streamValue}>
+      <AgentLiveRunsContext value={agentRuns}>{children}</AgentLiveRunsContext>
     </GenerationEventStreamContext>
   );
 }
@@ -324,5 +390,11 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
 export function useGenerationEventStream(): GenerationEventStreamContextValue {
   const value = use(GenerationEventStreamContext);
   if (!value) throw new Error("useGenerationEventStream must be used within GenerationEventStreamProvider.");
+  return value;
+}
+
+export function useAgentLiveRuns(): AgentLiveRunsContextValue {
+  const value = use(AgentLiveRunsContext);
+  if (!value) throw new Error("useAgentLiveRuns must be used within GenerationEventStreamProvider.");
   return value;
 }

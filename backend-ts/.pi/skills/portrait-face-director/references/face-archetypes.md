@@ -110,19 +110,19 @@
 - 锐利：提高眉骨、眼尾、颧骨与唇线清晰度，但保持真实解剖。
 - 疏离：眼距可略宽，表情收住，减少甜美妆感。
 
-## 英文 Prompt 骨架
+## Prompt 语义骨架
 
 ```text
-{adult age range and user-provided gender expression},
-{portrait type}, {face shape, jaw and chin},
-{facial thirds and fifths, eye spacing, facial blank space},
-{eye shape, eye corners, eyelids and gaze},
-{nose root, bridge, tip and nostrils},
-{lip fullness, cupid's bow, lip line and mouth corners},
-{facial depth, cheekbones, brow bone and soft tissue},
-{visible temperament}, {makeup and hair},
-realistic human skin texture, visible pores, subtle asymmetry,
-natural under-eye texture, {camera distance, lens feeling and physical light}
+{成年年龄段与用户提供的性别表达}，
+{人像类型}，{脸型、下颌与下巴}，
+{三庭五眼、眼距与面部留白}，
+{眼型、眼角、眼睑与目光}，
+{鼻根、鼻梁、鼻尖与鼻翼}，
+{唇部厚薄、唇峰、唇线与嘴角}，
+{面部折叠度、颧骨、眉骨与软组织}，
+{可见气质表现}，{妆容与发型}，
+真实人类皮肤质感、可见毛孔、轻微不对称、自然眼下纹理，
+{镜头距离、镜头感与物理光线}
 ```
 
-常用排除项应按任务取舍：`no celebrity lookalike, no exact real-person replication, no plastic doll face, no over-smoothed skin, no generic influencer face, no perfect facial symmetry, no huge anime eyes, no deformed facial anatomy`。
+常用排除项应按任务取舍：明星或公众人物仿脸、精确复刻真人、塑料娃娃脸、过度磨皮、模板化网红脸、完全对称、动漫巨眼与畸形面部结构。最终表达使用用户当前语言，除非用户明确指定其他语言。

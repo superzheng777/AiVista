@@ -2,7 +2,7 @@
 
 import { useCallback, useRef, useState } from "react";
 
-import type { GenerationAsset } from "./generation";
+import type { GenerationAsset } from "@/entities/generation/model/generation";
 
 export type ImageDetailNavigation = {
   hasPrevious: boolean;
@@ -37,31 +37,34 @@ export function useImageDetailNavigation({
   const hasPrevious = currentIndex > 0 || (currentIndex === 0 && hasPreviousPage && Boolean(loadPreviousPage));
   const hasNext = currentIndex >= 0 && (currentIndex < items.length - 1 || (hasNextPage && Boolean(loadNextPage)));
 
-  const move = useCallback(async (direction: -1 | 1) => {
-    if (!currentImageId || movingRef.current) return;
-    let candidates = items;
-    let index = candidates.findIndex((item) => item.id === currentImageId);
-    if (index < 0) return;
+  const move = useCallback(
+    async (direction: -1 | 1) => {
+      if (!currentImageId || movingRef.current) return;
+      let candidates = items;
+      let index = candidates.findIndex((item) => item.id === currentImageId);
+      if (index < 0) return;
 
-    movingRef.current = true;
-    setPending(true);
-    try {
-      if (direction < 0 && index === 0 && hasPreviousPage && loadPreviousPage) {
-        candidates = await loadPreviousPage();
-        index = candidates.findIndex((item) => item.id === currentImageId);
-      } else if (direction > 0 && index === candidates.length - 1 && hasNextPage && loadNextPage) {
-        candidates = await loadNextPage();
-        index = candidates.findIndex((item) => item.id === currentImageId);
+      movingRef.current = true;
+      setPending(true);
+      try {
+        if (direction < 0 && index === 0 && hasPreviousPage && loadPreviousPage) {
+          candidates = await loadPreviousPage();
+          index = candidates.findIndex((item) => item.id === currentImageId);
+        } else if (direction > 0 && index === candidates.length - 1 && hasNextPage && loadNextPage) {
+          candidates = await loadNextPage();
+          index = candidates.findIndex((item) => item.id === currentImageId);
+        }
+        const target = candidates[index + direction];
+        if (target) await onSelect(target);
+      } catch {
+        // The owning page already exposes its pagination or image-open error state.
+      } finally {
+        movingRef.current = false;
+        setPending(false);
       }
-      const target = candidates[index + direction];
-      if (target) await onSelect(target);
-    } catch {
-      // The owning page already exposes its pagination or image-open error state.
-    } finally {
-      movingRef.current = false;
-      setPending(false);
-    }
-  }, [currentImageId, hasNextPage, hasPreviousPage, items, loadNextPage, loadPreviousPage, onSelect]);
+    },
+    [currentImageId, hasNextPage, hasPreviousPage, items, loadNextPage, loadPreviousPage, onSelect],
+  );
 
   return {
     hasPrevious,

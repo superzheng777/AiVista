@@ -5,11 +5,7 @@ vi.mock("@/shared/api/browser-client", () => ({
 }));
 
 import { browserApiClient } from "@/shared/api/browser-client";
-import {
-  listMyPublications,
-  removePublication,
-  submitPublication,
-} from "@/features/publication/api/publication-api";
+import { listMyPublications, removePublication, submitPublication } from "@/features/publication/api/publication-api";
 import { mapGenerationAssetImage } from "@/entities/generation/model/generation";
 
 const client = vi.mocked(browserApiClient);
@@ -27,10 +23,10 @@ describe("publication-api", () => {
   it("submitPublication 提交标题和描述", async () => {
     client.post.mockResolvedValue(responseData({ imageId: "img-1", status: "PENDING" }));
     const result = await submitPublication("img-1", { title: "标题", description: "描述" });
-    expect(client.post).toHaveBeenCalledWith(
-      "/generation-images/img-1/publication",
-      { title: "标题", description: "描述" },
-    );
+    expect(client.post).toHaveBeenCalledWith("/generation-images/img-1/publication", {
+      title: "标题",
+      description: "描述",
+    });
     expect(result).toEqual({ imageId: "img-1", status: "PENDING" });
   });
 
@@ -44,7 +40,10 @@ describe("publication-api", () => {
     const imageDto = {
       imageId: "img-1",
       sourceIndex: 0,
-      imageUrls: { thumbnail: { url: "https://signed.example/img-1", expiresAt: "2026-08-10T00:10:00Z" }, display: null },
+      imageUrls: {
+        thumbnail: { url: "https://signed.example/img-1", expiresAt: "2026-08-10T00:10:00Z" },
+        display: null,
+      },
       createdAt: "2026-08-09T00:00:00Z",
       favorited: false,
       finalPrompt: "一只猫",

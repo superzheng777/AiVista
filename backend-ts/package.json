@@ -14,9 +14,12 @@
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "0.83.0",
+    "@langfuse/otel": "5.11.1",
+    "@langfuse/tracing": "5.11.1",
     "@nestjs/common": "^11.1.6",
     "@nestjs/config": "^4.0.2",
     "@nestjs/core": "^11.1.6",
+    "@opentelemetry/sdk-trace-node": "2.11.0",
     "ali-oss": "^6.23.0",
     "amqplib": "2.0.1",
     "kysely": "^0.28.8",

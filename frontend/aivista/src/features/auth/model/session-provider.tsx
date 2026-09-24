@@ -30,13 +30,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const logout = useAuthStore((state) => state.logout);
   const restoreSession = useAuthStore((state) => state.restoreSession);
 
-  useEffect(() => configureBrowserAuth({
-    getAccessToken: () => useAuthStore.getState().accessToken,
-    refreshAccessToken: () => useAuthStore.getState().refreshAccessToken(),
-    onSessionInvalid: () => {
-      useAuthStore.getState().clearSession();
-    },
-  }), []);
+  useEffect(
+    () =>
+      configureBrowserAuth({
+        getAccessToken: () => useAuthStore.getState().accessToken,
+        refreshAccessToken: () => useAuthStore.getState().refreshAccessToken(),
+        onSessionInvalid: () => {
+          useAuthStore.getState().clearSession();
+        },
+      }),
+    [],
+  );
 
   useEffect(() => {
     void restoreSession();

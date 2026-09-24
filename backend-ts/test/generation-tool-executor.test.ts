@@ -9,7 +9,7 @@ describe("AgentGenerationToolExecutor", () => {
     const completions = { wait: vi.fn().mockResolvedValue({ generationTaskId: "301", status: "SUCCEEDED",
       revision: 1, failureCode: null, assets: [{ assetId: "501" }] }) };
     const executor = new AgentGenerationToolExecutor({ creationId: "151",
-      java: java as never, completions: completions as never });
+      generationClient: java as never, completionCoordinator: completions as never });
 
     await expect(executor.execute("call-1", request())).resolves.toEqual({
       outcome: "SUCCEEDED", generationTaskId: "301", imageAssetIds: ["501"],
@@ -23,7 +23,7 @@ describe("AgentGenerationToolExecutor", () => {
     const completions = { wait: vi.fn().mockResolvedValue({ generationTaskId: "301", status: "FAILED",
       revision: 1, failureCode: "PROVIDER_RATE_LIMITED", assets: [] }) };
     const executor = new AgentGenerationToolExecutor({ creationId: "151",
-      java: java as never, completions: completions as never });
+      generationClient: java as never, completionCoordinator: completions as never });
 
     await executor.execute("call-1", request());
     await executor.execute("call-1", request());
@@ -34,7 +34,7 @@ describe("AgentGenerationToolExecutor", () => {
     const java = { createTask: vi.fn().mockRejectedValue(
       new JavaGenerationApiError(429, 42901, "今日生成图片额度已用尽")) };
     const executor = new AgentGenerationToolExecutor({ creationId: "151",
-      java: java as never, completions: {} as never });
+      generationClient: java as never, completionCoordinator: {} as never });
 
     await expect(executor.execute("call-quota", request())).resolves.toEqual({
       outcome: "FAILED",
@@ -47,7 +47,7 @@ describe("AgentGenerationToolExecutor", () => {
   it("turns infrastructure failures into a retryable Tool outcome", async () => {
     const java = { createTask: vi.fn().mockRejectedValue(new TypeError("network unavailable")) };
     const executor = new AgentGenerationToolExecutor({ creationId: "151",
-      java: java as never, completions: {} as never });
+      generationClient: java as never, completionCoordinator: {} as never });
 
     await expect(executor.execute("call-network", request())).resolves.toEqual({
       outcome: "FAILED",

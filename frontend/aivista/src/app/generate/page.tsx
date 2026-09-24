@@ -9,7 +9,11 @@ export default function GeneratePage() {
 
   return (
     <AppShell>
-      {status === "authenticated" ? <GenerateWorkspace /> : <main className="min-h-screen" aria-busy="true" aria-label="正在加载生成工作台" />}
+      {status === "authenticated" ? (
+        <GenerateWorkspace />
+      ) : (
+        <main className="min-h-screen" aria-busy="true" aria-label="正在加载生成工作台" />
+      )}
     </AppShell>
   );
 }

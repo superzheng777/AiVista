@@ -5,6 +5,7 @@ class FakeSocket {
   static instances: FakeSocket[] = [];
   readyState = 0;
   sent: string[] = [];
+  sendError: Error | undefined;
   listeners = new Map<string, Array<(event: { data?: unknown }) => void>>();
   constructor(readonly url: string) { FakeSocket.instances.push(this); }
   addEventListener(type: string, listener: (event: { data?: unknown }) => void) {
@@ -12,7 +13,10 @@ class FakeSocket {
     listeners.push(listener);
     this.listeners.set(type, listeners);
   }
-  send(value: string) { this.sent.push(value); }
+  send(value: string) {
+    if (this.sendError) throw this.sendError;
+    this.sent.push(value);
+  }
   close() { this.fire("close"); }
   fire(type: string, event: { data?: unknown } = {}) {
     for (const listener of this.listeners.get(type) ?? []) listener(event);
@@ -106,6 +110,28 @@ describe("JavaAgentRealtimeClient", () => {
     socket.fire("error");
 
     expect(FakeSocket.instances).toHaveLength(1);
+    vi.advanceTimersByTime(500);
+    expect(FakeSocket.instances).toHaveLength(2);
+    client.onModuleDestroy();
+  });
+
+  it("drops an event and reconnects when WebSocket.send throws", () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("WebSocket", FakeSocket);
+    const client = new JavaAgentRealtimeClient(config());
+    client.onModuleInit();
+    const socket = FakeSocket.instances[0]!;
+    socket.readyState = 1;
+    socket.fire("open");
+    socket.fire("message", { data: '{"type":"READY","contractVersion":1}' });
+    socket.sendError = new Error("socket write failed");
+
+    let published: boolean | undefined;
+    expect(() => { published = client.publish("31", 4, { eventType: "RUN_STARTED", payload: {} }); })
+      .not.toThrow();
+    expect(published).toBe(false);
+    expect(socket.sent).toHaveLength(1);
+
     vi.advanceTimersByTime(500);
     expect(FakeSocket.instances).toHaveLength(2);
     client.onModuleDestroy();

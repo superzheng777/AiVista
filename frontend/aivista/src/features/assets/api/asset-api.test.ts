@@ -26,7 +26,9 @@ describe("asset-api", () => {
   });
 
   it("以 multipart 形式上传图生图参考图片", async () => {
-    client.post.mockResolvedValue({ data: { code: 0, message: "ok", data: { assetId: "101", expiresAt: "2026-08-28T00:00:00Z" } } } as never);
+    client.post.mockResolvedValue({
+      data: { code: 0, message: "ok", data: { assetId: "101", expiresAt: "2026-08-28T00:00:00Z" } },
+    } as never);
     const file = new File(["image"], "reference.png", { type: "image/png" });
 
     await uploadGenerationReferenceImage(file);

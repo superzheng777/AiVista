@@ -18,10 +18,9 @@ export class AgentCommandListenerService {
       return;
     }
     try {
-      if (await this.execution.execute(command, signal)) {
-        channel.ack(message);
-        return;
-      }
+      await this.execution.execute(command, signal);
+      channel.ack(message);
+      return;
     } catch (error) {
       this.logger.error(`Agent command failed for creation ${command.creationId}: ${messageOf(error)}`,
         error instanceof Error ? error.stack : undefined);

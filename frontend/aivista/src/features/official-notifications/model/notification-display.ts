@@ -1,4 +1,8 @@
-import type { NotificationViolation, OfficialNotification, OfficialNotificationEventType } from "@/entities/notification/model/notification";
+import type {
+  NotificationViolation,
+  OfficialNotification,
+  OfficialNotificationEventType,
+} from "@/entities/notification/model/notification";
 
 const eventTypeLabels: Record<OfficialNotificationEventType, string> = {
   PUBLICATION_APPROVED: "发布已通过",

@@ -116,6 +116,41 @@ class DataAccessIntegrationIT {
     }
 
     @Test
+    void flywayAddsAgentContextSnapshotAndPendingInputMetadata() {
+        var columns = jdbcTemplate.queryForList("""
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = DATABASE()
+                  AND table_name = 'agent_session_contexts'
+                  AND column_name IN (
+                    'snapshot_creation_task_id', 'snapshot_revision',
+                    'pending_tool_call_id', 'pending_input_status'
+                  )
+                """, String.class);
+
+        assertThat(columns).containsExactlyInAnyOrder(
+                "snapshot_creation_task_id", "snapshot_revision",
+                "pending_tool_call_id", "pending_input_status");
+
+        String formStatusCheck = jdbcTemplate.queryForObject("""
+                SELECT check_clause
+                FROM information_schema.check_constraints
+                WHERE constraint_schema = DATABASE()
+                  AND constraint_name = 'chk_creation_forms_status'
+                """, String.class);
+        String pendingInputCheck = jdbcTemplate.queryForObject("""
+                SELECT check_clause
+                FROM information_schema.check_constraints
+                WHERE constraint_schema = DATABASE()
+                  AND constraint_name = 'chk_agent_session_context_pending_input'
+                """, String.class);
+
+        assertThat(formStatusCheck).contains("CANCELLED");
+        assertThat(pendingInputCheck)
+                .contains("snapshot_creation_task_id", "snapshot_revision", "CANCELLED");
+    }
+
+    @Test
     void generationMappersAreRegistered() {
         assertThat(generationSessionMapper).isNotNull();
         assertThat(conversationMessageMapper).isNotNull();

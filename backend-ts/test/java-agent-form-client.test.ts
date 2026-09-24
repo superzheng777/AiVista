@@ -11,7 +11,7 @@ describe("JavaAgentFormClient", () => {
     vi.stubGlobal("fetch", fetchMock);
     const client = new JavaAgentFormClient(config());
 
-    await client.request("151", "call-1", command());
+    await client.requestInput("151", "call-1", command());
 
     expect(fetchMock).toHaveBeenCalledWith(
       "http://java/api/internal/generation-worker/agent-creations/151/forms/call-1",
@@ -28,7 +28,7 @@ describe("JavaAgentFormClient", () => {
       .mockResolvedValueOnce(successResponse(204));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(new JavaAgentFormClient(config()).request("151", "call-1", command()))
+    await expect(new JavaAgentFormClient(config()).requestInput("151", "call-1", command()))
       .resolves.toBeUndefined();
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
@@ -41,14 +41,16 @@ describe("JavaAgentFormClient", () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 409 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(new JavaAgentFormClient(config()).request("151", "call-1", command()))
+    await expect(new JavaAgentFormClient(config()).requestInput("151", "call-1", command()))
       .rejects.toMatchObject({ status: 409 });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
 
 function command() {
-  return { contractVersion: 1 as const, expectedRevision: 0, activities: [], form: {
+  return { contractVersion: 2 as const, expectedRevision: 0, activities: [], agentContext: {
+    schemaVersion: 1 as const, compaction: null, messages: [],
+  }, form: {
     schemaVersion: 1 as const, title: "确认海报方向", fields: [{
       id: "theme", label: "主题", type: "TEXT" as const, required: true,
       initialValue: "关爱动物",
