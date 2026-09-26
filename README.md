@@ -3,13 +3,13 @@
 <p align="center">从灵感发现到 Agent 创作、资产管理与社区发布的全栈 AI 图像创作平台。</p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&amp;logoColor=white" alt="TypeScript 5">
-  <img src="https://img.shields.io/badge/React-19-61DAFB?logo=react&amp;logoColor=white" alt="React 19">
-  <img src="https://img.shields.io/badge/Spring_Boot-4.1-6DB33F?logo=springboot&amp;logoColor=white" alt="Spring Boot 4.1">
-  <img src="https://img.shields.io/badge/Node.js-22%2B-5FA04E?logo=nodedotjs&amp;logoColor=white" alt="Node.js 22+">
-  <img src="https://img.shields.io/badge/Pi_Agent-0.83.0-7C3AED" alt="Pi Agent 0.83.0">
-  <img src="https://img.shields.io/badge/RabbitMQ-FF6600?logo=rabbitmq&amp;logoColor=white" alt="RabbitMQ">
-  <img src="https://img.shields.io/badge/Meilisearch-FF5CAA?logo=meilisearch&amp;logoColor=white" alt="Meilisearch">
+  <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&amp;logoColor=white" alt="TypeScript 5"></a>
+  <a href="https://react.dev/"><img src="https://img.shields.io/badge/React-19-61DAFB?logo=react&amp;logoColor=white" alt="React 19"></a>
+  <a href="https://spring.io/projects/spring-boot"><img src="https://img.shields.io/badge/Spring_Boot-4.1-6DB33F?logo=springboot&amp;logoColor=white" alt="Spring Boot 4.1"></a>
+  <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/Node.js-22%2B-5FA04E?logo=nodedotjs&amp;logoColor=white" alt="Node.js 22+"></a>
+  <a href="https://github.com/earendil-works/pi"><img src="https://img.shields.io/badge/Pi_Agent-0.83.0-7C3AED" alt="Pi Agent 0.83.0"></a>
+  <a href="https://www.rabbitmq.com/"><img src="https://img.shields.io/badge/RabbitMQ-FF6600?logo=rabbitmq&amp;logoColor=white" alt="RabbitMQ"></a>
+  <a href="https://www.meilisearch.com/"><img src="https://img.shields.io/badge/Meilisearch-FF5CAA?logo=meilisearch&amp;logoColor=white" alt="Meilisearch"></a>
 </p>
 
 AiVista 是由 [superzheng777](https://github.com/superzheng777) 独立设计并实现的个人项目，覆盖产品交互、Web 前端、Java Core、TypeScript AI Runtime 以及服务间协议。
