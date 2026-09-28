@@ -64,8 +64,7 @@ export type GenerationComposerDraft = {
   mode: "agent";
 };
 
-type GenerationMode = "image" | "agent";
-type AgentAspectRatio = "AUTO" | GenerationFormValues["aspectRatio"];
+type GenerationMode = GenerationFormValues["mode"];
 type CreationSubmission =
   { mode: "image"; input: CreateGenerationTaskInput } | { mode: "agent"; input: CreateAgentCreationInput };
 
@@ -292,27 +291,20 @@ function inputOf(values: GenerationFormValues, inputAssetIds: string[], sessionI
   };
 }
 
-function submissionOf(
-  mode: GenerationMode,
-  values: GenerationFormValues,
-  inputAssetIds: string[],
-  sessionId: string | undefined,
-  agentAspectRatio: AgentAspectRatio,
-  agentImageCount: number,
-): CreationSubmission {
-  if (mode === "agent") {
+function submissionOf(values: GenerationFormValues, inputAssetIds: string[], sessionId?: string): CreationSubmission {
+  if (values.mode === "agent") {
     return {
-      mode,
+      mode: "agent",
       input: {
         sessionId,
         prompt: values.prompt,
         inputAssetIds: inputAssetIds.length ? inputAssetIds : undefined,
-        aspectRatio: agentAspectRatio,
-        imageCount: agentImageCount,
+        aspectRatio: values.agentAspectRatio,
+        imageCount: values.agentImageCount,
       },
     };
   }
-  return { mode, input: inputOf(values, inputAssetIds, sessionId) };
+  return { mode: "image", input: inputOf(values, inputAssetIds, sessionId) };
 }
 
 function feedbackFromCreateError(error: unknown): SubmissionFeedback {
@@ -346,21 +338,25 @@ export function GenerationComposer({
   const [submitFeedback, setSubmitFeedback] = useState<SubmissionFeedback | null>(null);
   const [isPreparingStream, setIsPreparingStream] = useState(false);
   const [referenceImages, setReferenceImages] = useState<GenerationAsset[]>(() => initialDraft?.referenceImages ?? []);
-  const [mode, setMode] = useState<GenerationMode>(() => initialDraft?.mode ?? "image");
-  const [agentAspectRatio, setAgentAspectRatio] = useState<AgentAspectRatio>("AUTO");
-  const [agentImageCount, setAgentImageCount] = useState(0);
   const controlsRef = useRef<HTMLDivElement>(null);
   const optionsTriggerRef = useRef<HTMLButtonElement>(null);
   const form = useForm<GenerationFormValues>({
     resolver: zodResolver(generationFormSchema),
     defaultValues: {
+      mode: initialDraft?.mode ?? "image",
       prompt: initialDraft?.prompt ?? "",
       negativePrompt: "",
       aspectRatio: "1:1",
       promptExtend: true,
       imageCount: 1,
+      agentAspectRatio: "AUTO",
+      agentImageCount: 0,
     },
   });
+  const { setValue } = form;
+  const mode = useWatch({ control: form.control, name: "mode" });
+  const agentAspectRatio = useWatch({ control: form.control, name: "agentAspectRatio" });
+  const agentImageCount = useWatch({ control: form.control, name: "agentImageCount" });
 
   useEffect(() => {
     if (
@@ -414,12 +410,12 @@ export function GenerationComposer({
     if (storedMode !== "image" && storedMode !== "agent") return;
     let active = true;
     queueMicrotask(() => {
-      if (active) setMode(storedMode);
+      if (active) setValue("mode", storedMode);
     });
     return () => {
       active = false;
     };
-  }, [initialDraft]);
+  }, [initialDraft, setValue]);
 
   useEffect(() => {
     if (!showOptions && !openSelect && !referenceMenuOpen) return;
@@ -488,7 +484,7 @@ export function GenerationComposer({
       setSubmitFeedback({ message: "无法建立实时连接，本次生成尚未开始。", retryable: true });
       return;
     }
-    const submission = submissionOf(mode, values, inputAssetIds, sessionId, agentAspectRatio, agentImageCount);
+    const submission = submissionOf(values, inputAssetIds, sessionId);
     createTask.mutate(submission);
   }
 
@@ -571,7 +567,7 @@ export function GenerationComposer({
                   }}
                   onSelect={(value) => {
                     const selected = value as GenerationMode;
-                    setMode(selected);
+                    form.setValue("mode", selected, { shouldDirty: true, shouldValidate: true });
                     window.sessionStorage.setItem(GENERATION_MODE_STORAGE_KEY, selected);
                     setOpenSelect(null);
                   }}
@@ -616,7 +612,10 @@ export function GenerationComposer({
                           disabled={isSubmitDisabled}
                           onSelect={(value) =>
                             mode === "agent"
-                              ? setAgentAspectRatio(value as AgentAspectRatio)
+                              ? form.setValue("agentAspectRatio", value as GenerationFormValues["agentAspectRatio"], {
+                                  shouldDirty: true,
+                                  shouldValidate: true,
+                                })
                               : form.setValue("aspectRatio", value as GenerationFormValues["aspectRatio"], {
                                   shouldDirty: true,
                                   shouldValidate: true,
@@ -639,7 +638,10 @@ export function GenerationComposer({
                           disabled={isSubmitDisabled}
                           onSelect={(value) =>
                             mode === "agent"
-                              ? setAgentImageCount(Number(value))
+                              ? form.setValue("agentImageCount", Number(value), {
+                                  shouldDirty: true,
+                                  shouldValidate: true,
+                                })
                               : form.setValue("imageCount", Number(value), { shouldDirty: true, shouldValidate: true })
                           }
                         />

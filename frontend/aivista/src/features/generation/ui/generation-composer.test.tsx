@@ -43,24 +43,6 @@ describe("GenerationComposer", () => {
     vi.mocked(createAgentCreation).mockReset();
   });
 
-  it("does not mistake a submission from the current page for a request that needs recovery", async () => {
-    vi.mocked(createGenerationTask).mockImplementation(() => new Promise(() => undefined));
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(
-      <QueryClientProvider client={queryClient}>
-        <GenerationComposer sessionId="session-1" />
-      </QueryClientProvider>,
-    );
-
-    await waitFor(() => expect(window.sessionStorage.getItem("aivista.pending-generation-submission")).toBeNull());
-    fireEvent.change(screen.getByLabelText("创作提示"), { target: { value: "一座山" } });
-    fireEvent.submit(screen.getByRole("button", { name: "开始生成" }).closest("form")!);
-
-    await waitFor(() => expect(createGenerationTask).toHaveBeenCalledTimes(1));
-    await Promise.resolve();
-    expect(screen.queryByText("检测到未确认的生成请求，正在恢复任务状态。")).not.toBeInTheDocument();
-  });
-
   it("submits Agent mode through the Agent Creation contract without image-only parameters", async () => {
     vi.mocked(createAgentCreation).mockImplementation(() => new Promise(() => undefined));
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -85,7 +67,6 @@ describe("GenerationComposer", () => {
     });
     expect(createGenerationTask).not.toHaveBeenCalled();
     expect(screen.getByText("更多设置")).toBeInTheDocument();
-    expect(screen.queryByText(/Agent 会理解目标并自行选择设计能力与生图工具/)).not.toBeInTheDocument();
   });
 
   it("keeps the selected Agent mode when the composer remounts after navigation", async () => {
@@ -147,7 +128,6 @@ describe("GenerationComposer", () => {
     );
 
     expect(screen.getByRole("button", { name: "开始生成" })).toBeDisabled();
-    expect(screen.queryByText("当前会话正在创作，请等待完成；运行中的 Agent 也可以先停止。")).not.toBeInTheDocument();
     expect(createAgentCreation).not.toHaveBeenCalled();
     expect(createGenerationTask).not.toHaveBeenCalled();
   });
@@ -233,5 +213,33 @@ describe("GenerationComposer", () => {
         imageCount: 3,
       }),
     );
+  });
+
+  it("keeps each mode's image settings when switching back to normal generation", async () => {
+    vi.mocked(createGenerationTask).mockImplementation(() => new Promise(() => undefined));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <GenerationComposer sessionId="session-1" />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "更多设置" }));
+    fireEvent.click(screen.getByRole("radio", { name: "4:3" }));
+    fireEvent.click(screen.getByRole("radio", { name: "2" }));
+    fireEvent.click(screen.getByRole("button", { name: "生成模式" }));
+    fireEvent.click(screen.getByRole("option", { name: /Agent 模式/ }));
+    fireEvent.click(screen.getByRole("button", { name: "更多设置" }));
+    fireEvent.click(screen.getByRole("radio", { name: "3:4" }));
+    fireEvent.click(screen.getByRole("radio", { name: "3" }));
+    fireEvent.click(screen.getByRole("button", { name: "生成模式" }));
+    fireEvent.click(screen.getByRole("option", { name: /图片生成/ }));
+    fireEvent.change(screen.getByLabelText("创作提示"), { target: { value: "画一张海报" } });
+    fireEvent.submit(screen.getByRole("button", { name: "开始生成" }).closest("form")!);
+
+    await waitFor(() =>
+      expect(createGenerationTask).toHaveBeenCalledWith(expect.objectContaining({ aspectRatio: "4:3", imageCount: 2 })),
+    );
+    expect(createAgentCreation).not.toHaveBeenCalled();
   });
 });

@@ -1,11 +1,11 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { CreationForm } from "@/entities/generation/model/generation";
 import { AgentInputFormCard } from "@/features/generation/ui/agent-input-form-card";
 
 describe("AgentInputFormCard", () => {
-  it("prefills model suggestions and submits the filled form document", () => {
+  it("prefills model suggestions and submits the filled form document", async () => {
     const onResolve = vi.fn();
     render(
       <AgentInputFormCard
@@ -26,33 +26,35 @@ describe("AgentInputFormCard", () => {
     fireEvent.change(screen.getByLabelText("视觉风格自定义内容"), { target: { value: "儿童蜡笔画" } });
     fireEvent.click(screen.getByRole("button", { name: "确认" }));
 
-    expect(onResolve).toHaveBeenCalledWith("SUBMIT", {
-      schemaVersion: 2,
-      title: "确认海报方向",
-      fields: [
-        {
-          id: "subject",
-          type: "TEXT",
-          label: "主题",
-          required: true,
-          value: "关爱流浪猫",
-          placeholder: "填写活动主题",
-        },
-        {
-          id: "style",
-          type: "SINGLE_SELECT",
-          label: "视觉风格",
-          required: true,
-          value: "儿童蜡笔画",
-          options: [
-            { value: "WARM", label: "温暖纪实" },
-            { value: "FLAT", label: "扁平插画" },
-          ],
-          allowCustom: true,
-          customLabel: "自定义",
-        },
-      ],
-    });
+    await waitFor(() =>
+      expect(onResolve).toHaveBeenCalledWith("SUBMIT", {
+        schemaVersion: 2,
+        title: "确认海报方向",
+        fields: [
+          {
+            id: "subject",
+            type: "TEXT",
+            label: "主题",
+            required: true,
+            value: "关爱流浪猫",
+            placeholder: "填写活动主题",
+          },
+          {
+            id: "style",
+            type: "SINGLE_SELECT",
+            label: "视觉风格",
+            required: true,
+            value: "儿童蜡笔画",
+            options: [
+              { value: "WARM", label: "温暖纪实" },
+              { value: "FLAT", label: "扁平插画" },
+            ],
+            allowCustom: true,
+            customLabel: "自定义",
+          },
+        ],
+      }),
+    );
   });
 
   it("requires every required value before submitting", () => {

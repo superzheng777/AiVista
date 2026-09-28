@@ -1,10 +1,11 @@
 "use client";
 
+import { zodResolver } from "@hookform/resolvers/zod";
 import { Search } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState, type FormEvent } from "react";
+import { useForm } from "react-hook-form";
 
-import { validateSearchInput } from "@/features/inspiration/model/search-query";
+import { searchFormSchema, type SearchFormValues } from "@/features/inspiration/model/search-query";
 import { cn } from "@/shared/lib/cn";
 
 export function InspirationSearchForm({
@@ -15,20 +16,20 @@ export function InspirationSearchForm({
   compact?: boolean;
 }) {
   const router = useRouter();
-  const [value, setValue] = useState(initialValue);
-  const [error, setError] = useState<string | null>(null);
+  const form = useForm<SearchFormValues>({
+    resolver: zodResolver(searchFormSchema),
+    defaultValues: { keyword: initialValue },
+    mode: "onChange",
+  });
+  const error = form.formState.errors.keyword?.message;
 
-  function submit(event: FormEvent) {
-    event.preventDefault();
-    const validation = validateSearchInput(value);
-    setError(validation);
-    if (validation) return;
-    router.push(`/inspirations/search?q=${encodeURIComponent(value)}`);
+  function submit(values: SearchFormValues) {
+    router.push(`/inspirations/search?q=${encodeURIComponent(values.keyword)}`);
   }
 
   return (
     <form
-      onSubmit={submit}
+      onSubmit={form.handleSubmit(submit)}
       role="search"
       className={cn("relative", compact ? "mb-[10px] ml-auto w-44 sm:w-[300px]" : "w-full max-w-xl")}
     >
@@ -37,11 +38,7 @@ export function InspirationSearchForm({
       </label>
       <input
         id={compact ? "inspiration-search-compact" : "inspiration-search"}
-        value={value}
-        onChange={(event) => {
-          setValue(event.target.value);
-          if (error) setError(null);
-        }}
+        {...form.register("keyword")}
         aria-invalid={Boolean(error)}
         aria-describedby={error ? `${compact ? "compact-" : ""}search-error` : undefined}
         placeholder="搜索标题或提示词"

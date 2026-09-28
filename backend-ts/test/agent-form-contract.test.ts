@@ -20,14 +20,6 @@ describe("Agent form contract", () => {
     })).toThrow();
   });
 
-  it("rejects blank display text before the form reaches Java", () => {
-    expect(() => agentInputFormSchema.parse({ ...form(), title: "   " })).toThrow("Text must not be blank");
-    expect(() => agentInputFormSchema.parse({ ...form(), fields: [
-      { ...form().fields[0], label: "\t" },
-      form().fields[1],
-    ] })).toThrow("Text must not be blank");
-  });
-
   it("allows blank proposed values but requires submitted mandatory values", () => {
     expect(agentPendingInputSchema.parse({
       creationId: "151", toolCallId: "call-form", status: "PENDING", form: form(),

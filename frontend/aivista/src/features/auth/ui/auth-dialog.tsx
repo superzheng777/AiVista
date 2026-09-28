@@ -1,13 +1,14 @@
 "use client";
 
+import { zodResolver } from "@hookform/resolvers/zod";
 import { Eye, EyeOff, LockKeyhole, UserRound, X } from "lucide-react";
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useForm, type UseFormRegisterReturn } from "react-hook-form";
 
 import { getUserAgreementPolicy, type UserAgreementPolicy } from "@/features/auth/api/auth-api";
 import { useAuthDialog } from "@/features/auth/model/auth-dialog-provider";
 import { useSession } from "@/features/auth/model/session-provider";
-
-type Mode = "login" | "register";
+import { authFormSchema, type AuthFormValues, type AuthMode } from "@/features/auth/model/auth-form";
 
 export function AuthDialog() {
   const { isOpen } = useAuthDialog();
@@ -19,12 +20,11 @@ function OpenAuthDialog() {
   const { close } = useAuthDialog();
   const { login, register } = useSession();
   const mountedRef = useRef(true);
-  const [mode, setMode] = useState<Mode>("login");
-  const [loginName, setLoginName] = useState("");
-  const [nickname, setNickname] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [hasAcceptedAgreement, setHasAcceptedAgreement] = useState(false);
+  const [mode, setMode] = useState<AuthMode>("login");
+  const form = useForm<AuthFormValues>({
+    resolver: zodResolver(authFormSchema(mode)),
+    defaultValues: { loginName: "", nickname: "", password: "", confirmPassword: "", acceptedAgreement: false },
+  });
   const [agreementPolicy, setAgreementPolicy] = useState<UserAgreementPolicy | null>(null);
   const [isAgreementLoading, setIsAgreementLoading] = useState(false);
   const [isAgreementOpen, setIsAgreementOpen] = useState(false);
@@ -32,7 +32,6 @@ function OpenAuthDialog() {
   const [isConfirmPasswordVisible, setIsConfirmPasswordVisible] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -62,55 +61,42 @@ function OpenAuthDialog() {
     }
   }
 
-  function switchMode(nextMode: Mode) {
+  function switchMode(nextMode: AuthMode) {
     setMode(nextMode);
-    setPassword("");
-    setConfirmPassword("");
-    setHasAcceptedAgreement(false);
+    form.reset({ ...form.getValues(), password: "", confirmPassword: "", acceptedAgreement: false });
     if (nextMode === "register") void loadAgreementPolicy();
     setError("");
     setNotice("");
   }
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function handleSubmit(values: AuthFormValues) {
     setError("");
     setNotice("");
 
-    if (mode === "register" && password !== confirmPassword) {
-      setError("两次输入的密码不一致，请重新确认。");
-      return;
-    }
-
     const policy = agreementPolicy;
-    if (mode === "register" && (!hasAcceptedAgreement || !policy)) {
+    if (mode === "register" && !policy) {
       setError("请先阅读并同意用户协议。");
       return;
     }
 
-    setIsSubmitting(true);
-
     try {
       if (mode === "login") {
-        await login({ loginName: loginName.trim(), password });
+        await login({ loginName: values.loginName, password: values.password });
         close();
       } else {
         if (!policy) return;
         await register({
-          loginName: loginName.trim(),
-          password,
-          nickname: nickname.trim(),
+          loginName: values.loginName,
+          password: values.password,
+          nickname: values.nickname.trim(),
           agreementPolicyVersion: policy.policyVersion,
         });
         setMode("login");
-        setPassword("");
-        setConfirmPassword("");
+        form.reset({ ...values, password: "", confirmPassword: "", acceptedAgreement: false });
         setNotice("注册成功，请使用新账号登录。");
       }
     } catch (authError) {
       setError(authError instanceof Error ? authError.message : "操作失败，请稍后重试。");
-    } finally {
-      setIsSubmitting(false);
     }
   }
 
@@ -150,14 +136,13 @@ function OpenAuthDialog() {
           </button>
         </div>
 
-        <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
+        <form className="mt-6 space-y-4" onSubmit={form.handleSubmit(handleSubmit)} noValidate>
           <label className="block">
             <span className="sr-only">登录账号</span>
             <span className="relative block">
               <UserRound className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <input
-                value={loginName}
-                onChange={(event) => setLoginName(event.target.value)}
+                {...form.register("loginName")}
                 autoComplete="username"
                 required
                 minLength={4}
@@ -166,14 +151,18 @@ function OpenAuthDialog() {
                 placeholder="请输入账号"
               />
             </span>
+            {form.formState.errors.loginName ? (
+              <span role="alert" className="text-xs text-destructive">
+                {form.formState.errors.loginName.message}
+              </span>
+            ) : null}
           </label>
 
           {isLogin ? null : (
             <label className="block">
               <span className="sr-only">昵称</span>
               <input
-                value={nickname}
-                onChange={(event) => setNickname(event.target.value)}
+                {...form.register("nickname")}
                 autoComplete="nickname"
                 required
                 minLength={1}
@@ -181,13 +170,18 @@ function OpenAuthDialog() {
                 className="h-11 w-full rounded-[7px] border border-[var(--border)] bg-[var(--surface-bg)] px-3 text-sm text-[var(--primary)] outline-none transition placeholder:text-[var(--placeholder)] focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent-border)]"
                 placeholder="请输入昵称"
               />
+              {form.formState.errors.nickname ? (
+                <span role="alert" className="text-xs text-destructive">
+                  {form.formState.errors.nickname.message}
+                </span>
+              ) : null}
             </label>
           )}
 
           <PasswordField
             label="密码"
-            value={password}
-            onChange={setPassword}
+            registration={form.register("password")}
+            error={form.formState.errors.password?.message}
             autoComplete={isLogin ? "current-password" : "new-password"}
             placeholder="请输入密码"
             isVisible={isPasswordVisible}
@@ -197,8 +191,8 @@ function OpenAuthDialog() {
           {isLogin ? null : (
             <PasswordField
               label="确认密码"
-              value={confirmPassword}
-              onChange={setConfirmPassword}
+              registration={form.register("confirmPassword")}
+              error={form.formState.errors.confirmPassword?.message}
               autoComplete="new-password"
               placeholder="请再次输入密码"
               isVisible={isConfirmPasswordVisible}
@@ -210,8 +204,7 @@ function OpenAuthDialog() {
             <label className="flex cursor-pointer items-start gap-2 rounded-lg px-1 py-1 text-xs leading-5 text-muted-foreground">
               <input
                 type="checkbox"
-                checked={hasAcceptedAgreement}
-                onChange={(event) => setHasAcceptedAgreement(event.target.checked)}
+                {...form.register("acceptedAgreement")}
                 disabled={isAgreementLoading || !agreementPolicy}
                 className="mt-0.5 size-4 shrink-0 accent-[var(--accent)]"
               />
@@ -232,6 +225,11 @@ function OpenAuthDialog() {
               </span>
             </label>
           )}
+          {!isLogin && form.formState.errors.acceptedAgreement ? (
+            <p role="alert" className="text-xs text-destructive">
+              {form.formState.errors.acceptedAgreement.message}
+            </p>
+          ) : null}
 
           {error ? <p className="rounded-[7px] bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p> : null}
           {notice ? (
@@ -268,10 +266,10 @@ function OpenAuthDialog() {
 
           <button
             type="submit"
-            disabled={isSubmitting || (!isLogin && (isAgreementLoading || !agreementPolicy))}
+            disabled={form.formState.isSubmitting || (!isLogin && (isAgreementLoading || !agreementPolicy))}
             className="h-11 w-full rounded-[7px] bg-[var(--primary)] text-sm font-medium text-[var(--surface-bg)] transition hover:bg-[var(--primary-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--surface-bg)] disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isSubmitting ? "处理中…" : isLogin ? "登录" : "注册"}
+            {form.formState.isSubmitting ? "处理中…" : isLogin ? "登录" : "注册"}
           </button>
         </form>
       </section>
@@ -327,16 +325,16 @@ function UserAgreementDialog({ policy, onClose }: { policy: UserAgreementPolicy;
 
 function PasswordField({
   label,
-  value,
-  onChange,
+  registration,
+  error,
   autoComplete,
   placeholder,
   isVisible,
   onToggleVisibility,
 }: {
   label: string;
-  value: string;
-  onChange: (value: string) => void;
+  registration: UseFormRegisterReturn;
+  error?: string;
   autoComplete: "current-password" | "new-password";
   placeholder: string;
   isVisible: boolean;
@@ -351,8 +349,7 @@ function PasswordField({
       <span className="relative block">
         <LockKeyhole className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
         <input
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
+          {...registration}
           type={isVisible ? "text" : "password"}
           autoComplete={autoComplete}
           required
@@ -370,6 +367,11 @@ function PasswordField({
           <VisibilityIcon className="size-4" />
         </button>
       </span>
+      {error ? (
+        <span role="alert" className="text-xs text-destructive">
+          {error}
+        </span>
+      ) : null}
     </label>
   );
 }

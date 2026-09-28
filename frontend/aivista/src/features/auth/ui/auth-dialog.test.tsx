@@ -5,6 +5,7 @@ import { AuthDialogProvider, useAuthDialog } from "@/features/auth/model/auth-di
 import { AuthDialog } from "@/features/auth/ui/auth-dialog";
 
 const authApi = vi.hoisted(() => ({ getUserAgreementPolicy: vi.fn() }));
+const session = vi.hoisted(() => ({ login: vi.fn(), register: vi.fn() }));
 
 vi.mock("@/features/auth/api/auth-api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/features/auth/api/auth-api")>();
@@ -12,7 +13,7 @@ vi.mock("@/features/auth/api/auth-api", async (importOriginal) => {
 });
 
 vi.mock("@/features/auth/model/session-provider", () => ({
-  useSession: () => ({ login: vi.fn(), register: vi.fn() }),
+  useSession: () => session,
 }));
 
 function AuthDialogTrigger() {
@@ -72,5 +73,34 @@ describe("AuthDialog", () => {
 
     await waitFor(() => expect(authApi.getUserAgreementPolicy).toHaveBeenCalledTimes(2));
     expect(await screen.findByRole("checkbox", { name: /我已阅读并同意/ })).toBeEnabled();
+  });
+
+  it("submits validated registration values and clears the password afterward", async () => {
+    render(
+      <AuthDialogProvider>
+        <AuthDialogTrigger />
+        <AuthDialog />
+      </AuthDialogProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "打开登录" }));
+    fireEvent.click(screen.getByRole("button", { name: "去注册" }));
+    await waitFor(() => expect(screen.getByRole("checkbox", { name: /我已阅读并同意/ })).toBeEnabled());
+    fireEvent.change(screen.getByPlaceholderText("请输入账号"), { target: { value: "alice_2026" } });
+    fireEvent.change(screen.getByPlaceholderText("请输入昵称"), { target: { value: " Alice " } });
+    fireEvent.change(screen.getByLabelText("密码"), { target: { value: "Aivista2026" } });
+    fireEvent.change(screen.getByLabelText("确认密码"), { target: { value: "Aivista2026" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: /我已阅读并同意/ }));
+    fireEvent.click(screen.getByRole("button", { name: "注册" }));
+
+    await waitFor(() =>
+      expect(session.register).toHaveBeenCalledWith({
+        loginName: "alice_2026",
+        nickname: "Alice",
+        password: "Aivista2026",
+        agreementPolicyVersion: "v1",
+      }),
+    );
+    expect(screen.getByLabelText("密码")).toHaveValue("");
+    expect(screen.getByText("注册成功，请使用新账号登录。")).toBeInTheDocument();
   });
 });

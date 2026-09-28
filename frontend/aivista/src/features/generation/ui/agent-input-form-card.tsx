@@ -2,8 +2,11 @@
 
 import { ClipboardList } from "lucide-react";
 import { type Dispatch, type SetStateAction, useState } from "react";
+import { useForm, useWatch } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
 
 import type { AgentInputForm, AgentInputFormField, CreationForm } from "@/entities/generation/model/generation";
+import { agentInputValuesSchema } from "@/features/generation/model/agent-input-form";
 import { cn } from "@/shared/lib/cn";
 
 export function AgentInputFormCard({
@@ -21,9 +24,14 @@ export function AgentInputFormCard({
   onResolve: (action: "SUBMIT" | "SKIP", form: AgentInputForm | null) => void;
   onCancel: () => void;
 }) {
-  const [draftForm, setDraftForm] = useState<AgentInputForm>(() => cloneForm(value.form));
+  const form = useForm<{ values: string[] }>({
+    resolver: zodResolver(agentInputValuesSchema(value.form)),
+    defaultValues: { values: value.form.fields.map((field) => field.value) },
+    mode: "onChange",
+  });
+  const values = useWatch({ control: form.control, name: "values" });
   const [customFieldIds, setCustomFieldIds] = useState<Set<string>>(() => initialCustomFieldIds(value.form));
-  const missingRequired = draftForm.fields.some((field) => field.required && !field.value.trim());
+  const missingRequired = value.form.fields.some((field, index) => field.required && !(values[index] ?? "").trim());
   if (value.status !== "PENDING") {
     return (
       <section
@@ -57,7 +65,13 @@ export function AgentInputFormCard({
     );
   }
   return (
-    <section
+    <form
+      onSubmit={form.handleSubmit(({ values }) =>
+        onResolve("SUBMIT", {
+          ...value.form,
+          fields: value.form.fields.map((field, index) => ({ ...field, value: values[index] ?? "" })),
+        }),
+      )}
       className="mt-3 rounded-[8px] border border-[var(--border-strong)] bg-[var(--surface-bg)] p-4"
       aria-label="需求确认表单"
     >
@@ -66,7 +80,7 @@ export function AgentInputFormCard({
         {value.form.title}
       </div>
       <div className="mt-4 space-y-5">
-        {draftForm.fields.map((field) => (
+        {value.form.fields.map((field, index) => (
           <fieldset key={field.id} disabled={!enabled || submitting || cancelling}>
             <legend className="mb-2 text-xs font-medium text-[var(--text-secondary)]">
               {field.label}
@@ -74,16 +88,15 @@ export function AgentInputFormCard({
             </legend>
             {field.type === "TEXT" ? (
               <input
-                value={field.value}
+                {...form.register(`values.${index}`)}
                 maxLength={300}
                 placeholder={field.placeholder}
-                onChange={(event) => setFieldValue(setDraftForm, field.id, event.target.value)}
                 className="h-11 w-full rounded-[6px] border border-[var(--border)] bg-[var(--surface-bg)] px-3 text-sm outline-none transition focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent-border)] disabled:cursor-not-allowed disabled:opacity-60"
               />
             ) : (
               <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={field.label}>
                 {field.options.map((option) => {
-                  const selected = !customFieldIds.has(field.id) && field.value === option.value;
+                  const selected = !customFieldIds.has(field.id) && values[index] === option.value;
                   return (
                     <button
                       key={option.value}
@@ -92,7 +105,7 @@ export function AgentInputFormCard({
                       aria-checked={selected}
                       onClick={() => {
                         setCustomFieldSelected(setCustomFieldIds, field.id, false);
-                        setFieldValue(setDraftForm, field.id, option.value);
+                        form.setValue(`values.${index}`, option.value, { shouldDirty: true, shouldValidate: true });
                       }}
                       className={cn(
                         "min-h-9 rounded-[6px] border px-3 text-xs transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--surface-bg)] disabled:cursor-not-allowed disabled:opacity-60",
@@ -112,8 +125,8 @@ export function AgentInputFormCard({
                     aria-checked={customFieldIds.has(field.id)}
                     onClick={() => {
                       setCustomFieldSelected(setCustomFieldIds, field.id, true);
-                      if (field.options.some((option) => option.value === field.value)) {
-                        setFieldValue(setDraftForm, field.id, "");
+                      if (field.options.some((option) => option.value === values[index])) {
+                        form.setValue(`values.${index}`, "", { shouldDirty: true, shouldValidate: true });
                       }
                     }}
                     className={cn(
@@ -129,14 +142,18 @@ export function AgentInputFormCard({
                 {customFieldIds.has(field.id) ? (
                   <input
                     aria-label={`${field.label}自定义内容`}
-                    value={field.value}
+                    {...form.register(`values.${index}`)}
                     maxLength={300}
-                    onChange={(event) => setFieldValue(setDraftForm, field.id, event.target.value)}
                     className="h-9 min-w-[220px] flex-1 rounded-[6px] border border-[var(--border)] bg-[var(--surface-bg)] px-3 text-xs outline-none transition focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent-border)] disabled:cursor-not-allowed disabled:opacity-60"
                   />
                 ) : null}
               </div>
             )}
+            {form.formState.errors.values?.[index]?.message ? (
+              <p role="alert" className="mt-1 text-xs text-destructive">
+                {form.formState.errors.values[index]?.message}
+              </p>
+            ) : null}
           </fieldset>
         ))}
       </div>
@@ -159,9 +176,8 @@ export function AgentInputFormCard({
             跳过
           </button>
           <button
-            type="button"
             disabled={!enabled || submitting || cancelling || missingRequired}
-            onClick={() => onResolve("SUBMIT", draftForm)}
+            type="submit"
             className="inline-flex h-9 items-center rounded-[6px] bg-[var(--primary)] px-5 text-xs font-semibold text-[var(--surface-bg)] transition hover:bg-[var(--primary-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--surface-bg)] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {submitting ? "提交中" : "确认"}
@@ -171,19 +187,8 @@ export function AgentInputFormCard({
       {!enabled ? (
         <p className="mt-2 text-right text-xs text-[var(--text-secondary)]">当前创作已不再等待此表单。</p>
       ) : null}
-    </section>
+    </form>
   );
-}
-
-function cloneForm(form: AgentInputForm): AgentInputForm {
-  return {
-    ...form,
-    fields: form.fields.map((field) =>
-      field.type === "SINGLE_SELECT"
-        ? { ...field, options: field.options.map((option) => ({ ...option })) }
-        : { ...field },
-    ),
-  };
 }
 
 function initialCustomFieldIds(form: AgentInputForm): Set<string> {
@@ -198,17 +203,6 @@ function initialCustomFieldIds(form: AgentInputForm): Set<string> {
       )
       .map((field) => field.id),
   );
-}
-
-function setFieldValue(
-  setForm: Dispatch<SetStateAction<AgentInputForm>>,
-  fieldId: string,
-  nextValue: string,
-): void {
-  setForm((current) => ({
-    ...current,
-    fields: current.fields.map((field) => (field.id === fieldId ? { ...field, value: nextValue } : field)),
-  }));
 }
 
 function setCustomFieldSelected(

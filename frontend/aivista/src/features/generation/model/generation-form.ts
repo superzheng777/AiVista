@@ -13,6 +13,7 @@ function hasAtMostCodePoints(value: string, maximum: number): boolean {
 }
 
 export const generationFormSchema = z.object({
+  mode: z.enum(["image", "agent"]),
   prompt: z
     .string()
     .refine((value) => value.trim().length > 0, "请先描述你想生成的画面。")
@@ -24,6 +25,8 @@ export const generationFormSchema = z.object({
   aspectRatio: z.enum(["1:1", "4:3", "3:4", "16:9", "9:16"]),
   promptExtend: z.boolean(),
   imageCount: z.number().int().min(1, "至少生成 1 张图片。").max(6, "一次最多生成 6 张图片。"),
+  agentAspectRatio: z.enum(["AUTO", "1:1", "4:3", "3:4", "16:9", "9:16"]),
+  agentImageCount: z.number().int().min(0, "生成数量无效。").max(6, "一次最多生成 6 张图片。"),
 });
 
 export type GenerationFormValues = z.infer<typeof generationFormSchema>;

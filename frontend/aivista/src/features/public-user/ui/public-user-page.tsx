@@ -1,12 +1,14 @@
 "use client";
 /* eslint-disable @next/next/no-img-element */
 
+import { zodResolver } from "@hookform/resolvers/zod";
 import { Dialog } from "@base-ui/react/dialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, LoaderCircle, LogOut, Pencil, Sparkles, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { type FormEvent, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import { useForm } from "react-hook-form";
 
 import { needsImageUrlRefresh, type GenerationAsset } from "@/entities/generation/model/generation";
 import {
@@ -36,6 +38,7 @@ import {
   setFollowing,
   setLikedPublicationsVisibility,
 } from "@/features/public-user/api/public-user-api";
+import { profileFormSchema, type ProfileFormValues } from "@/features/public-user/model/profile-form";
 import { cn } from "@/shared/lib/cn";
 import { AccentSquare, DotMatrix } from "@/shared/ui/editorial-ornaments/editorial-ornaments";
 import { ShortestLaneFeed } from "@/shared/ui/shortest-lane-feed/shortest-lane-feed";
@@ -70,8 +73,6 @@ export function PublicUserPage({ userId }: { userId: string }) {
   const isSelf = user?.id === userId;
   const [activeView, setActiveView] = useState<ProfileView>("works");
   const [editing, setEditing] = useState(false);
-  const [nickname, setNickname] = useState("");
-  const [bio, setBio] = useState("");
   const [saveError, setSaveError] = useState("");
   const [logoutOpen, setLogoutOpen] = useState(false);
   const [pendingDetailId, setPendingDetailId] = useState<string | null>(null);
@@ -106,8 +107,12 @@ export function PublicUserPage({ userId }: { userId: string }) {
     onSuccess: () => void profile.refetch(),
   });
   const save = useMutation({
-    mutationFn: () =>
-      updateProfile({ nickname: nickname.trim(), bio: bio.trim() || null, avatarUrl: user?.avatarUrl ?? null }),
+    mutationFn: (values: ProfileFormValues) =>
+      updateProfile({
+        nickname: values.nickname.trim(),
+        bio: values.bio.trim() || null,
+        avatarUrl: user?.avatarUrl ?? null,
+      }),
     onSuccess: () => {
       setEditing(false);
       void profile.refetch();
@@ -147,8 +152,6 @@ export function PublicUserPage({ userId }: { userId: string }) {
 
   function startEditing() {
     if (!user) return;
-    setNickname(user.nickname);
-    setBio(user.bio ?? "");
     setSaveError("");
     setEditing(true);
   }
@@ -156,11 +159,6 @@ export function PublicUserPage({ userId }: { userId: string }) {
   function cancelEditing() {
     setEditing(false);
     setSaveError("");
-  }
-
-  function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (nickname.trim()) save.mutate();
   }
 
   async function confirmLogout() {
@@ -247,8 +245,8 @@ export function PublicUserPage({ userId }: { userId: string }) {
           author={author}
           isSelf={Boolean(isSelf)}
           editing={editing}
-          nickname={nickname}
-          bio={bio}
+          initialNickname={user?.nickname ?? ""}
+          initialBio={user?.bio ?? ""}
           saveError={saveError}
           isSaving={save.isPending}
           isFollowing={follow.isPending}
@@ -261,9 +259,7 @@ export function PublicUserPage({ userId }: { userId: string }) {
           }}
           onStartEditing={startEditing}
           onCancelEditing={cancelEditing}
-          onNicknameChange={setNickname}
-          onBioChange={setBio}
-          onSave={submit}
+          onSave={(values) => save.mutate(values)}
           onLogout={() => setLogoutOpen(true)}
           onVisibilityChange={(publicVisible) => visibility.mutate(publicVisible)}
         />
@@ -373,8 +369,8 @@ type ProfileHeroProps = {
   author: Awaited<ReturnType<typeof getPublicAuthor>>;
   isSelf: boolean;
   editing: boolean;
-  nickname: string;
-  bio: string;
+  initialNickname: string;
+  initialBio: string;
   saveError: string;
   isSaving: boolean;
   isFollowing: boolean;
@@ -384,9 +380,7 @@ type ProfileHeroProps = {
   onFollow: () => void;
   onStartEditing: () => void;
   onCancelEditing: () => void;
-  onNicknameChange: (value: string) => void;
-  onBioChange: (value: string) => void;
-  onSave: (event: FormEvent<HTMLFormElement>) => void;
+  onSave: (values: ProfileFormValues) => void;
   onLogout: () => void;
   onVisibilityChange: (publicVisible: boolean) => void;
 };
@@ -395,8 +389,8 @@ function ProfileHero({
   author,
   isSelf,
   editing,
-  nickname,
-  bio,
+  initialNickname,
+  initialBio,
   saveError,
   isSaving,
   isFollowing,
@@ -406,8 +400,6 @@ function ProfileHero({
   onFollow,
   onStartEditing,
   onCancelEditing,
-  onNicknameChange,
-  onBioChange,
   onSave,
   onLogout,
   onVisibilityChange,
@@ -488,47 +480,89 @@ function ProfileHero({
           </label>
         ) : null}
         {isSelf && editing ? (
-          <form className="mt-4 max-w-xl space-y-3 border-t border-[var(--border)] pt-4" onSubmit={onSave}>
-            <input
-              aria-label="昵称"
-              value={nickname}
-              onChange={(event) => onNicknameChange(event.target.value)}
-              required
-              minLength={1}
-              maxLength={32}
-              className="h-10 w-full rounded-[7px] border border-[var(--border-strong)] bg-[var(--surface-bg)] px-3 text-sm outline-none focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent)]/20"
-            />
-            <textarea
-              aria-label="个人简介"
-              value={bio}
-              onChange={(event) => onBioChange(event.target.value)}
-              maxLength={500}
-              rows={3}
-              className="w-full rounded-[7px] border border-[var(--border-strong)] bg-[var(--surface-bg)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent)]/20"
-            />
-            {saveError ? <p className="text-sm text-[var(--accent)]">{saveError}</p> : null}
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={onCancelEditing}
-                disabled={isSaving}
-                className="h-9 rounded-[7px] border border-[var(--text-secondary)] px-3 text-sm text-[var(--primary)]"
-              >
-                取消
-              </button>
-              <button
-                type="submit"
-                disabled={isSaving}
-                className="inline-flex h-9 items-center gap-1 rounded-[7px] bg-[var(--primary)] px-3 text-sm text-[var(--surface-bg)] disabled:opacity-60"
-              >
-                <Check className="size-3.5" />
-                保存
-              </button>
-            </div>
-          </form>
+          <ProfileEditForm
+            nickname={initialNickname}
+            bio={initialBio}
+            error={saveError}
+            saving={isSaving}
+            onSave={onSave}
+            onCancel={onCancelEditing}
+          />
         ) : null}
       </div>
     </section>
+  );
+}
+
+function ProfileEditForm({
+  nickname,
+  bio,
+  error,
+  saving,
+  onSave,
+  onCancel,
+}: {
+  nickname: string;
+  bio: string;
+  error: string;
+  saving: boolean;
+  onSave: (values: ProfileFormValues) => void;
+  onCancel: () => void;
+}) {
+  const form = useForm<ProfileFormValues>({
+    resolver: zodResolver(profileFormSchema),
+    defaultValues: { nickname, bio },
+  });
+
+  return (
+    <form
+      className="mt-4 max-w-xl space-y-3 border-t border-[var(--border)] pt-4"
+      onSubmit={form.handleSubmit(onSave)}
+      noValidate
+    >
+      <input
+        aria-label="昵称"
+        {...form.register("nickname")}
+        maxLength={32}
+        className="h-10 w-full rounded-[7px] border border-[var(--border-strong)] bg-[var(--surface-bg)] px-3 text-sm outline-none focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent)]/20"
+      />
+      {form.formState.errors.nickname ? (
+        <p role="alert" className="text-xs text-destructive">
+          {form.formState.errors.nickname.message}
+        </p>
+      ) : null}
+      <textarea
+        aria-label="个人简介"
+        {...form.register("bio")}
+        maxLength={500}
+        rows={3}
+        className="w-full rounded-[7px] border border-[var(--border-strong)] bg-[var(--surface-bg)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent)]/20"
+      />
+      {form.formState.errors.bio ? (
+        <p role="alert" className="text-xs text-destructive">
+          {form.formState.errors.bio.message}
+        </p>
+      ) : null}
+      {error ? <p className="text-sm text-[var(--accent)]">{error}</p> : null}
+      <div className="flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={saving}
+          className="h-9 rounded-[7px] border border-[var(--text-secondary)] px-3 text-sm text-[var(--primary)]"
+        >
+          取消
+        </button>
+        <button
+          type="submit"
+          disabled={saving}
+          className="inline-flex h-9 items-center gap-1 rounded-[7px] bg-[var(--primary)] px-3 text-sm text-[var(--surface-bg)] disabled:opacity-60"
+        >
+          <Check className="size-3.5" />
+          保存
+        </button>
+      </div>
+    </form>
   );
 }
 

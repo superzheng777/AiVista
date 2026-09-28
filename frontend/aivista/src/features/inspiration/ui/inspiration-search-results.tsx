@@ -7,7 +7,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { GenerationAsset } from "@/entities/generation/model/generation";
 import { useImageDetailNavigation } from "@/entities/generation/model/use-image-detail-navigation";
 import { inspirationQueryKeys, searchInspirations } from "@/features/inspiration/api/inspiration-api";
-import { searchQueryKey, validateSearchInput } from "@/features/inspiration/model/search-query";
+import { searchFormSchema, searchQueryKey } from "@/features/inspiration/model/search-query";
 import { InspirationSearchForm } from "@/features/inspiration/ui/inspiration-search-form";
 import { PublicInspirationCard } from "@/features/inspiration/ui/public-inspiration-card";
 import { ShortestLaneFeed } from "@/shared/ui/shortest-lane-feed/shortest-lane-feed";
@@ -22,7 +22,8 @@ const scrollPositions = new Map<string, number>();
 export function InspirationSearchResults({ keyword }: { keyword: string }) {
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const queryKey = searchQueryKey(keyword);
-  const validation = validateSearchInput(keyword);
+  const validationResult = searchFormSchema.safeParse({ keyword });
+  const validation = validationResult.success ? null : (validationResult.error.issues[0]?.message ?? null);
   const detail = usePublicImageDetail();
   const search = useInfiniteQuery({
     queryKey: inspirationQueryKeys.search(queryKey),
