@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import type { GenerationAsset } from "@/entities/generation/model/generation";
 import { getInspiration } from "../api/inspiration-api";
+import { updateInspirationInFeeds } from "../model/inspiration-cache";
 import { PublicImageDetailOverlay } from "./public-image-detail-overlay";
 
 function DirectDetailFallback({ message, onExit }: { message: string; onExit: () => void }) {
@@ -39,7 +40,9 @@ export function DirectPublicInspirationDetail({ imageId, onExit }: { imageId: st
   if (detailQuery.isPending) return <DirectDetailFallback message="正在加载作品…" onExit={exit} />;
   if (detailQuery.isError || !detailQuery.data)
     return <DirectDetailFallback message="该作品不存在、已撤销或暂时不可访问。" onExit={exit} />;
-  const handleImageChange = (image: GenerationAsset) =>
+  const handleImageChange = (image: GenerationAsset) => {
     queryClient.setQueryData(["direct-public-image", imageId], image);
+    updateInspirationInFeeds(queryClient, image);
+  };
   return <PublicImageDetailOverlay image={detailQuery.data} onClose={exit} onImageChange={handleImageChange} />;
 }

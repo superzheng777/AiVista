@@ -15,7 +15,6 @@ import { useAuthDialog } from "@/features/auth/model/auth-dialog-provider";
 import { useSession } from "@/features/auth/model/session-provider";
 import { getInspiration, inspirationQueryKeys, setImageLike } from "@/features/inspiration/api/inspiration-api";
 import { downloadPublicDisplayImage } from "@/features/inspiration/lib/public-image-download";
-import { updateInspirationInFeeds } from "@/features/inspiration/model/inspiration-cache";
 import { publicationQueryKeys, removePublication } from "@/features/publication/api/publication-api";
 import { getPublicAuthor, setFollowing, type PublicAuthor } from "@/features/public-user/api/public-user-api";
 
@@ -61,7 +60,6 @@ export function PublicImageDetail({
   async function refreshImage(imageId: string): Promise<GenerationAsset> {
     const refreshed = await getInspiration(imageId);
     onImageChange(refreshed);
-    updateInspirationInFeeds(queryClient, refreshed);
     return refreshed;
   }
 
@@ -80,12 +78,10 @@ export function PublicImageDetail({
     };
     setLikeError(false);
     onImageChange(next);
-    updateInspirationInFeeds(queryClient, next);
     like.mutate(liked, {
       onError: () => {
         onImageChange(previous);
         setLikeError(true);
-        updateInspirationInFeeds(queryClient, previous);
       },
     });
   }

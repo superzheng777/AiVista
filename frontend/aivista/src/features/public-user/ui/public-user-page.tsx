@@ -26,6 +26,7 @@ import { useGenerationEventStream } from "@/features/generation/model/generation
 import { PublicImageDetailOverlay } from "@/features/inspiration/ui/public-image-detail-overlay";
 import { PublicImageOpenError } from "@/features/inspiration/ui/public-image-open-error";
 import { usePublicImageDetail } from "@/features/inspiration/model/use-public-image-detail";
+import { updateInspirationInFeeds } from "@/features/inspiration/model/inspiration-cache";
 import {
   listMyPublications,
   publicationQueryKeys,
@@ -79,7 +80,6 @@ export function PublicUserPage({ userId }: { userId: string }) {
   const [removeTarget, setRemoveTarget] = useState<GenerationAsset | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [openingId, setOpeningId] = useState<string | null>(null);
-  const detail = usePublicImageDetail();
 
   const profile = useQuery({ queryKey: ["public-author", userId], queryFn: () => getPublicAuthor(userId) });
   const ownWorks = useQuery({
@@ -203,11 +203,19 @@ export function PublicUserPage({ userId }: { userId: string }) {
 
   const publicDetailItems =
     activeView === "likes" ? (likes.data ?? []) : works.filter((asset) => asset.publicationReviewStatus === "APPROVED");
+  const detail = usePublicImageDetail(publicDetailItems, (image) => {
+    updateInspirationInFeeds(queryClient, image);
+    const replace = (current: GenerationAsset[] | undefined) =>
+      current?.map((asset) => (asset.id === image.id ? image : asset));
+    queryClient.setQueryData<GenerationAsset[]>(publicationQueryKeys.mine, replace);
+    queryClient.setQueryData<GenerationAsset[]>(["publications", userId], replace);
+    queryClient.setQueryData<GenerationAsset[]>(["liked-publications", userId, isSelf ? "self" : "public"], replace);
+  });
   const pendingDetailItems =
     activeView === "works" ? works.filter((asset) => asset.publicationReviewStatus !== "APPROVED") : [];
   const publicDetailNavigation = useImageDetailNavigation({
     items: publicDetailItems,
-    currentImageId: detail.image?.id ?? null,
+    currentImageId: detail.imageId,
     onSelect: detail.navigate,
   });
   const pendingDetailNavigation = useImageDetailNavigation({

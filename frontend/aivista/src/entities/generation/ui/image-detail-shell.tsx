@@ -174,7 +174,7 @@ function ImageDetailShellContent({
           />
         )}
       </div>
-      <aside className="min-h-0 overflow-y-auto border-t border-border bg-card md:border-l md:border-t-0">
+      <aside className="image-detail-scroll min-h-0 overflow-y-auto border-t border-border bg-card md:border-l md:border-t-0">
         {showAsideHeader ? (
           <div className="sticky top-0 z-10 flex items-center justify-end border-b border-border bg-card/95 px-5 py-4 backdrop-blur">
             <div className="flex gap-1">

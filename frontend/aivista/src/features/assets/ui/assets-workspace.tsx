@@ -11,6 +11,7 @@ import {
   type ImageDetailNavigation,
 } from "@/entities/generation/model/use-image-detail-navigation";
 import { ImageDetailShell } from "@/entities/generation/ui/image-detail-shell";
+import { OwnedImageDetailActions } from "@/entities/generation/ui/owned-image-detail-actions";
 import {
   assetQueryKeys,
   deleteGenerationAssets,
@@ -183,7 +184,6 @@ export function AssetsWorkspace() {
           onPublish={() => publish(detail)}
           onDelete={() => setDeleting([detail.id])}
           isDeleting={remove.isPending}
-          isFavorite={detail.favorited}
           isFavoriteUpdating={favorite.isPending}
           onFavorite={() => favorite.mutate({ ids: [detail.id], value: !detail.favorited })}
           deleteDialog={
@@ -585,7 +585,6 @@ export function AssetDetail({
   onClose,
   onDelete,
   isDeleting,
-  isFavorite,
   isFavoriteUpdating,
   onFavorite,
   deleteDialog,
@@ -598,7 +597,6 @@ export function AssetDetail({
   onClose: () => void;
   onDelete: () => void;
   isDeleting: boolean;
-  isFavorite: boolean;
   isFavoriteUpdating: boolean;
   onFavorite: () => void;
   deleteDialog: React.ReactNode;
@@ -614,43 +612,14 @@ export function AssetDetail({
         onDownload={() => downloadOriginalGenerationImage(asset)}
         allowCopy={asset.publicationReviewStatus === "NONE"}
         actions={
-          <section>
-            <p className="text-xs font-medium tracking-wide text-muted-foreground">作品操作</p>
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                aria-pressed={isFavorite}
-                onClick={onFavorite}
-                disabled={isFavoriteUpdating}
-                className={cn(
-                  "inline-flex h-10 items-center justify-center gap-2 rounded-[7px] border text-sm font-medium transition hover:bg-[var(--surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50",
-                  isFavorite
-                    ? "border-[var(--accent-border)] bg-[var(--accent-soft)] text-[var(--accent-hover)]"
-                    : "border-[var(--border)] text-[var(--text-secondary)]",
-                )}
-              >
-                <Heart className={cn("size-4", isFavorite && "fill-current")} />
-                {isFavorite ? "已收藏" : "收藏"}
-              </button>
-              <button
-                type="button"
-                onClick={onPublish}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-[7px] border border-[var(--border)] text-sm font-medium transition hover:bg-[var(--surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
-              >
-                <Send className="size-4" />
-                {asset.publicationReviewStatus === "APPROVED" ? "查看发布" : "发布"}
-              </button>
-            </div>
-            <button
-              type="button"
-              onClick={onDelete}
-              disabled={isDeleting}
-              className="mt-2 inline-flex h-10 w-full items-center justify-center gap-2 rounded-[7px] bg-destructive/10 text-sm font-medium text-destructive transition hover:bg-destructive/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/40 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Trash2 className="size-4" />
-              删除图片
-            </button>
-          </section>
+          <OwnedImageDetailActions
+            image={asset}
+            isFavoriteUpdating={isFavoriteUpdating}
+            isDeleting={isDeleting}
+            onFavorite={onFavorite}
+            onPublish={onPublish}
+            onDelete={onDelete}
+          />
         }
       />
       {deleteDialog}

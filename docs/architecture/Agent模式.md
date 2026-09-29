@@ -1,4 +1,4 @@
-# Agent 模式模块
+# Agent 模式架构
 
 > 状态：一期核心链路已实现，文生图与图生图复用普通生成 Pipeline
 >
@@ -75,11 +75,11 @@ RabbitMQ 只负责 Java 向 TS 派发命令。TS 向 Java 提交最终结果使�
 
 - Java 创建 Creation/Generation Task 时，同一事务写业务数据和 Outbox。
 - Outbox 使用 Publisher Confirm；RabbitMQ 为 at-least-once，消费者手动 ACK/NACK。
-- `GENERATION_TASK_EXECUTE` 为 `{ generationTaskId, expectedRevision }`。
 - `AGENT_EXECUTE` 为 `{ creationId, expectedRevision }`。
 - TS 进程内 active Set/Map 阻止同一实例并发执行同一命令。
-- Generation Completion 使用 `generationTaskId + expectedRevision + 终态检查` 收敛重投。
 - Agent Loop 不能安全重跑，因此使用 `agent_worker_executions` Ledger。
+
+普通生成任务（包括 Agent Tool 创建的子任务）的命令格式、Completion 和重投规则以 [Generation Worker v1](generation-worker-v1.md) 为准；本文只说明它与 Agent Loop 的衔接。
 
 Agent Tool 直接使用 Pi `toolCallId` 作为调用标识，不再派生 UUID：
 

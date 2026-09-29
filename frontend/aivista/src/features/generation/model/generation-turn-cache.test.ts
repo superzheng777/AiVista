@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import type { GenerationTurn } from "@/entities/generation/model/generation";
+import type { GenerationAsset, GenerationTurn } from "@/entities/generation/model/generation";
 import {
   applyGenerationTaskUpdateToTurns,
   applyAgentFormUpdateToTurns,
   mergeGenerationTurnPages,
+  updateGenerationImageInTurns,
 } from "@/features/generation/model/generation-turn-cache";
 
 function turn(version: number, status: GenerationTurn["generations"][number]["status"]): GenerationTurn {
@@ -52,6 +53,18 @@ const page = (item: GenerationTurn) => ({
 });
 
 describe("generation turn cache", () => {
+  it("updates only the matching image inside paginated conversation turns", () => {
+    const first = { id: "image-1", favorited: false } as GenerationAsset;
+    const second = { id: "image-2", favorited: false } as GenerationAsset;
+    const original = turn(1, "SUCCEEDED");
+    original.generations[0]!.images = [first, second];
+
+    const updated = updateGenerationImageInTurns(page(original), first.id, (image) => ({ ...image, favorited: true }));
+
+    expect(updated?.pages[0]?.items[0]?.generations[0]?.images).toEqual([{ ...first, favorited: true }, second]);
+    expect(original.generations[0]?.images[0]?.favorited).toBe(false);
+  });
+
   it("keeps a newer SSE state when an older REST response arrives", () => {
     const current = applyGenerationTaskUpdateToTurns(page(turn(0, "QUEUED")), {
       sessionId: "session-1",

@@ -42,6 +42,7 @@ import { PublicationFormDialog } from "@/features/publication/ui/publication-for
 import { PublicImageDetailOverlay } from "@/features/inspiration/ui/public-image-detail-overlay";
 import { PublicImageOpenError } from "@/features/inspiration/ui/public-image-open-error";
 import { usePublicImageDetail } from "@/features/inspiration/model/use-public-image-detail";
+import { updateInspirationInFeeds } from "@/features/inspiration/model/inspiration-cache";
 
 type Tab = "interaction" | "official";
 type Message = InteractionNotification | OfficialNotification;
@@ -65,7 +66,7 @@ export function retainFirstNotificationPage(client: ReturnType<typeof useQueryCl
 
 export function OfficialNotificationsBell() {
   const client = useQueryClient();
-  const publicDetail = usePublicImageDetail();
+  const publicDetail = usePublicImageDetail([], (image) => updateInspirationInFeeds(client, image));
   const { notificationRefreshVersion, publicationRefreshVersion } = useGenerationEventStream();
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<Tab>("official");
@@ -535,7 +536,6 @@ function OfficialAssetDetail({ image, onClose }: { image: GenerationAsset; onClo
         if (window.confirm("删除图片？")) remove.mutate();
       }}
       isDeleting={remove.isPending}
-      isFavorite={current.favorited}
       isFavoriteUpdating={favorite.isPending}
       onFavorite={() => favorite.mutate(!current.favorited)}
       deleteDialog={null}

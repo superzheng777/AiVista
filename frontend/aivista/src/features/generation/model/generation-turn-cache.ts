@@ -1,10 +1,31 @@
 import type { InfiniteData } from "@tanstack/react-query";
 
-import type { GenerationTurn } from "@/entities/generation/model/generation";
+import type { GenerationAsset, GenerationTurn } from "@/entities/generation/model/generation";
 import type { GenerationTaskUpdateEvent } from "@/features/generation/model/generation-event-stream-parsing";
 import type { CreationForm } from "@/entities/generation/model/generation";
 
 export type GenerationTurnPage = { items: GenerationTurn[]; nextBefore: string | null; hasMore: boolean };
+
+export function updateGenerationImageInTurns(
+  current: InfiniteData<GenerationTurnPage> | undefined,
+  imageId: string,
+  update: (image: GenerationAsset) => GenerationAsset,
+): InfiniteData<GenerationTurnPage> | undefined {
+  if (!current) return current;
+  return {
+    ...current,
+    pages: current.pages.map((page) => ({
+      ...page,
+      items: page.items.map((turn) => ({
+        ...turn,
+        generations: turn.generations.map((task) => ({
+          ...task,
+          images: task.images.map((image) => (image.id === imageId ? update(image) : image)),
+        })),
+      })),
+    })),
+  };
+}
 
 export function mergeGenerationTurnPages(
   current: InfiniteData<GenerationTurnPage> | undefined,

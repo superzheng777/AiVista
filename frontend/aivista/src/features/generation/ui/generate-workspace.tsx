@@ -38,6 +38,7 @@ import {
 } from "@/entities/generation/model/generation";
 import { useImageDetailNavigation } from "@/entities/generation/model/use-image-detail-navigation";
 import { ImageDetailShell } from "@/entities/generation/ui/image-detail-shell";
+import { OwnedImageDetailActions } from "@/entities/generation/ui/owned-image-detail-actions";
 import {
   assetQueryKeys,
   deleteGenerationAssets,
@@ -65,9 +66,11 @@ import { skillActivityText, skillDisplayName } from "@/features/generation/model
 import {
   mergeGenerationTurnPageData,
   applyAgentFormUpdateToTurns,
+  updateGenerationImageInTurns,
   type GenerationTurnPage,
 } from "@/features/generation/model/generation-turn-cache";
 import { PublicationFormDialog } from "@/features/publication/ui/publication-form-dialog";
+import type { PublicationRequestResult } from "@/features/publication/api/publication-api";
 import { cn } from "@/shared/lib/cn";
 import { AccentSquare, DotMatrix } from "@/shared/ui/editorial-ornaments/editorial-ornaments";
 
@@ -189,7 +192,7 @@ function ConversationPanel({ sessionId, sessionTitle }: { sessionId: string; ses
   const lastScrollTopRef = useRef(0);
   const [isFollowingBottom, setIsFollowingBottom] = useState(true);
   const [isComposerCollapsed, setIsComposerCollapsed] = useState(false);
-  const [detailAsset, setDetailAsset] = useState<GenerationAsset | null>(null);
+  const [detailAssetId, setDetailAssetId] = useState<string | null>(null);
   const [publishAsset, setPublishAsset] = useState<GenerationAsset | null>(null);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
   const [composerDraft, setComposerDraft] = useState<{
@@ -213,6 +216,9 @@ function ConversationPanel({ sessionId, sessionTitle }: { sessionId: string; ses
     () => (turnsQuery.data ? [...turnsQuery.data.pages].reverse().flatMap((page) => page.items) : undefined),
     [turnsQuery.data],
   );
+  const navigableImages =
+    turns?.flatMap((turn) => turn.generations.flatMap((task) => task.images)).filter(isNavigableImage) ?? [];
+  const detailAsset = detailAssetId ? (navigableImages.find((image) => image.id === detailAssetId) ?? null) : null;
   const hasActiveCreation =
     turns?.some((turn) => turn.status === "RUNNING" || turn.status === "WAITING_INPUT") ?? false;
   useEffect(() => {
@@ -241,21 +247,38 @@ function ConversationPanel({ sessionId, sessionTitle }: { sessionId: string; ses
       });
   }, [queryClient, sessionId, syncVersion]);
   const favoriteMutation = useMutation({
-    mutationFn: ({ imageId, favorite }: { imageId: string; favorite: boolean }) =>
-      setGenerationImageFavorites([imageId], favorite),
-    onSuccess: () =>
+    mutationFn: ({ asset, favorite }: { asset: GenerationAsset; favorite: boolean }) =>
+      setGenerationImageFavorites([asset.id], favorite),
+    onMutate: async ({ asset, favorite }) => {
+      await queryClient.cancelQueries({ queryKey: generationQueryKeys.turns(sessionId) });
+      queryClient.setQueryData<InfiniteData<GenerationTurnPage>>(generationQueryKeys.turns(sessionId), (current) =>
+        updateGenerationImageInTurns(current, asset.id, (image) => ({ ...image, favorited: favorite })),
+      );
+    },
+    onSettled: () =>
       void Promise.all([
         queryClient.invalidateQueries({ queryKey: assetQueryKeys.all }),
         queryClient.invalidateQueries({
           queryKey: generationQueryKeys.turns(sessionId),
         }),
       ]),
-    onError: () => setActionNotice("收藏状态更新失败，请重试。"),
+    onError: (_error, { asset }) => {
+      queryClient.setQueryData<InfiniteData<GenerationTurnPage>>(generationQueryKeys.turns(sessionId), (current) =>
+        updateGenerationImageInTurns(current, asset.id, (image) => ({ ...image, favorited: asset.favorited })),
+      );
+      setActionNotice("收藏状态更新失败，请重试。");
+    },
   });
   const deleteMutation = useMutation({
     mutationFn: (imageId: string) => deleteGenerationAssets([imageId]),
     onSuccess: (_result, imageId) => {
-      setDetailAsset((asset) => (asset?.id === imageId ? null : asset));
+      setDetailAssetId((id) => (id === imageId ? null : id));
+      queryClient.setQueryData<InfiniteData<GenerationTurnPage>>(generationQueryKeys.turns(sessionId), (current) =>
+        updateGenerationImageInTurns(current, imageId, (image) => ({
+          ...image,
+          imageUrls: { thumbnail: null, display: null },
+        })),
+      );
       void Promise.all([
         queryClient.invalidateQueries({ queryKey: assetQueryKeys.all }),
         queryClient.invalidateQueries({
@@ -295,30 +318,38 @@ function ConversationPanel({ sessionId, sessionTitle }: { sessionId: string; ses
   }, [acknowledgeSession, sessionId, sessionIndicators]);
   async function refreshAsset(imageId: string): Promise<GenerationAsset> {
     const refreshed = await getGenerationAsset(imageId);
-    setDetailAsset((asset) => (asset?.id === imageId ? refreshed : asset));
-    await queryClient.refetchQueries({
-      queryKey: generationQueryKeys.turns(sessionId),
-      type: "active",
-    });
+    queryClient.setQueryData<InfiniteData<GenerationTurnPage>>(generationQueryKeys.turns(sessionId), (current) =>
+      updateGenerationImageInTurns(current, imageId, () => refreshed),
+    );
     return refreshed;
   }
   async function openAsset(asset: GenerationAsset): Promise<void> {
     try {
-      setDetailAsset(needsImageUrlRefresh(asset.imageUrls.display) ? await refreshAsset(asset.id) : asset);
+      if (needsImageUrlRefresh(asset.imageUrls.display)) await refreshAsset(asset.id);
+      setDetailAssetId(asset.id);
     } catch {
       setActionNotice("图片访问地址刷新失败，请稍后重试。 ");
     }
   }
-  const conversationImages = turns?.flatMap((turn) => turn.generations.flatMap((task) => task.images)) ?? [];
   const detailNavigation = useImageDetailNavigation({
-    items: conversationImages,
-    currentImageId: detailAsset?.id ?? null,
+    items: navigableImages,
+    currentImageId: detailAssetId,
     onSelect: openAsset,
     hasPreviousPage: Boolean(turnsQuery.hasNextPage),
     loadPreviousPage: async () => {
-      const result = await turnsQuery.fetchNextPage();
-      const loadedTurns = result.data ? [...result.data.pages].reverse().flatMap((page) => page.items) : (turns ?? []);
-      return loadedTurns.flatMap((turn) => turn.generations.flatMap((task) => task.images));
+      let result = await turnsQuery.fetchNextPage();
+      let images: GenerationAsset[];
+      do {
+        const loadedTurns = result.data
+          ? [...result.data.pages].reverse().flatMap((page) => page.items)
+          : (turns ?? []);
+        images = loadedTurns
+          .flatMap((turn) => turn.generations.flatMap((task) => task.images))
+          .filter(isNavigableImage);
+        if (images.findIndex((image) => image.id === detailAssetId) > 0 || !result.hasNextPage || result.isError) break;
+        result = await turnsQuery.fetchNextPage();
+      } while (true);
+      return images;
     },
   });
   function requestPublish(asset: GenerationAsset): void {
@@ -328,6 +359,20 @@ function ConversationPanel({ sessionId, sessionTitle }: { sessionId: string; ses
       return;
     }
     setPublishAsset(asset);
+  }
+  function handlePublicationSuccess(result: PublicationRequestResult): void {
+    setPublishAsset(null);
+    queryClient.setQueryData<InfiniteData<GenerationTurnPage>>(generationQueryKeys.turns(sessionId), (current) =>
+      updateGenerationImageInTurns(current, result.imageId, (image) => ({
+        ...image,
+        publicationReviewStatus: result.status,
+      })),
+    );
+    setActionNotice("图片已发布，正在审核。");
+    void Promise.all([
+      queryClient.invalidateQueries({ queryKey: assetQueryKeys.all }),
+      queryClient.invalidateQueries({ queryKey: generationQueryKeys.turns(sessionId) }),
+    ]);
   }
   function scrollToConversationBottom(behavior: ScrollBehavior): void {
     const history = historyRef.current;
@@ -362,15 +407,15 @@ function ConversationPanel({ sessionId, sessionTitle }: { sessionId: string; ses
           navigation={detailNavigation}
           onDownload={() => downloadOriginalGenerationImage(detailAsset)}
           allowCopy={detailAsset.publicationReviewStatus === "NONE"}
-          onClose={() => setDetailAsset(null)}
+          onClose={() => setDetailAssetId(null)}
           actions={
-            <ConversationAssetActions
-              asset={detailAsset}
+            <OwnedImageDetailActions
+              image={detailAsset}
               isFavoriteUpdating={favoriteMutation.isPending}
               isDeleting={deleteMutation.isPending}
               onFavorite={() =>
                 favoriteMutation.mutate({
-                  imageId: detailAsset.id,
+                  asset: detailAsset,
                   favorite: !detailAsset.favorited,
                 })
               }
@@ -385,17 +430,7 @@ function ConversationPanel({ sessionId, sessionTitle }: { sessionId: string; ses
           <PublicationFormDialog
             asset={publishAsset}
             onClose={() => setPublishAsset(null)}
-            onSuccess={(result) => {
-              setPublishAsset(null);
-              setDetailAsset((asset) => (asset ? { ...asset, publicationReviewStatus: result.status } : asset));
-              setActionNotice("图片已发布，正在审核。");
-              void Promise.all([
-                queryClient.invalidateQueries({ queryKey: assetQueryKeys.all }),
-                queryClient.invalidateQueries({
-                  queryKey: generationQueryKeys.turns(sessionId),
-                }),
-              ]);
-            }}
+            onSuccess={handlePublicationSuccess}
           />
         ) : null}
       </>
@@ -485,7 +520,7 @@ function ConversationPanel({ sessionId, sessionTitle }: { sessionId: string; ses
               onRefreshAsset={refreshAsset}
               onFavorite={(asset) =>
                 favoriteMutation.mutate({
-                  imageId: asset.id,
+                  asset,
                   favorite: !asset.favorited,
                 })
               }
@@ -535,16 +570,7 @@ function ConversationPanel({ sessionId, sessionTitle }: { sessionId: string; ses
         <PublicationFormDialog
           asset={publishAsset}
           onClose={() => setPublishAsset(null)}
-          onSuccess={() => {
-            setPublishAsset(null);
-            setActionNotice("图片已发布，正在审核。");
-            void Promise.all([
-              queryClient.invalidateQueries({ queryKey: assetQueryKeys.all }),
-              queryClient.invalidateQueries({
-                queryKey: generationQueryKeys.turns(sessionId),
-              }),
-            ]);
-          }}
+          onSuccess={handlePublicationSuccess}
         />
       ) : null}
     </main>
@@ -947,6 +973,10 @@ function creationStatusText(status: GenerationTurn["status"]): string {
   if (status === "CANCELLED") return "已取消";
   return "未完成";
 }
+function isNavigableImage(image: GenerationAsset): boolean {
+  return image.imageUrls.thumbnail !== null || image.imageUrls.display !== null;
+}
+
 function GenerationImageCard({
   image,
   onOpen,
@@ -1118,55 +1148,6 @@ function GenerationImageCard({
         </p>
       ) : null}
     </div>
-  );
-}
-function ConversationAssetActions({
-  asset,
-  isFavoriteUpdating,
-  isDeleting,
-  onFavorite,
-  onPublish,
-  onDelete,
-}: {
-  asset: GenerationAsset;
-  isFavoriteUpdating: boolean;
-  isDeleting: boolean;
-  onFavorite: () => void;
-  onPublish: () => void;
-  onDelete: () => void;
-}) {
-  return (
-    <section>
-      <p className="text-xs font-medium tracking-wide text-muted-foreground">作品操作</p>
-      <div className="mt-3 grid grid-cols-2 gap-2">
-        <button
-          type="button"
-          onClick={onFavorite}
-          disabled={isFavoriteUpdating}
-          className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-border text-sm font-medium hover:bg-muted disabled:opacity-50"
-        >
-          <Heart className={cn("size-4", asset.favorited && "fill-current text-[var(--accent)]")} />
-          {asset.favorited ? "已收藏" : "收藏"}
-        </button>
-        <button
-          type="button"
-          onClick={onPublish}
-          className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-border text-sm font-medium hover:bg-muted"
-        >
-          <Send className="size-4" />
-          {asset.publicationReviewStatus === "APPROVED" ? "查看发布" : "发布"}
-        </button>
-      </div>
-      <button
-        type="button"
-        onClick={onDelete}
-        disabled={isDeleting}
-        className="mt-2 inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-destructive/10 text-sm font-medium text-destructive hover:bg-destructive/20 disabled:opacity-50"
-      >
-        <Trash2 className="size-4" />
-        删除图片
-      </button>
-    </section>
   );
 }
 function WorkspaceDecorations() {

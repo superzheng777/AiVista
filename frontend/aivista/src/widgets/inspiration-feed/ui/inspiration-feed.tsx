@@ -1,6 +1,6 @@
 "use client";
 
-import { skipToken, useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { skipToken, useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useEffect, useRef } from "react";
 
@@ -17,6 +17,7 @@ import { PublicInspirationCard } from "@/features/inspiration/ui/public-inspirat
 import { PublicImageDetailOverlay } from "@/features/inspiration/ui/public-image-detail-overlay";
 import { PublicImageOpenError } from "@/features/inspiration/ui/public-image-open-error";
 import { usePublicImageDetail } from "@/features/inspiration/model/use-public-image-detail";
+import { updateInspirationInFeeds } from "@/features/inspiration/model/inspiration-cache";
 import { getPublicAuthor } from "@/features/public-user/api/public-user-api";
 import { cn } from "@/shared/lib/cn";
 import { AccentSquare, DotMatrix } from "@/shared/ui/editorial-ornaments/editorial-ornaments";
@@ -29,9 +30,9 @@ const scrollPositions: Record<InspirationFeedView, number> = { discovery: 0, fol
 
 export function InspirationFeed({ view = "discovery" }: { view?: InspirationFeedView }) {
   const loadMoreRef = useRef<HTMLDivElement>(null);
+  const queryClient = useQueryClient();
   const { status, user, restoreSession } = useSession();
   const { open: openAuthDialog } = useAuthDialog();
-  const detail = usePublicImageDetail();
   const following = view === "following";
   const enabled = !following || status === "authenticated";
   const inspirations = useInfiniteQuery({
@@ -42,6 +43,7 @@ export function InspirationFeed({ view = "discovery" }: { view?: InspirationFeed
     enabled,
   });
   const images = inspirations.data?.pages.flatMap((page) => page.items) ?? [];
+  const detail = usePublicImageDetail(images, (image) => updateInspirationInFeeds(queryClient, image));
   const selfProfile = useQuery({
     queryKey: ["public-author", user?.id],
     queryFn: user ? () => getPublicAuthor(user.id) : skipToken,
@@ -50,7 +52,7 @@ export function InspirationFeed({ view = "discovery" }: { view?: InspirationFeed
   const { fetchNextPage, hasNextPage, isFetchingNextPage, isFetchNextPageError } = inspirations;
   const detailNavigation = useImageDetailNavigation({
     items: images,
-    currentImageId: detail.image?.id ?? null,
+    currentImageId: detail.imageId,
     onSelect: detail.navigate,
     hasNextPage: Boolean(hasNextPage),
     loadNextPage: async () => {

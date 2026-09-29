@@ -1,6 +1,6 @@
 "use client";
 
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -15,16 +15,17 @@ import { getWorkPreviewCardHeight } from "@/shared/ui/work-preview-card/work-pre
 import { PublicImageDetailOverlay } from "@/features/inspiration/ui/public-image-detail-overlay";
 import { PublicImageOpenError } from "@/features/inspiration/ui/public-image-open-error";
 import { usePublicImageDetail } from "@/features/inspiration/model/use-public-image-detail";
+import { updateInspirationInFeeds } from "@/features/inspiration/model/inspiration-cache";
 import { getApiErrorCode, getRetryAfterSeconds } from "@/shared/api/api-response";
 
 const scrollPositions = new Map<string, number>();
 
 export function InspirationSearchResults({ keyword }: { keyword: string }) {
   const loadMoreRef = useRef<HTMLDivElement>(null);
+  const queryClient = useQueryClient();
   const queryKey = searchQueryKey(keyword);
   const validationResult = searchFormSchema.safeParse({ keyword });
   const validation = validationResult.success ? null : (validationResult.error.issues[0]?.message ?? null);
-  const detail = usePublicImageDetail();
   const search = useInfiniteQuery({
     queryKey: inspirationQueryKeys.search(queryKey),
     queryFn: ({ pageParam }) => searchInspirations(keyword, pageParam),
@@ -34,10 +35,11 @@ export function InspirationSearchResults({ keyword }: { keyword: string }) {
     retry: false,
   });
   const images = useMemo(() => deduplicate(search.data?.pages.flatMap((page) => page.items) ?? []), [search.data]);
+  const detail = usePublicImageDetail(images, (image) => updateInspirationInFeeds(queryClient, image));
   const { fetchNextPage, hasNextPage, isFetchingNextPage, isFetchNextPageError } = search;
   const detailNavigation = useImageDetailNavigation({
     items: images,
-    currentImageId: detail.image?.id ?? null,
+    currentImageId: detail.imageId,
     onSelect: detail.navigate,
     hasNextPage: Boolean(hasNextPage),
     loadNextPage: async () => {

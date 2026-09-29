@@ -16,7 +16,7 @@ AiVista 是由 [superzheng777](https://github.com/superzheng777) 独立设计并
 
 [为什么做 AiVista](#为什么做-aivista) · [核心能力](#核心能力) · [产品展示](#产品展示) · [Agent 与内置 Skill](#agent-与内置-skill) · [系统架构](#系统架构) · [本地运行](#本地运行) · [项目文档](#项目文档)
 
-![AiVista 灵感探索页面，展示作品瀑布流、搜索入口和左侧主要导航](frontend/aivista/ui-design/pic/show/explore.png)
+![AiVista 灵感探索页面，展示作品瀑布流、搜索入口和左侧主要导航](docs/frontend/design/pic/show/explore.png)
 
 灵感探索页聚合社区公开作品，支持浏览、搜索和进入创作者主页，也是创作流程的主要入口。
 
@@ -44,23 +44,23 @@ AiVista 面向希望用 AI 把视觉想法做成作品的个人创作者。我�
 
 从新建页选择直接生成或 Agent 模式，输入创作目标，并在左侧继续查看历史会话。
 
-![AiVista AI 新对话创作页面，展示直接生成与 Agent 模式入口](frontend/aivista/ui-design/pic/show/new_generation.png)
+![AiVista AI 新对话创作页面，展示直接生成与 Agent 模式入口](docs/frontend/design/pic/show/new_generation.png)
 
 在 Agent 会话中查看 Skill 加载、结构化确认、创作过程和生成结果，并继续调整作品或进入资产库。
 
-![AiVista Agent 创作会话，展示 Skill 加载、需求确认、创作过程和海报结果](frontend/aivista/ui-design/pic/show/generation.png)
+![AiVista Agent 创作会话，展示 Skill 加载、需求确认、创作过程和海报结果](docs/frontend/design/pic/show/generation.png)
 
 ### 资产管理
 
 集中查看个人生成结果，并按状态筛选或执行下载、发布和删除等操作。
 
-![AiVista 资产管理页面，展示个人作品列表、筛选导航和资产操作入口](frontend/aivista/ui-design/pic/show/assets.png)
+![AiVista 资产管理页面，展示个人作品列表、筛选导航和资产操作入口](docs/frontend/design/pic/show/assets.png)
 
 
 
 ### 资产详情
 
-![AiVista 图片详情](frontend/aivista/ui-design/pic/show/asset_detail.png)
+![AiVista 图片详情](docs/frontend/design/pic/show/asset_detail.png)
 
 
 
@@ -68,7 +68,7 @@ AiVista 面向希望用 AI 把视觉想法做成作品的个人创作者。我�
 
 汇总创作者资料、关注关系和公开作品，将创作记录与社区身份连接起来。
 
-![AiVista 个人主页，展示创作者资料、关注数据和公开作品](frontend/aivista/ui-design/pic/show/user.png)
+![AiVista 个人主页，展示创作者资料、关注数据和公开作品](docs/frontend/design/pic/show/user.png)
 
 ## Agent 与内置 Skill
 
@@ -85,7 +85,7 @@ AiVista Agent 按任务需要加载对应 Skill。Skill 定义需求收集、创
 | [`japanese-life-fragments`](backend-ts/.pi/skills/japanese-life-fragments/SKILL.md)（日系生活碎片） | 将每张已授权照片分别转译为摄影与亚克力场景图结合的竖版海报。 |
 | [`series-image-director`](backend-ts/.pi/skills/series-image-director/SKILL.md)（系列套图导演） | 建立系列视觉约束和变化矩阵，生成风格统一但内容不重复的套图。 |
 
-完整触发条件和工作流见各 Skill 的 `SKILL.md`；运行机制与权限边界见 [Agent 模式设计](backend/aivista/Agent模式模块.md) 和 [TypeScript AI Runtime 文档](backend-ts/README.md)。
+完整触发条件和工作流见各 Skill 的 `SKILL.md`；运行机制与权限边界见 [Agent 模式设计](docs/architecture/Agent模式.md) 和 [TypeScript AI Runtime 文档](docs/worker/AI-Runtime.md)。
 
 ## 系统架构
 
@@ -132,10 +132,10 @@ flowchart LR
 
 ```text
 AiVista/
-├── frontend/aivista/              # Next.js Web 应用与前端模块文档
-├── backend/aivista/               # Java Core、数据库迁移与后端模块文档
+├── frontend/aivista/              # Next.js Web 应用
+├── backend/aivista/               # Java Core 与数据库迁移
 ├── backend-ts/                    # AI Runtime、异步 Worker 与 .pi/skills
-└── contracts/generation-worker/   # Java 与 Worker 的版本化生成协议
+└── docs/                          # 架构、模块、视觉与文档规范
 ```
 
 ## 本地运行
@@ -175,7 +175,7 @@ pnpm build
 pnpm worker
 ```
 
-Worker 复用 Java 本地配置，但不向浏览器提供 API。Java 与 Worker 必须使用相同的 `AIVISTA_GENERATION_WORKER_TOKEN`。启用 Agent 模式时，Java 终端设置 `APP_AGENT_ENABLED=true`，TS Worker 终端设置 `AIVISTA_AGENT_ENABLED=true`，同时由 Worker 通过 `AIVISTA_JAVA_LOCAL_YAML` 读取同一份 Java 本地配置。可选环境变量见 [`.env.example`](backend-ts/.env.example)，完整说明见 [AI Runtime 文档](backend-ts/README.md)。
+Worker 复用 Java 本地配置，但不向浏览器提供 API。Java 与 Worker 必须使用相同的 `AIVISTA_GENERATION_WORKER_TOKEN`。启用 Agent 模式时，Java 终端设置 `APP_AGENT_ENABLED=true`，TS Worker 终端设置 `AIVISTA_AGENT_ENABLED=true`，同时由 Worker 通过 `AIVISTA_JAVA_LOCAL_YAML` 读取同一份 Java 本地配置。可选环境变量见 [`.env.example`](backend-ts/.env.example)，完整说明见 [AI Runtime 文档](docs/worker/AI-Runtime.md)。
 
 ### 3. 启动 Web
 
@@ -222,11 +222,12 @@ pnpm build
 
 ## 项目文档
 
-- [前端项目开发文档](frontend/aivista/前端项目开发文档.md)：页面模块、交互流程和工程边界。
-- [Java Core 后端项目开发文档](backend/aivista/后端项目开发文档.md)：领域模块、基础设施和实现索引。
-- [Agent 模式模块](backend/aivista/Agent模式模块.md)：会话、工具、事件投影、取消和一致性设计。
-- [TypeScript AI Runtime](backend-ts/README.md)：Worker 配置、Pi Runtime、执行流程和质量门。
-- [Generation Worker v1 协议](contracts/generation-worker/v1/README.md)：Java 与 Worker 之间的版本化消息和完成契约。
+- [完整文档导航](docs/README.md)：按架构、前端、Java、Worker 与规范查找文档。
+- [前端项目开发文档](docs/frontend/前端项目开发文档.md)：页面模块、交互流程和工程边界。
+- [Java Core 后端项目开发文档](docs/java/后端项目开发文档.md)：领域模块、基础设施和实现索引。
+- [Agent 模式架构](docs/architecture/Agent模式.md)：会话、工具、事件投影、取消和一致性设计。
+- [TypeScript AI Runtime](docs/worker/AI-Runtime.md)：Worker 配置、Pi Runtime、执行流程和质量门。
+- [Generation Worker v1 协议](docs/architecture/generation-worker-v1.md)：Java 与 Worker 之间的版本化消息和完成契约。
 
 ## 参与贡献
 

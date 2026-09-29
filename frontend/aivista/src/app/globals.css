@@ -123,3 +123,37 @@
     @apply font-sans;
   }
 }
+
+html:has(.image-detail-overlay) {
+  overflow: hidden;
+}
+
+.image-detail-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.image-detail-scroll:hover {
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+.image-detail-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.image-detail-scroll::-webkit-scrollbar-button {
+  display: none;
+}
+
+.image-detail-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.image-detail-scroll::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: var(--border);
+}
+
+.image-detail-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--border-strong);
+}
