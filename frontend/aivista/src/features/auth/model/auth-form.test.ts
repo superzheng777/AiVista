@@ -41,7 +41,9 @@ describe("auth form", () => {
 
   it("uses the same letter and decimal-digit categories as the server", () => {
     const schema = authFormSchema("register");
-    expect(schema.safeParse({ ...registration, password: "Letters①②", confirmPassword: "Letters①②" }).success).toBe(false);
+    expect(schema.safeParse({ ...registration, password: "Letters①②", confirmPassword: "Letters①②" }).success).toBe(
+      false,
+    );
     expect(schema.safeParse({ ...registration, password: "ⅣⅣⅣⅣⅣⅣⅣ1", confirmPassword: "ⅣⅣⅣⅣⅣⅣⅣ1" }).success).toBe(true);
   });
 });

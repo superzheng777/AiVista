@@ -1,5 +1,6 @@
 "use client";
 
+import { publicResourceListPolicy } from "@/shared/api/resource-list-policy";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -27,6 +28,7 @@ export function InspirationSearchResults({ keyword }: { keyword: string }) {
   const validationResult = searchFormSchema.safeParse({ keyword });
   const validation = validationResult.success ? null : (validationResult.error.issues[0]?.message ?? null);
   const search = useInfiniteQuery({
+    ...publicResourceListPolicy,
     queryKey: inspirationQueryKeys.search(queryKey),
     queryFn: ({ pageParam }) => searchInspirations(keyword, pageParam),
     initialPageParam: null as number | null,

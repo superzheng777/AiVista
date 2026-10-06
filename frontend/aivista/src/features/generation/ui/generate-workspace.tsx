@@ -1,5 +1,6 @@
 "use client";
 
+import { patchResource, removeResources } from "@/entities/generation/model/resource-cache";
 import { type InfiniteData, useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowDown,
@@ -40,7 +41,6 @@ import { useImageDetailNavigation } from "@/entities/generation/model/use-image-
 import { ImageDetailShell } from "@/entities/generation/ui/image-detail-shell";
 import { OwnedImageDetailActions } from "@/entities/generation/ui/owned-image-detail-actions";
 import {
-  assetQueryKeys,
   deleteGenerationAssets,
   getGenerationAsset,
   setGenerationImageFavorites,
@@ -66,11 +66,9 @@ import { skillActivityText, skillDisplayName } from "@/features/generation/model
 import {
   mergeGenerationTurnPageData,
   applyAgentFormUpdateToTurns,
-  updateGenerationImageInTurns,
   type GenerationTurnPage,
 } from "@/features/generation/model/generation-turn-cache";
 import { PublicationFormDialog } from "@/features/publication/ui/publication-form-dialog";
-import type { PublicationRequestResult } from "@/features/publication/api/publication-api";
 import { cn } from "@/shared/lib/cn";
 import { AccentSquare, DotMatrix } from "@/shared/ui/editorial-ornaments/editorial-ornaments";
 
@@ -251,21 +249,10 @@ function ConversationPanel({ sessionId, sessionTitle }: { sessionId: string; ses
       setGenerationImageFavorites([asset.id], favorite),
     onMutate: async ({ asset, favorite }) => {
       await queryClient.cancelQueries({ queryKey: generationQueryKeys.turns(sessionId) });
-      queryClient.setQueryData<InfiniteData<GenerationTurnPage>>(generationQueryKeys.turns(sessionId), (current) =>
-        updateGenerationImageInTurns(current, asset.id, (image) => ({ ...image, favorited: favorite })),
-      );
+      patchResource(queryClient, asset.id, { favorited: favorite });
     },
-    onSettled: () =>
-      void Promise.all([
-        queryClient.invalidateQueries({ queryKey: assetQueryKeys.all }),
-        queryClient.invalidateQueries({
-          queryKey: generationQueryKeys.turns(sessionId),
-        }),
-      ]),
     onError: (_error, { asset }) => {
-      queryClient.setQueryData<InfiniteData<GenerationTurnPage>>(generationQueryKeys.turns(sessionId), (current) =>
-        updateGenerationImageInTurns(current, asset.id, (image) => ({ ...image, favorited: asset.favorited })),
-      );
+      patchResource(queryClient, asset.id, { favorited: asset.favorited });
       setActionNotice("收藏状态更新失败，请重试。");
     },
   });
@@ -273,18 +260,7 @@ function ConversationPanel({ sessionId, sessionTitle }: { sessionId: string; ses
     mutationFn: (imageId: string) => deleteGenerationAssets([imageId]),
     onSuccess: (_result, imageId) => {
       setDetailAssetId((id) => (id === imageId ? null : id));
-      queryClient.setQueryData<InfiniteData<GenerationTurnPage>>(generationQueryKeys.turns(sessionId), (current) =>
-        updateGenerationImageInTurns(current, imageId, (image) => ({
-          ...image,
-          imageUrls: { thumbnail: null, display: null },
-        })),
-      );
-      void Promise.all([
-        queryClient.invalidateQueries({ queryKey: assetQueryKeys.all }),
-        queryClient.invalidateQueries({
-          queryKey: generationQueryKeys.turns(sessionId),
-        }),
-      ]);
+      removeResources(queryClient, [imageId]);
     },
     onError: () => setActionNotice("删除失败，请重试。"),
   });
@@ -318,9 +294,7 @@ function ConversationPanel({ sessionId, sessionTitle }: { sessionId: string; ses
   }, [acknowledgeSession, sessionId, sessionIndicators]);
   async function refreshAsset(imageId: string): Promise<GenerationAsset> {
     const refreshed = await getGenerationAsset(imageId);
-    queryClient.setQueryData<InfiniteData<GenerationTurnPage>>(generationQueryKeys.turns(sessionId), (current) =>
-      updateGenerationImageInTurns(current, imageId, () => refreshed),
-    );
+    patchResource(queryClient, imageId, { imageUrls: refreshed.imageUrls });
     return refreshed;
   }
   async function openAsset(asset: GenerationAsset): Promise<void> {
@@ -360,19 +334,10 @@ function ConversationPanel({ sessionId, sessionTitle }: { sessionId: string; ses
     }
     setPublishAsset(asset);
   }
-  function handlePublicationSuccess(result: PublicationRequestResult): void {
+  function handlePublicationSuccess(): void {
     setPublishAsset(null);
-    queryClient.setQueryData<InfiniteData<GenerationTurnPage>>(generationQueryKeys.turns(sessionId), (current) =>
-      updateGenerationImageInTurns(current, result.imageId, (image) => ({
-        ...image,
-        publicationReviewStatus: result.status,
-      })),
-    );
+
     setActionNotice("图片已发布，正在审核。");
-    void Promise.all([
-      queryClient.invalidateQueries({ queryKey: assetQueryKeys.all }),
-      queryClient.invalidateQueries({ queryKey: generationQueryKeys.turns(sessionId) }),
-    ]);
   }
   function scrollToConversationBottom(behavior: ScrollBehavior): void {
     const history = historyRef.current;

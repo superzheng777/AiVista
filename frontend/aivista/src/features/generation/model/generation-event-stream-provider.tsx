@@ -1,5 +1,7 @@
 "use client";
 
+import { assetQueryKeys } from "@/features/assets/api/asset-api";
+import { publicationQueryKeys } from "@/features/publication/api/publication-api";
 import { type InfiniteData, useQueryClient } from "@tanstack/react-query";
 import { createContext, type ReactNode, use, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -122,7 +124,9 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
   const applyPublicationUpdate = useCallback(() => {
     // The SSE event carries no unread count or message body; consumers refresh their own queries.
     setPublicationRefreshVersion((current) => current + 1);
-  }, []);
+    void queryClient.invalidateQueries({ queryKey: assetQueryKeys.all });
+    void queryClient.invalidateQueries({ queryKey: publicationQueryKeys.mine });
+  }, [queryClient]);
   const applyAgentEvent = useCallback(
     (event: AgentRealtimeEvent) => {
       if (

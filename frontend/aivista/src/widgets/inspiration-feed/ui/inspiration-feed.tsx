@@ -1,5 +1,6 @@
 "use client";
 
+import { publicResourceListPolicy } from "@/shared/api/resource-list-policy";
 import { skipToken, useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useEffect, useRef } from "react";
@@ -36,6 +37,7 @@ export function InspirationFeed({ view = "discovery" }: { view?: InspirationFeed
   const following = view === "following";
   const enabled = !following || status === "authenticated";
   const inspirations = useInfiniteQuery({
+    ...publicResourceListPolicy,
     queryKey: following ? inspirationQueryKeys.following : inspirationQueryKeys.discovery,
     queryFn: ({ pageParam }) => (following ? listFollowingInspirations(pageParam) : listInspirations(pageParam)),
     initialPageParam: null as string | null,

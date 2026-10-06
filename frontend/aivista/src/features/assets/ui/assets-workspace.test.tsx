@@ -5,6 +5,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { GenerationAsset } from "@/entities/generation/model/generation";
 
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
+
 const assetApi = vi.hoisted(() => ({
   listGenerationAssets: vi.fn(),
   setGenerationImageFavorites: vi.fn(),
@@ -68,6 +70,27 @@ describe("AssetsWorkspace detail", () => {
     vi.clearAllMocks();
     assetApi.listGenerationAssets.mockResolvedValue([asset]);
     assetApi.setGenerationImageFavorites.mockImplementation(() => new Promise(() => undefined));
+  });
+
+  it("reuses assets after remount and saves favorites without refetching the list", async () => {
+    assetApi.setGenerationImageFavorites.mockResolvedValue(undefined);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const tree = (
+      <QueryClientProvider client={queryClient}>
+        <AssetsWorkspace />
+      </QueryClientProvider>
+    );
+    const first = render(tree);
+    await screen.findByAltText("测试作品");
+    first.unmount();
+    render(tree);
+    const thumbnail = await screen.findByAltText("测试作品");
+    fireEvent.click(thumbnail.closest("button")!);
+    fireEvent.click(screen.getByRole("button", { name: "收藏" }));
+    await waitFor(() => expect(assetApi.setGenerationImageFavorites).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.getByRole("button", { name: "已收藏" })).not.toBeDisabled());
+    expect(assetApi.listGenerationAssets).toHaveBeenCalledTimes(1);
+    queryClient.clear();
   });
 
   it("renders detail favorite state from the optimistically updated asset cache", async () => {

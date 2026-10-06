@@ -171,6 +171,7 @@ function SidebarLink({
   return (
     <Link
       href={item.href}
+      aria-label={item.label}
       onClick={handleClick}
       className={cn(
         "group relative flex items-center justify-center transition-colors",

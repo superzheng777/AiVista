@@ -6,6 +6,7 @@
 | --- | --- | --- |
 | 文档编写与同步 | [文档规范](standards/文档规范.md) | 全项目通用规则及前端、Java 模板 |
 | 前端 | [前端项目开发文档](frontend/前端项目开发文档.md) | 页面交互、客户端状态、视觉与接口消费 |
+| 资源列表缓存 | [资源列表缓存模块](frontend/modules/资源列表缓存模块.md) | 各列表策略、局部更新、事件失效、URL 复用和测试边界 |
 | Java Core | [后端项目开发文档](java/后端项目开发文档.md) | 业务规则、数据库、对外 API 与权威状态 |
 | TypeScript AI Runtime | [AI Runtime](worker/AI-Runtime.md) | Worker、Pi Runtime、Tool 与外部 I/O |
 | Agent 跨服务链路 | [Agent 模式](architecture/Agent模式.md) | Java、TS、Pi 与浏览器的协作边界 |

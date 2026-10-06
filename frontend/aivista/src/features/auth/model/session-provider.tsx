@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, type ReactNode, use, useEffect, useMemo } from "react";
+import { createContext, type ReactNode, use, useEffect, useMemo, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import type { CurrentUser } from "@/entities/user/model/user";
@@ -29,6 +29,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const updateProfile = useAuthStore((state) => state.updateProfile);
   const logout = useAuthStore((state) => state.logout);
   const restoreSession = useAuthStore((state) => state.restoreSession);
+  const cachedIdentity = useRef<string | null | undefined>(undefined);
 
   useEffect(
     () =>
@@ -47,11 +48,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [restoreSession]);
 
   useEffect(() => {
+    if (status === "loading" || status === "error") return;
+    const identity = status === "authenticated" ? (user?.id ?? null) : null;
+    if (cachedIdentity.current === identity) return;
+    cachedIdentity.current = identity;
     if (status === "anonymous") {
       window.sessionStorage.removeItem("aivista.pending-generation-submission");
       queryClient.clear();
+    } else {
+      // Public caches also contain viewer-specific likes and following state.
+      void queryClient.resetQueries();
     }
-  }, [queryClient, status]);
+  }, [queryClient, status, user?.id]);
 
   const value = useMemo(
     () => ({ status, user, login, register, updateProfile, restoreSession, logout }),

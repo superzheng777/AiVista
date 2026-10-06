@@ -1,13 +1,17 @@
 "use client";
 /* eslint-disable @next/next/no-img-element */
 
+import { ResourceThumbnail } from "@/features/assets/ui/resource-thumbnail";
+import { personalResourceListPolicy, publicResourceListPolicy } from "@/shared/api/resource-list-policy";
+import { patchResource, removeResources } from "@/entities/generation/model/resource-cache";
+import { inspirationQueryKeys } from "@/features/inspiration/api/inspiration-api";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Dialog } from "@base-ui/react/dialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, LoaderCircle, LogOut, Pencil, Sparkles, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useForm } from "react-hook-form";
 
 import { needsImageUrlRefresh, type GenerationAsset } from "@/entities/generation/model/generation";
@@ -22,7 +26,6 @@ import { downloadOriginalGenerationImage } from "@/features/assets/lib/original-
 import { useAuthDialog } from "@/features/auth/model/auth-dialog-provider";
 import { useSession } from "@/features/auth/model/session-provider";
 import { LogoutConfirmDialog } from "@/features/auth/ui/logout-confirm-dialog";
-import { useGenerationEventStream } from "@/features/generation/model/generation-event-stream-provider";
 import { PublicImageDetailOverlay } from "@/features/inspiration/ui/public-image-detail-overlay";
 import { PublicImageOpenError } from "@/features/inspiration/ui/public-image-open-error";
 import { usePublicImageDetail } from "@/features/inspiration/model/use-public-image-detail";
@@ -70,7 +73,6 @@ export function PublicUserPage({ userId }: { userId: string }) {
   const queryClient = useQueryClient();
   const { status, user, logout, updateProfile } = useSession();
   const { open: openAuthDialog } = useAuthDialog();
-  const { publicationRefreshVersion } = useGenerationEventStream();
   const isSelf = user?.id === userId;
   const [activeView, setActiveView] = useState<ProfileView>("works");
   const [editing, setEditing] = useState(false);
@@ -83,28 +85,38 @@ export function PublicUserPage({ userId }: { userId: string }) {
 
   const profile = useQuery({ queryKey: ["public-author", userId], queryFn: () => getPublicAuthor(userId) });
   const ownWorks = useQuery({
+    ...personalResourceListPolicy,
     queryKey: publicationQueryKeys.mine,
     queryFn: listMyPublications,
     enabled: Boolean(isSelf && activeView === "works"),
   });
   const publicWorks = useQuery({
+    ...publicResourceListPolicy,
     queryKey: ["publications", userId],
     queryFn: () => listPublications(userId),
     enabled: Boolean(!isSelf && activeView === "works"),
   });
   const canViewLikes = Boolean(isSelf || profile.data?.likesPublic);
   const likes = useQuery({
+    ...(isSelf ? personalResourceListPolicy : publicResourceListPolicy),
     queryKey: ["liked-publications", userId, isSelf ? "self" : "public"],
     queryFn: () => listLikedPublications(userId, Boolean(isSelf)),
     enabled: Boolean(activeView === "likes" && canViewLikes),
   });
   const follow = useMutation({
     mutationFn: (following: boolean) => setFollowing(userId, following),
-    onSuccess: () => void profile.refetch(),
+    onSuccess: () => {
+      void profile.refetch();
+      // Disabled automatic refetches mean inactive following feeds need refreshing too.
+      void queryClient.invalidateQueries({ queryKey: inspirationQueryKeys.following, refetchType: "all" });
+    },
   });
   const visibility = useMutation({
     mutationFn: setLikedPublicationsVisibility,
-    onSuccess: () => void profile.refetch(),
+    onSuccess: () => {
+      queryClient.removeQueries({ queryKey: ["liked-publications", userId, "public"], exact: true });
+      void profile.refetch();
+    },
   });
   const save = useMutation({
     mutationFn: (values: ProfileFormValues) =>
@@ -124,18 +136,26 @@ export function PublicUserPage({ userId }: { userId: string }) {
     onMutate: async (imageId) => {
       await queryClient.cancelQueries({ queryKey: publicationQueryKeys.mine });
       const previous = queryClient.getQueryData<GenerationAsset[]>(publicationQueryKeys.mine);
-      queryClient.setQueryData<GenerationAsset[]>(publicationQueryKeys.mine, (current) =>
-        current?.filter((asset) => asset.id !== imageId),
-      );
+      queryClient
+        .getQueryCache()
+        .find({ queryKey: publicationQueryKeys.mine, exact: true })
+        ?.setState({
+          data: previous?.filter((asset) => asset.id !== imageId),
+        });
       return { previous };
     },
-    onSuccess: () => {
+    onSuccess: (_result, imageId) => {
+      removeResources(queryClient, [imageId], true);
       setPendingDetailId(null);
       setRemoveTarget(null);
       setNotice("已取消审核");
     },
     onError: (_error, _imageId, context) => {
-      if (context?.previous) queryClient.setQueryData(publicationQueryKeys.mine, context.previous);
+      if (context?.previous)
+        queryClient
+          .getQueryCache()
+          .find({ queryKey: publicationQueryKeys.mine, exact: true })
+          ?.setState({ data: context.previous });
       setRemoveTarget(null);
       setNotice("操作失败，请重试。");
     },
@@ -144,11 +164,6 @@ export function PublicUserPage({ userId }: { userId: string }) {
   const worksQuery = isSelf ? ownWorks : publicWorks;
   const works = worksQuery.data ?? [];
   const pendingDetail = ownWorks.data?.find((asset) => asset.id === pendingDetailId) ?? null;
-  const refetchOwnWorks = ownWorks.refetch;
-
-  useEffect(() => {
-    if (isSelf && activeView === "works" && publicationRefreshVersion > 0) void refetchOwnWorks();
-  }, [activeView, isSelf, publicationRefreshVersion, refetchOwnWorks]);
 
   function startEditing() {
     if (!user) return;
@@ -173,9 +188,7 @@ export function PublicUserPage({ userId }: { userId: string }) {
 
   async function refreshPendingImage(imageId: string): Promise<GenerationAsset> {
     const refreshed = await getGenerationAsset(imageId);
-    queryClient.setQueryData<GenerationAsset[]>(publicationQueryKeys.mine, (current) =>
-      current?.map((asset) => (asset.id === refreshed.id ? refreshed : asset)),
-    );
+    patchResource(queryClient, refreshed.id, { imageUrls: refreshed.imageUrls });
     return refreshed;
   }
 
@@ -205,11 +218,6 @@ export function PublicUserPage({ userId }: { userId: string }) {
     activeView === "likes" ? (likes.data ?? []) : works.filter((asset) => asset.publicationReviewStatus === "APPROVED");
   const detail = usePublicImageDetail(publicDetailItems, (image) => {
     updateInspirationInFeeds(queryClient, image);
-    const replace = (current: GenerationAsset[] | undefined) =>
-      current?.map((asset) => (asset.id === image.id ? image : asset));
-    queryClient.setQueryData<GenerationAsset[]>(publicationQueryKeys.mine, replace);
-    queryClient.setQueryData<GenerationAsset[]>(["publications", userId], replace);
-    queryClient.setQueryData<GenerationAsset[]>(["liked-publications", userId, isSelf ? "self" : "public"], replace);
   });
   const pendingDetailItems =
     activeView === "works" ? works.filter((asset) => asset.publicationReviewStatus !== "APPROVED") : [];
@@ -783,8 +791,9 @@ function ImageThumbnail({ image }: { image: GenerationAsset }) {
   return (
     <WorkPreviewCardImage image={image}>
       {image.imageUrls.thumbnail ? (
-        <img
-          src={image.imageUrls.thumbnail.url}
+        <ResourceThumbnail
+          image={image}
+          access={image.publicationReviewStatus === "APPROVED" ? "public" : "private"}
           alt={image.title ?? "作品"}
           loading="lazy"
           decoding="async"

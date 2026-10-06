@@ -1,5 +1,7 @@
 "use client";
 
+import { useQueryClient } from "@tanstack/react-query";
+import { patchResource } from "@/entities/generation/model/resource-cache";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Dialog } from "@base-ui/react/dialog";
 import { LoaderCircle, Send, X } from "lucide-react";
@@ -7,7 +9,11 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 
 import type { GenerationAsset } from "@/entities/generation/model/generation";
-import { type PublicationRequestResult, submitPublication } from "@/features/publication/api/publication-api";
+import {
+  type PublicationRequestResult,
+  publicationQueryKeys,
+  submitPublication,
+} from "@/features/publication/api/publication-api";
 import { publicationFormSchema, type PublicationFormValues } from "@/features/publication/model/publication-form";
 import { getApiErrorCode, getApiErrorMessage } from "@/shared/api/api-response";
 
@@ -27,6 +33,7 @@ export function PublicationFormDialog({
   onSuccess: (result: PublicationRequestResult) => void;
   onClose: () => void;
 }) {
+  const queryClient = useQueryClient();
   const [submitError, setSubmitError] = useState<string | null>(null);
   const form = useForm<PublicationFormValues>({
     resolver: zodResolver(publicationFormSchema),
@@ -37,6 +44,9 @@ export function PublicationFormDialog({
     setSubmitError(null);
     try {
       const result = await submitPublication(asset.id, values);
+      patchResource(queryClient, asset.id, { publicationReviewStatus: result.status });
+      // The response does not contain the complete new publication record.
+      void queryClient.invalidateQueries({ queryKey: publicationQueryKeys.mine });
       onSuccess(result);
     } catch (error) {
       setSubmitError(submitMessageOf(error));

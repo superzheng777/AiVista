@@ -1,6 +1,9 @@
 "use client";
-/* eslint-disable @next/next/no-img-element */
 
+import { ResourceThumbnail } from "@/features/assets/ui/resource-thumbnail";
+import { useRouter } from "next/navigation";
+import { personalResourceListPolicy } from "@/shared/api/resource-list-policy";
+import { patchResource, removeResources } from "@/entities/generation/model/resource-cache";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Download, Heart, LoaderCircle, MoreHorizontal, Send, Sparkles, Trash2, X } from "lucide-react";
 import Link from "next/link";
@@ -61,6 +64,7 @@ function statusOf(asset: GenerationAsset) {
 
 export function AssetsWorkspace() {
   const client = useQueryClient();
+  const router = useRouter();
   const { hasCompletedResults, acknowledgeCompletedResults } = useGenerationEventStream();
   const acknowledgedAt = useRef(0);
   const [managing, setManaging] = useState(false);
@@ -70,7 +74,11 @@ export function AssetsWorkspace() {
   const [deleting, setDeleting] = useState<string[] | null>(null);
   const [publishing, setPublishing] = useState<GenerationAsset | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const query = useQuery({ queryKey: assetQueryKeys.all, queryFn: listGenerationAssets });
+  const query = useQuery({
+    ...personalResourceListPolicy,
+    queryKey: assetQueryKeys.all,
+    queryFn: listGenerationAssets,
+  });
   const assets = query.data ?? EMPTY_ASSETS;
   const detail = detailId ? (assets.find((asset) => asset.id === detailId) ?? null) : null;
   const groups = useMemo(() => groupsOf(assets), [assets]);
@@ -86,18 +94,22 @@ export function AssetsWorkspace() {
     onMutate: async (ids) => {
       await client.cancelQueries({ queryKey: assetQueryKeys.all });
       const previous = client.getQueryData<GenerationAsset[]>(assetQueryKeys.all);
-      client.setQueryData<GenerationAsset[]>(assetQueryKeys.all, (current) =>
-        current?.filter((asset) => !ids.includes(asset.id)),
-      );
+      client
+        .getQueryCache()
+        .find({ queryKey: assetQueryKeys.all, exact: true })
+        ?.setState({
+          data: previous?.filter((asset) => !ids.includes(asset.id)),
+        });
       return { previous };
     },
     onSuccess: (_result, ids) => {
+      removeResources(client, ids);
       setSelected((current) => new Set([...current].filter((id) => !ids.includes(id))));
       setDetailId((id) => (id && ids.includes(id) ? null : id));
       setNotice(`已删除 ${ids.length} 张图片`);
     },
     onError: (_error, _ids, context) => {
-      client.setQueryData(assetQueryKeys.all, context?.previous);
+      client.getQueryCache().find({ queryKey: assetQueryKeys.all, exact: true })?.setState({ data: context?.previous });
       setNotice("删除失败，请重试。");
     },
     onSettled: () => setDeleting(null),
@@ -107,17 +119,19 @@ export function AssetsWorkspace() {
     onMutate: async ({ ids, value }) => {
       await client.cancelQueries({ queryKey: assetQueryKeys.all });
       const previous = client.getQueryData<GenerationAsset[]>(assetQueryKeys.all);
-      client.setQueryData<GenerationAsset[]>(assetQueryKeys.all, (current) =>
-        current?.map((asset) => (ids.includes(asset.id) ? { ...asset, favorited: value } : asset)),
-      );
+      for (const id of ids) patchResource(client, id, { favorited: value });
       return { previous };
     },
-    onSuccess: (_result, { value }) => setNotice(value ? "已收藏图片" : "已取消收藏"),
+    onSuccess: (_result, { ids, value }) => {
+      for (const id of ids) patchResource(client, id, { favorited: value });
+      setNotice(value ? "已收藏图片" : "已取消收藏");
+    },
     onError: (_error, _data, context) => {
-      client.setQueryData(assetQueryKeys.all, context?.previous);
+      for (const asset of context?.previous ?? []) {
+        if (_data.ids.includes(asset.id)) patchResource(client, asset.id, { favorited: asset.favorited });
+      }
       setNotice("收藏状态更新失败，请重试。");
     },
-    onSettled: () => void client.invalidateQueries({ queryKey: assetQueryKeys.all }),
   });
   const toggle = (id: string) =>
     setSelected((current) => {
@@ -132,9 +146,7 @@ export function AssetsWorkspace() {
   };
   async function refresh(id: string) {
     const result = await getGenerationAsset(id);
-    client.setQueryData<GenerationAsset[]>(assetQueryKeys.all, (current) =>
-      current?.map((asset) => (asset.id === id ? result : asset)),
-    );
+    patchResource(client, id, { imageUrls: result.imageUrls });
     return result;
   }
   async function open(asset: GenerationAsset) {
@@ -158,7 +170,7 @@ export function AssetsWorkspace() {
   }
   function publish(asset: GenerationAsset) {
     if (asset.publicationReviewStatus === "APPROVED") {
-      window.location.assign(`/inspirations?imageId=${encodeURIComponent(asset.id)}`);
+      router.push(`/inspirations?imageId=${encodeURIComponent(asset.id)}`);
       return;
     }
     if (asset.publicationReviewStatus === "PENDING") return setNotice("该图片正在审核中。");
@@ -201,14 +213,8 @@ export function AssetsWorkspace() {
               <PublicationFormDialog
                 asset={publishing}
                 onClose={() => setPublishing(null)}
-                onSuccess={(result) => {
+                onSuccess={() => {
                   setPublishing(null);
-                  client.setQueryData<GenerationAsset[]>(assetQueryKeys.all, (current) =>
-                    current?.map((asset) =>
-                      asset.id === result.imageId ? { ...asset, publicationReviewStatus: result.status } : asset,
-                    ),
-                  );
-                  void client.invalidateQueries({ queryKey: assetQueryKeys.all });
                   setNotice("图片已发布，正在审核。");
                 }}
               />
@@ -356,7 +362,6 @@ export function AssetsWorkspace() {
           onClose={() => setPublishing(null)}
           onSuccess={() => {
             setPublishing(null);
-            void client.invalidateQueries({ queryKey: assetQueryKeys.all });
             setNotice("图片已发布，正在审核。");
           }}
         />
@@ -410,8 +415,8 @@ function AssetCard({
           className="block size-full text-left disabled:opacity-60"
         >
           {asset.imageUrls.thumbnail ? (
-            <img
-              src={asset.imageUrls.thumbnail.url}
+            <ResourceThumbnail
+              image={asset}
               alt={titleOf(asset)}
               loading="lazy"
               decoding="async"

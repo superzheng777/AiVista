@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { needsImageUrlRefresh, type GenerationAsset } from "@/entities/generation/model/generation";
 
 import { getInspiration } from "../api/inspiration-api";
+import { discardUnavailableInspiration } from "./inspiration-cache";
 
 function buildDetailHistoryPath(imageId: string) {
   if (window.location.pathname === "/inspirations") {
@@ -99,7 +100,8 @@ export function usePublicImageDetail(items: GenerationAsset[], onImageChange?: (
         if (requestSequence !== requestSequenceRef.current) return;
         updateImage(refreshed);
         commit();
-      } catch {
+      } catch (error) {
+        discardUnavailableInspiration(queryClient, target.id, error);
         if (requestSequence === requestSequenceRef.current) setOpenError("该作品已撤销或暂时不可访问。");
       } finally {
         if (requestSequence === requestSequenceRef.current) setOpeningImageId(null);

@@ -1,12 +1,14 @@
 "use client";
-/* eslint-disable @next/next/no-img-element -- previews use short-lived, dynamically signed OSS URLs. */
 
+import { ResourceThumbnail } from "@/features/assets/ui/resource-thumbnail";
+import { personalResourceListPolicy } from "@/shared/api/resource-list-policy";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ImagePlus, LoaderCircle, Upload, X } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import type { GenerationAsset } from "@/entities/generation/model/generation";
 import {
+  assetQueryKeys,
   getGenerationAsset,
   listGenerationAssets,
   uploadGenerationReferenceImage,
@@ -39,7 +41,7 @@ function ReferenceThumbnail({ asset, onRemove }: { asset: GenerationAsset; onRem
     <span className="group relative inline-flex size-7 shrink-0">
       <span className="size-7 overflow-hidden rounded-[5px] border border-[var(--border-strong)] bg-[var(--surface-soft)]">
         {url ? (
-          <img src={url} alt="已添加的参考图片" className="size-full object-cover" />
+          <ResourceThumbnail image={asset} alt="已添加的参考图片" className="size-full object-cover" />
         ) : (
           <span aria-hidden="true" className="block size-full bg-[var(--border)]" />
         )}
@@ -59,7 +61,7 @@ function ReferenceThumbnail({ asset, onRemove }: { asset: GenerationAsset; onRem
           role="tooltip"
           className="pointer-events-none absolute bottom-[calc(100%+8px)] left-1/2 z-50 hidden w-40 -translate-x-1/2 overflow-hidden rounded-[7px] border border-[var(--border)] bg-[var(--surface-bg)] p-1 shadow-lg group-hover:block"
         >
-          <img src={url} alt="参考图片预览" className="aspect-square w-full object-cover" />
+          <ResourceThumbnail image={asset} alt="参考图片预览" className="aspect-square w-full object-cover" />
         </span>
       ) : null}
     </span>
@@ -76,7 +78,11 @@ function AssetPickerDialog({
   onComplete: (images: GenerationAsset[]) => void;
 }) {
   const [draft, setDraft] = useState(selected);
-  const assets = useQuery({ queryKey: ["assets", "reference-picker"], queryFn: listGenerationAssets });
+  const assets = useQuery({
+    ...personalResourceListPolicy,
+    queryKey: assetQueryKeys.all,
+    queryFn: listGenerationAssets,
+  });
 
   function toggle(asset: GenerationAsset): void {
     setDraft((current) => {
@@ -152,7 +158,12 @@ function AssetPickerDialog({
                     className={`group relative aspect-square overflow-hidden rounded-[7px] border text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] ${isSelected ? "border-[var(--accent)] ring-2 ring-[var(--accent)]" : "border-[var(--border)] hover:border-[var(--accent-border)]"} disabled:cursor-not-allowed disabled:opacity-45`}
                   >
                     {url ? (
-                      <img src={url} alt="选择此资产作为参考图片" loading="lazy" className="size-full object-cover" />
+                      <ResourceThumbnail
+                        image={asset}
+                        alt="选择此资产作为参考图片"
+                        loading="lazy"
+                        className="size-full object-cover"
+                      />
                     ) : (
                       <span className="block size-full bg-[var(--surface-soft)]" />
                     )}

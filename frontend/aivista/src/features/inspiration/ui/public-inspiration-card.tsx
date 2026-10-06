@@ -1,6 +1,7 @@
 "use client";
 /* eslint-disable @next/next/no-img-element */
 
+import { patchResource, updateMyLikes } from "@/entities/generation/model/resource-cache";
 import { Heart, MoreHorizontal, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState, type MouseEvent } from "react";
@@ -10,7 +11,10 @@ import { needsImageUrlRefresh, type GenerationAsset } from "@/entities/generatio
 import { useAuthDialog } from "@/features/auth/model/auth-dialog-provider";
 import { useSession } from "@/features/auth/model/session-provider";
 import { getInspiration, setImageLike } from "@/features/inspiration/api/inspiration-api";
-import { updateInspirationInFeeds } from "@/features/inspiration/model/inspiration-cache";
+import {
+  discardUnavailableInspiration,
+  updateInspirationInFeeds,
+} from "@/features/inspiration/model/inspiration-cache";
 import {
   WorkPreviewCardImage,
   WorkPreviewCardInfoBar,
@@ -54,7 +58,8 @@ function useVisibleImageSource(image: GenerationAsset, priority: boolean) {
           setSource(refreshed.imageUrls.thumbnail?.url ?? null);
           updateInspirationInFeeds(queryClient, refreshed);
         }
-      } catch {
+      } catch (error) {
+        discardUnavailableInspiration(queryClient, image.id, error);
         if (!cancelled) setSource(thumbnail?.url ?? null);
       }
     }
@@ -71,7 +76,8 @@ function useVisibleImageSource(image: GenerationAsset, priority: boolean) {
       const refreshed = await getInspiration(image.id);
       setSource(refreshed.imageUrls.thumbnail?.url ?? null);
       updateInspirationInFeeds(queryClient, refreshed);
-    } catch {
+    } catch (error) {
+      discardUnavailableInspiration(queryClient, image.id, error);
       // Keep the failed image state instead of retrying indefinitely.
     }
   }
@@ -89,7 +95,7 @@ export function PublicInspirationCard({
 }) {
   const { cardRef, source, refreshAfterError } = useVisibleImageSource(image, priority);
   const queryClient = useQueryClient();
-  const { status } = useSession();
+  const { status, user } = useSession();
   const { open: openAuthDialog } = useAuthDialog();
   const [likeError, setLikeError] = useState(false);
   const like = useMutation({ mutationFn: (liked: boolean) => setImageLike(image.id, image.publicationVersion, liked) });
@@ -123,10 +129,16 @@ export function PublicInspirationCard({
       likeCount: Math.max(0, previous.likeCount + (liked ? 1 : -1)),
     };
     setLikeError(false);
-    updateInspirationInFeeds(queryClient, next);
+    patchResource(queryClient, image.id, { likedByCurrentUser: liked, likeCount: next.likeCount });
     like.mutate(liked, {
+      onSuccess: () => {
+        if (user) updateMyLikes(queryClient, user.id, next);
+      },
       onError: () => {
-        updateInspirationInFeeds(queryClient, previous);
+        patchResource(queryClient, image.id, {
+          likedByCurrentUser: previous.likedByCurrentUser,
+          likeCount: previous.likeCount,
+        });
         setLikeError(true);
       },
     });

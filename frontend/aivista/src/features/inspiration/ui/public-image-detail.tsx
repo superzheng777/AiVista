@@ -1,6 +1,7 @@
 "use client";
 /* eslint-disable @next/next/no-img-element */
 
+import { patchResource, removeResources, updateMyLikes } from "@/entities/generation/model/resource-cache";
 import { Menu } from "@base-ui/react/menu";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, Heart, LoaderCircle, MoreHorizontal, Plus, Trash2 } from "lucide-react";
@@ -15,7 +16,7 @@ import { useAuthDialog } from "@/features/auth/model/auth-dialog-provider";
 import { useSession } from "@/features/auth/model/session-provider";
 import { getInspiration, inspirationQueryKeys, setImageLike } from "@/features/inspiration/api/inspiration-api";
 import { downloadPublicDisplayImage } from "@/features/inspiration/lib/public-image-download";
-import { publicationQueryKeys, removePublication } from "@/features/publication/api/publication-api";
+import { removePublication } from "@/features/publication/api/publication-api";
 import { getPublicAuthor, setFollowing, type PublicAuthor } from "@/features/public-user/api/public-user-api";
 
 export function PublicImageDetail({
@@ -45,14 +46,13 @@ export function PublicImageDetail({
     mutationFn: (following: boolean) => setFollowing(image.authorId, following),
     onSuccess: () => {
       void author.refetch();
-      void queryClient.invalidateQueries({ queryKey: inspirationQueryKeys.following });
+      void queryClient.invalidateQueries({ queryKey: inspirationQueryKeys.following, refetchType: "all" });
     },
   });
   const withdraw = useMutation({
     mutationFn: () => removePublication(image.id),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: inspirationQueryKeys.all });
-      void queryClient.invalidateQueries({ queryKey: publicationQueryKeys.mine });
+      removeResources(queryClient, [image.id], true);
       onClose();
     },
   });
@@ -78,9 +78,17 @@ export function PublicImageDetail({
     };
     setLikeError(false);
     onImageChange(next);
+    patchResource(queryClient, image.id, { likedByCurrentUser: liked, likeCount: next.likeCount });
     like.mutate(liked, {
+      onSuccess: () => {
+        if (user) updateMyLikes(queryClient, user.id, next);
+      },
       onError: () => {
         onImageChange(previous);
+        patchResource(queryClient, image.id, {
+          likedByCurrentUser: previous.likedByCurrentUser,
+          likeCount: previous.likeCount,
+        });
         setLikeError(true);
       },
     });

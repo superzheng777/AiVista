@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { useEffect } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -32,6 +32,7 @@ function LiveRunsProbe({ onCommit }: { onCommit: () => void }) {
 
 describe("GenerationEventStreamProvider", () => {
   afterEach(() => {
+    cleanup();
     streamController = undefined;
     useAuthStore.setState({ accessToken: null, user: null, status: "anonymous" });
     vi.unstubAllGlobals();
@@ -67,10 +68,12 @@ describe("GenerationEventStreamProvider", () => {
     );
 
     await screen.findByText("连接状态：READY");
+    // Commit READY effects before measuring updates caused by the next stream chunk.
+    await act(async () => {});
     const streamCommitsBeforeDelta = onStreamStateCommit.mock.calls.length;
     const liveCommitsBeforeDelta = onLiveRunsCommit.mock.calls.length;
 
-    act(() => {
+    await act(async () => {
       streamController?.enqueue(
         encoder.encode(
           'event: agent.creation.event\ndata: {"creationId":"creation-1","sessionId":"session-1","revision":0,"streamId":"stream-1","sequence":1,"eventType":"TEXT_DELTA","payload":{"delta":"正在构图"}}\n\n',
@@ -81,6 +84,19 @@ describe("GenerationEventStreamProvider", () => {
     await screen.findByText("实时文本：正在构图");
     await waitFor(() => expect(onLiveRunsCommit.mock.calls.length).toBeGreaterThan(liveCommitsBeforeDelta));
     expect(onStreamStateCommit).toHaveBeenCalledTimes(streamCommitsBeforeDelta);
+
+    queryClient.setQueryData(["assets"], []);
+    queryClient.setQueryData(["publication", "mine"], []);
+    await act(async () => {
+      streamController?.enqueue(
+        encoder.encode(
+          'event: publication.updated\ndata: {"imageId":"image-1","publicationVersion":1,"status":"APPROVED","publicAt":null}\n\n',
+        ),
+      );
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(queryClient.getQueryState(["assets"])?.isInvalidated).toBe(true));
+    expect(queryClient.getQueryState(["publication", "mine"])?.isInvalidated).toBe(true);
 
     view.unmount();
   });
