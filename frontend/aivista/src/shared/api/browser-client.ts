@@ -1,6 +1,6 @@
 import axios, { type InternalAxiosRequestConfig } from "axios";
 
-import { getApiErrorCode, type ApiResponse } from "@/shared/api/api-response";
+import type { ApiResponse } from "@/shared/api/api-response";
 
 /** Browser-side client. All calls use Next.js's same-origin /api proxy. */
 export const browserApiClient = axios.create({
@@ -19,21 +19,9 @@ type RetriableRequestConfig = InternalAxiosRequestConfig & {
 };
 
 let authHandlers: BrowserAuthHandlers | null = null;
-let refreshPromise: Promise<string> | null = null;
 
 function isAuthRequest(url?: string): boolean {
   return url?.startsWith("/auth/") ?? false;
-}
-
-function refreshSingleFlight(): Promise<string> {
-  if (!authHandlers) {
-    return Promise.reject(new Error("Authentication has not been configured."));
-  }
-
-  refreshPromise ??= authHandlers.refreshAccessToken().finally(() => {
-    refreshPromise = null;
-  });
-  return refreshPromise;
 }
 
 browserApiClient.interceptors.request.use((config) => {
@@ -61,17 +49,14 @@ browserApiClient.interceptors.response.use(undefined, async (error: unknown) => 
     return Promise.reject(error);
   }
 
-  config.__aivistaRetried = true;
-  try {
-    const accessToken = await refreshSingleFlight();
-    config.headers.Authorization = `Bearer ${accessToken}`;
-    return browserApiClient.request(config);
-  } catch (refreshError) {
-    if (getApiErrorCode(refreshError) === 40102) {
-      authHandlers?.onSessionInvalid();
-    }
-    return Promise.reject(refreshError);
+  if (!authHandlers) {
+    throw new Error("Authentication has not been configured.");
   }
+
+  config.__aivistaRetried = true;
+  const accessToken = await authHandlers.refreshAccessToken();
+  config.headers.Authorization = `Bearer ${accessToken}`;
+  return browserApiClient.request(config);
 });
 
 /** Configured by the session provider; shared API code never imports auth state. */

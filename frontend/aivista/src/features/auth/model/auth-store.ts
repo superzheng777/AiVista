@@ -22,6 +22,9 @@ type AuthStore = {
   logout: () => Promise<void>;
 };
 
+// Axios and SSE share an in-flight refresh within this browser tab.
+let refreshPromise: Promise<string> | null = null;
+
 function messageFrom(error: unknown, fallback: string): string {
   if (isAxiosError<ApiResponse<unknown>>(error)) {
     return error.response?.data?.message ?? fallback;
@@ -79,17 +82,23 @@ export const useAuthStore = create<AuthStore>((set) => ({
     }
   },
 
-  async refreshAccessToken() {
-    try {
-      const accessToken = await authApi.refreshAccessToken();
-      set({ accessToken });
-      return accessToken;
-    } catch (error) {
-      if (getApiErrorCode(error) === 40102) {
-        set({ accessToken: null, user: null, status: "anonymous" });
-      }
-      throw error;
-    }
+  refreshAccessToken() {
+    refreshPromise ??= authApi
+      .refreshAccessToken()
+      .then((accessToken) => {
+        set({ accessToken });
+        return accessToken;
+      })
+      .catch((error: unknown) => {
+        if (getApiErrorCode(error) === 40102) {
+          set({ accessToken: null, user: null, status: "anonymous" });
+        }
+        throw error;
+      })
+      .finally(() => {
+        refreshPromise = null;
+      });
+    return refreshPromise;
   },
 
   clearSession() {
