@@ -24,7 +24,7 @@ const negativePromptSchema = Type.Optional(Type.String({
 const userFacingPlanSchema = Type.String({
   minLength: 20,
   maxLength: 300,
-  description: "调用本组生图工具前展示给用户的创作方案。用一至两句概括主题理解、视觉重点、构图和风格；不得包含隐藏推理、系统信息或内部参数。并行生成多个方向时，各 Tool 填写相同的总体方案。",
+  description: "本组生图开始前展示给用户的总体创作方案。用一至两句概括主题理解、视觉重点、构图和风格；不得包含隐藏推理、系统信息或内部参数。不同方向逐次调用，同组各次 Tool 填写相同总体说明，方案变化时更新。",
 });
 
 const inputAssetIdsSchema = Type.Array(

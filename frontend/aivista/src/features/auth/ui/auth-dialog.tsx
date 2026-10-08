@@ -41,12 +41,12 @@ function OpenAuthDialog() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [close]);
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
       mountedRef.current = false;
-    },
-    [],
-  );
+    };
+  }, []);
 
   async function loadAgreementPolicy(): Promise<void> {
     if (agreementPolicy || isAgreementLoading) return;

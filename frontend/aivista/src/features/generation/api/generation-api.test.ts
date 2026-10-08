@@ -1,13 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { browserApiClient } from "@/shared/api/browser-client";
-import { createAgentCreation, createGenerationTask, listGenerationSessions, resolveAgentForm } from "./generation-api";
-vi.mock("@/shared/api/browser-client", () => ({ browserApiClient: { get: vi.fn(), post: vi.fn(), put: vi.fn() } }));
+import { createAgentCreation, createGenerationTask, deleteGenerationSession, listGenerationSessions, resolveAgentForm } from "./generation-api";
+vi.mock("@/shared/api/browser-client", () => ({ browserApiClient: { get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() } }));
 beforeEach(() => {
   vi.clearAllMocks();
   for (const method of [browserApiClient.get, browserApiClient.post, browserApiClient.put])
     vi.mocked(method).mockResolvedValue({ data: { code: 0, message: "ok", data: [] } });
 });
 describe("creation REST contract", () => {
+  it("deletes a session without a body and accepts an empty 204 response", async () => {
+    vi.mocked(browserApiClient.delete).mockResolvedValue({ status: 204, data: "" });
+    await expect(deleteGenerationSession("1")).resolves.toBeUndefined();
+    expect(browserApiClient.delete).toHaveBeenCalledWith("/generation-sessions/1");
+  });
   it("loads sessions without pagination", async () => {
     await listGenerationSessions(); expect(browserApiClient.get).toHaveBeenCalledWith("/generation-sessions");
   });

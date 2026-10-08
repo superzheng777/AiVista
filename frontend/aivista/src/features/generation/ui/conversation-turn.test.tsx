@@ -9,7 +9,6 @@ const handlers = {
   submittingFormId: null,
   onCancel: vi.fn(),
   onResolve: vi.fn(),
-  onContinue: vi.fn(),
   onOpen: vi.fn(),
   onRefresh: vi.fn(),
   onFavorite: vi.fn(),

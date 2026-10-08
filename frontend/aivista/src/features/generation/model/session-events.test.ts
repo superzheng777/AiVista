@@ -2,10 +2,26 @@ import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 import type { SessionDetail } from "@/entities/generation/model/session";
 import { generationQueryKeys } from "../api/generation-api";
-import { hydrateSession, insertCreatedTurn, receiveCreationEvent } from "./session-events";
+import { clearSessionEvents, forgetSessionEvents, hydrateSession, insertCreatedTurn, isSessionDeleted, receiveCreationEvent } from "./session-events";
 import { sessionFixture } from "./session-events.test-fixture";
 
 describe("session snapshots and SSE", () => {
+  it("discards deleted session events without clearing other sessions and resets on logout", () => {
+    const client = new QueryClient();
+    const event = { type: "creation.updated" as const, sessionId: "1", creationId: "2", status: "SUCCEEDED" as const, revision: 2 };
+    receiveCreationEvent(client, event);
+    receiveCreationEvent(client, { ...event, sessionId: "other" });
+    forgetSessionEvents(client, "1");
+    expect(isSessionDeleted(client, "1")).toBe(true);
+    expect(receiveCreationEvent(client, event)).toBe(false);
+    expect(hydrateSession(client, sessionFixture()).turns[0]?.status).not.toBe("SUCCEEDED");
+    expect(hydrateSession(client, { ...sessionFixture(), sessionId: "other" }).turns[0]?.status).toBe("SUCCEEDED");
+    expect(client.getQueryData(generationQueryKeys.session("1"))).toBeUndefined();
+    clearSessionEvents(client);
+    expect(isSessionDeleted(client, "1")).toBe(false);
+    expect(receiveCreationEvent(client, event)).toBe(true);
+    client.clear();
+  });
   it("keeps sent image work live after cancelling the parent and accepts its later assets", () => {
     const client = new QueryClient();
     client.setQueryData(generationQueryKeys.session("1"), sessionFixture());

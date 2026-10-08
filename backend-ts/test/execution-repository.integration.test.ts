@@ -9,6 +9,7 @@ import type { ConfigService } from "@nestjs/config";
 import { loadJavaLocalEnvironment } from "../src/config/java-local-environment.js";
 import type { DatabaseSchema } from "../src/database/database.types.js";
 import { ExecutionRepository, type CreateCreation } from "../src/sessions/execution-repository.js";
+import { CreationRuntimeService } from "../src/sessions/creation-runtime.service.js";
 import { SessionStore } from "../src/sessions/session-store.js";
 import { GenerationSettlement } from "../src/sessions/generation-settlement.js";
 import { GenerationOutcomeUnknownError, GenerationTaskService } from "../src/sessions/generation-task.service.js";
@@ -126,14 +127,111 @@ describe.skipIf(!enabled)("Unified execution SQL integration", () => {
     expect((await repository.list(userId)).length).toBeGreaterThanOrEqual(3);
   });
 
-  async function generation(count: number, createdAt = new Date()) {
-    const parent = await repository.create(userId, request, []);
+  async function generation(count: number, createdAt = new Date(), ownerId = userId) {
+    const parent = await repository.create(ownerId, request, []);
     const inserted = await sql`INSERT INTO executions (user_id, session_id, parent_id, kind, mode,
       tool_call_id, status, request_json, requested_image_count, width, height, created_at)
-      VALUES (${userId}, ${parent.session_id}, ${parent.id}, 'GENERATION', 'NORMAL', 'test', 'RUNNING',
+      VALUES (${ownerId}, ${parent.session_id}, ${parent.id}, 'GENERATION', 'NORMAL', 'test', 'RUNNING',
         '{}', ${count}, 2048, 2048, ${createdAt})`.execute(db);
     return inserted.insertId!.toString();
   }
+
+  it("soft-deletes idempotently and blocks every conversation entry point without erasing history", async () => {
+    const created = await repository.create(userId, request, []);
+    await repository.transition(created, "CANCELLED");
+    const store = new SessionStore(root, process.cwd());
+    const original = readFileSync(store.path(userId, created.session_id), "utf8");
+    const runtime = new CreationRuntimeService({ get: () => root } as never, { db } as never,
+      {} as never, {} as never, {} as never, {} as never, {} as never);
+
+    await expect(runtime.deleteSession(userId, created.session_id)).resolves.toEqual({ sessionId: created.session_id, deleted: true });
+    const deletedAt = (await sql<{ deleted_at: Date }>`SELECT deleted_at FROM generation_sessions
+      WHERE id = ${created.session_id}`.execute(db)).rows[0]!.deleted_at;
+    expect(deletedAt).toBeInstanceOf(Date);
+    await runtime.deleteSession(userId, created.session_id);
+    expect((await sql<{ deleted_at: Date }>`SELECT deleted_at FROM generation_sessions
+      WHERE id = ${created.session_id}`.execute(db)).rows[0]!.deleted_at).toEqual(deletedAt);
+    expect((await repository.list(userId)).some(row => String(row.id) === String(created.session_id))).toBe(false);
+    await expect(repository.ownedSession(userId, created.session_id)).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(runtime.history(userId, created.session_id)).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(runtime.turn(userId, created.id)).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(runtime.title(userId, created.session_id, { title: "不应改名" })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(runtime.create(userId, { request: { ...request, sessionId: created.session_id }, assets: [] }))
+      .rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(runtime.answer(userId, created.id, "form", { expectedRevision: 1, action: "SKIPPED" }))
+      .rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(runtime.cancel(userId, created.id)).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(repository.deleteSession("999999", created.session_id)).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(repository.deleteSession(userId, "999999")).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect((await repository.get(created.id)).status).toBe("CANCELLED");
+    expect(readFileSync(store.path(userId, created.session_id), "utf8")).toBe(original);
+  });
+
+  it.each(["QUEUED", "RUNNING", "WAITING_INPUT"] as const)("rejects deletion while a creation is %s", async status => {
+    const created = await repository.create(userId, request, []);
+    await sql`UPDATE executions SET status = ${status} WHERE id = ${created.id}`.execute(db);
+    await expect(repository.deleteSession(userId, created.session_id)).rejects.toMatchObject({ code: "SESSION_BUSY" });
+    expect((await repository.ownedSession(userId, created.session_id)).deleted_at).toBeNull();
+  });
+
+  it("waits for image settlement after parent cancellation and preserves images, publications and quota", async () => {
+    const owner = await sql`INSERT INTO users (login_name, nickname, password_hash)
+      VALUES ('delete_images_test', 'Delete test', 'not-a-login-hash')`.execute(db);
+    const ownerId = owner.insertId!.toString();
+    const id = await generation(1, new Date(), ownerId);
+    const imageTask = await repository.get(id);
+    await sql`UPDATE executions SET status = 'CANCELLED' WHERE id = ${imageTask.parent_id}`.execute(db);
+    await expect(repository.deleteSession(ownerId, imageTask.session_id)).rejects.toMatchObject({ code: "SESSION_BUSY" });
+    const settlement = new GenerationSettlement(db, { daily: 12, concurrent: 4 }, key => `https://images.test/${key}`);
+    await settlement.reserve(id);
+    const result = await settlement.settle(id, [{ sourceIndex: 0, objectKey: `users/${ownerId}/tasks/${id}/0`,
+      fileSize: 100n, width: 2048, height: 2048 }]);
+    const assetId = result!.assets[0]!.assetId;
+    await sql`INSERT INTO image_publications (asset_id, title, review_status, public_at)
+      VALUES (${assetId}, '保留的作品', 'APPROVED', UTC_TIMESTAMP(3))`.execute(db);
+    const assetsBefore = (await sql`SELECT * FROM image_assets WHERE id = ${assetId}`.execute(db)).rows;
+    const publicationsBefore = (await sql`SELECT * FROM image_publications WHERE asset_id = ${assetId}`.execute(db)).rows;
+    const quotaBefore = (await sql`SELECT * FROM user_generation_daily_usage WHERE user_id = ${ownerId}`.execute(db)).rows;
+    await repository.deleteSession(ownerId, imageTask.session_id);
+    expect((await sql`SELECT * FROM image_assets WHERE id = ${assetId}`.execute(db)).rows).toEqual(assetsBefore);
+    expect((await sql`SELECT * FROM image_publications WHERE asset_id = ${assetId}`.execute(db)).rows).toEqual(publicationsBefore);
+    expect((await sql`SELECT * FROM user_generation_daily_usage WHERE user_id = ${ownerId}`.execute(db)).rows).toEqual(quotaBefore);
+    expect((await repository.get(id)).status).toBe("SUCCEEDED");
+  });
+
+  it.each([0, 1, 2, 3, 4])("serializes deletion against a new creation in the same session (%s)", async attempt => {
+    const first = await repository.create(userId, request, []);
+    await repository.transition(first, "FAILED");
+    const remove = () => repository.deleteSession(userId, first.session_id);
+    const create = () => repository.create(userId, { ...request, sessionId: first.session_id }, []);
+    const results = await Promise.allSettled(attempt % 2 ? [create(), remove()] : [remove(), create()]);
+    const [deletion, creation] = attempt % 2 ? [results[1]!, results[0]!] : [results[0]!, results[1]!];
+    if (deletion.status === "fulfilled") {
+      expect(creation).toMatchObject({ status: "rejected", reason: { code: "NOT_FOUND" } });
+      expect(await repository.history(first.session_id)).toHaveLength(1);
+    } else {
+      expect(deletion.reason).toMatchObject({ code: "SESSION_BUSY" });
+      expect(creation.status).toBe("fulfilled");
+      expect((await repository.ownedSession(userId, first.session_id)).deleted_at).toBeNull();
+    }
+  });
+
+  it("serializes rename and duplicate deletes without changing a deleted session", async () => {
+    const first = await repository.create(userId, request, []);
+    await repository.transition(first, "FAILED");
+    const results = await Promise.allSettled([
+      repository.deleteSession(userId, first.session_id),
+      repository.renameSession(userId, first.session_id, "并发改名"),
+      repository.deleteSession(userId, first.session_id),
+    ]);
+    expect(results[0]!.status).toBe("fulfilled");
+    expect(results[2]!.status).toBe("fulfilled");
+    if (results[1]!.status === "rejected") expect(results[1]!.reason).toMatchObject({ code: "NOT_FOUND" });
+    await expect(repository.renameSession(userId, first.session_id, "删除后改名"))
+      .rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect((await sql<{ title: string }>`SELECT title FROM generation_sessions
+      WHERE id = ${first.session_id}`.execute(db)).rows[0]!.title).not.toBe("删除后改名");
+  });
 
   it("atomically settles partial output and makes duplicate result delivery idempotent", async () => {
     const settlement = new GenerationSettlement(db, { daily: 12, concurrent: 4 }, key => `https://images.test/${key}`);

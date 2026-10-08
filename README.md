@@ -72,7 +72,7 @@ Agent 回复分为可折叠的 AI 思考过程、可折叠的表单操作记录�
 
 ## Agent 与内置 Skill
 
-AiVista Agent 按任务需要加载对应 Skill。Skill 定义需求收集、创作方法和检查项；实际图片读取、生成和表单交互仍受工具 Schema 与运行时校验约束。
+AiVista Agent 先判断任务是否匹配已有 Skill，匹配时先读取，再根据方法与已有信息决定是否需要需求确认表单。每次模型回复最多调用一个工具，等待结果后再决定下一步；信息已经充分时直接创作。Skill 定义需求收集、创作方法和检查项；实际图片读取、生成和表单交互仍受工具 Schema 与运行时校验约束。
 
 | Skill | 适用任务 |
 | --- | --- |
@@ -154,7 +154,7 @@ cd AiVista
 
 ### 1. 启动 Java Core
 
-复制[本地配置模板](backend/aivista/src/main/resources/application-local.example.yaml)，填写数据库、RabbitMQ、Meilisearch、百炼、OSS 和 JWT 配置。将下方令牌占位符替换为仅在本机使用的随机值，不要向 Git 提交真实凭证。Flyway 在空库依次执行 V1 基础表和后续增量迁移；已有 V1 数据库直接应用 V2 图片任务迁移，不改写 V1 或清空业务数据。
+复制[本地配置模板](backend/aivista/src/main/resources/application-local.example.yaml)，填写数据库、RabbitMQ、Meilisearch、百炼、OSS 和 JWT 配置。将下方令牌占位符替换为仅在本机使用的随机值，不要向 Git 提交真实凭证。Flyway 在空库依次执行 V1 基础表和后续增量迁移；已有数据库应用尚未执行的 V2 图片任务、V3 会话逻辑删除迁移，不改写已应用迁移或清空业务数据。
 
 已有环境升级须先停止 TS，再启动 Java 执行迁移，最后启动新 TS。V2 对既存运行中图片任务保守标记，避免恢复时再次调用模型；详细步骤见 [AI Runtime](docs/worker/AI-Runtime.md)。
 

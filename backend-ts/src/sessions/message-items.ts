@@ -21,8 +21,11 @@ export function assistantItems(message: AssistantMessage, phase: "process" | "fi
 export function toolResultItems(toolCallId: string, name: string, result: unknown, isError: boolean,
     skillName?: string): CreationItem[] {
   const value = object(result);
+  const details = object(value.details);
+  const failed = isError || (name === "inspect_image" && details.outcome === "FAILED")
+    || (isGeneration(name) && details.status === "FAILED");
   const items: CreationItem[] = [{ id: `tool:${toolCallId}`, kind: "tool", toolCallId, name,
-    ...(skillName ? { skillName } : {}), status: isError ? "FAILED" : "SUCCEEDED" }];
+    ...(skillName ? { skillName } : {}), status: failed ? "FAILED" : "SUCCEEDED" }];
   if (name === "request_user_input" && !isError) {
     const form = agentInputFormSchema.safeParse(object(value.details).form);
     if (form.success) items.push({ ...form.data, id: toolCallId, kind: "form", toolCallId, status: "PENDING" });

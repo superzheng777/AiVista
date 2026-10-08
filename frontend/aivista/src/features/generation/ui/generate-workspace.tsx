@@ -1,20 +1,14 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, CheckCircle2, FolderClock, MessageSquare, PencilLine, Sparkles } from "lucide-react";
+import { ArrowDown, FolderClock, PencilLine, Sparkles } from "lucide-react";
 import Link from "next/link";
-import { cn } from "@/shared/lib/cn";
 import { AccentSquare, DotMatrix } from "@/shared/ui/editorial-ornaments/editorial-ornaments";
 import { BOTTOM_FOLLOW_THRESHOLD_PX, nextBottomFollowState } from "../model/conversation-scroll";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import type { GenerationAsset } from "@/entities/generation/model/generation";
-import {
-  isActiveCreation,
-  mergeSessionSnapshot,
-  type SessionAsset,
-  type SessionDetail,
-} from "@/entities/generation/model/session";
+import { isActiveCreation, mergeSessionSnapshot, type SessionDetail, type SessionSummary } from "@/entities/generation/model/session";
 import { ImageDetailShell } from "@/entities/generation/ui/image-detail-shell";
 import { OwnedImageDetailActions } from "@/entities/generation/ui/owned-image-detail-actions";
 import { patchResource, removeResources } from "@/entities/generation/model/resource-cache";
@@ -30,22 +24,36 @@ import {
   getGenerationSession,
   listGenerationSessions,
   resolveAgentForm,
-  updateGenerationSessionTitle,
 } from "@/features/generation/api/generation-api";
-import { hydrateSession, receiveCreationEvent } from "@/features/generation/model/session-events";
+import { forgetSessionEvents, hydrateSession, isSessionDeleted, receiveCreationEvent } from "@/features/generation/model/session-events";
 import { useGenerationEventStream } from "@/features/generation/model/generation-event-stream-provider";
-import { GenerationComposer, type GenerationComposerDraft } from "./generation-composer";
+import { GenerationComposer } from "./generation-composer";
 import { ConversationTurn } from "./conversation-turn";
+import { SessionHistoryItem } from "./session-history-item";
 import { PublicationFormDialog } from "@/features/publication/ui/publication-form-dialog";
 
 export function GenerateWorkspace() {
+  const client = useQueryClient();
   const router = useRouter();
   const sessionId = useSearchParams().get("sessionId");
-  const { sessionIndicators } = useGenerationEventStream();
+  const { sessionIndicators, acknowledgeSession } = useGenerationEventStream();
   const sessionsQuery = useQuery({ queryKey: generationQueryKeys.sessions(), queryFn: listGenerationSessions });
   const sessions = sessionsQuery.data;
   function selectSession(nextSessionId: string) {
     router.push(`/generate?sessionId=${encodeURIComponent(nextSessionId)}`);
+  }
+  async function handleSessionDeleted(deletedSessionId: string) {
+    forgetSessionEvents(client, deletedSessionId);
+    await Promise.all([
+      client.cancelQueries({ queryKey: generationQueryKeys.sessions(), exact: true }),
+      client.cancelQueries({ queryKey: generationQueryKeys.session(deletedSessionId), exact: true }),
+    ]);
+    client.setQueryData<SessionSummary[]>(generationQueryKeys.sessions(), (current) =>
+      current?.filter((session) => session.sessionId !== deletedSessionId),
+    );
+    client.removeQueries({ queryKey: generationQueryKeys.session(deletedSessionId), exact: true });
+    acknowledgeSession(deletedSessionId);
+    if (sessionId === deletedSessionId) router.replace("/generate");
   }
 
   return (
@@ -63,7 +71,7 @@ export function GenerateWorkspace() {
             <button
               type="button"
               onClick={() => router.push("/generate")}
-              className="mt-6 inline-flex h-[52px] w-full items-center gap-3 rounded-[7px] bg-[var(--primary)] pl-7 text-left text-base font-semibold text-[var(--surface-bg)] transition-colors hover:bg-[var(--primary-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2"
+              className="mt-6 inline-flex h-[52px] w-full items-center gap-3 rounded-[7px] bg-[var(--accent)] pl-7 text-left text-base font-semibold text-[var(--surface-bg)] transition-colors hover:bg-[var(--accent-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2"
             >
               <PencilLine className="size-[18px]" />
               新对话
@@ -80,30 +88,14 @@ export function GenerateWorkspace() {
                   </button>
                 ) : null}
                 {sessions?.map((session) => (
-                  <button
+                  <SessionHistoryItem
                     key={session.sessionId}
-                    type="button"
-                    onClick={() => selectSession(session.sessionId)}
-                    aria-current={sessionId === session.sessionId ? "page" : undefined}
-                    className={cn(
-                      "flex h-[52px] w-full items-center gap-[10px] rounded-[7px] px-[14px] text-left text-sm transition",
-                      sessionId === session.sessionId
-                        ? "border border-[var(--accent-border)] bg-[var(--active-bg)] font-medium text-[var(--primary)]"
-                        : "text-[var(--text-secondary)] hover:bg-[var(--surface-soft)] hover:text-[var(--primary)]",
-                    )}
-                  >
-                    <MessageSquare className="size-[18px] shrink-0" />
-                    <span title={session.title} className="min-w-0 flex-1 truncate">
-                      {session.title}
-                    </span>
-                    {sessionId === session.sessionId ? (
-                      <span aria-label="当前会话" className="size-[9px] shrink-0 bg-[var(--accent)]" />
-                    ) : sessionIndicators?.[session.sessionId] === "COMPLETED" ? (
-                      <CheckCircle2 aria-label="有新的生成结果" className="size-3.5 shrink-0 text-[var(--accent)]" />
-                    ) : sessionIndicators?.[session.sessionId] === "ATTENTION" ? (
-                      <span aria-label="生成失败" className="size-2 shrink-0 bg-[var(--accent-hover)]" />
-                    ) : null}
-                  </button>
+                    session={session}
+                    selected={sessionId === session.sessionId}
+                    indicator={sessionIndicators?.[session.sessionId]}
+                    onSelect={() => selectSession(session.sessionId)}
+                    onDeleted={handleSessionDeleted}
+                  />
                 ))}
                 {!sessionsQuery.isPending && !sessions?.length ? (
                   <p className="px-2 py-2 text-xs leading-5 text-[var(--text-secondary)]">尚无历史会话。</p>
@@ -112,7 +104,7 @@ export function GenerateWorkspace() {
             </div>
           </div>
         </aside>
-        {sessionId ? <ConversationPanel key={sessionId} sessionId={sessionId} /> : <NewConversationPanel />}
+        {sessionId && !isSessionDeleted(client, sessionId) ? <ConversationPanel key={sessionId} sessionId={sessionId} /> : <NewConversationPanel />}
       </div>
     </section>
   );
@@ -149,6 +141,7 @@ function ConversationPanel({ sessionId }: { sessionId: string }) {
   const { syncVersion, acknowledgeSession } = useGenerationEventStream();
   const lastSync = useRef(syncVersion);
   const historyRef = useRef<HTMLDivElement>(null);
+  const composerDockRef = useRef<HTMLDivElement>(null);
   const positioned = useRef(false);
   const lastScrollTop = useRef(0);
   const [isFollowingBottom, setIsFollowingBottom] = useState(true);
@@ -156,8 +149,6 @@ function ConversationPanel({ sessionId }: { sessionId: string }) {
   const [detail, setDetail] = useState<GenerationAsset | null>(null);
   const [publication, setPublication] = useState<GenerationAsset | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [draft, setDraft] = useState<{ key: number; value: GenerationComposerDraft } | null>(null);
-  const [editingTitle, setEditingTitle] = useState(false);
   const session = useQuery({
     queryKey: generationQueryKeys.session(sessionId),
     queryFn: async () => hydrateSession(client, await getGenerationSession(sessionId)),
@@ -165,6 +156,21 @@ function ConversationPanel({ sessionId }: { sessionId: string }) {
       mergeSessionSnapshot(current as SessionDetail | undefined, incoming as SessionDetail),
     staleTime: Infinity,
   });
+
+  useEffect(() => {
+    const history = historyRef.current;
+    const dock = composerDockRef.current;
+    if (!history || !dock) return;
+    // Match the history viewport, excluding its scrollbar, so both columns align.
+    const alignDock = () => {
+      dock.style.width = `${history.clientWidth}px`;
+    };
+    alignDock();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(alignDock);
+    observer.observe(history);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     acknowledgeSession(sessionId);
@@ -227,17 +233,6 @@ function ConversationPanel({ sessionId }: { sessionId: string }) {
     },
     onError: () => setNotice("表单提交失败，请检查内容后重试。"),
   });
-  const rename = useMutation({
-    mutationFn: (title: string) => updateGenerationSessionTitle(sessionId, title),
-    onSuccess: ({ title }) => {
-      client.setQueryData<SessionDetail>(generationQueryKeys.session(sessionId), (value) =>
-        value ? { ...value, title } : value,
-      );
-      void client.invalidateQueries({ queryKey: generationQueryKeys.sessions() });
-      setEditingTitle(false);
-    },
-    onError: () => setNotice("标题修改失败，请重试。"),
-  });
   const favorite = useMutation({
     mutationFn: async (asset: GenerationAsset) => {
       await setGenerationImageFavorites([asset.id], !asset.favorited);
@@ -287,17 +282,6 @@ function ConversationPanel({ sessionId }: { sessionId: string }) {
     const image = await getGenerationAsset(id);
     patchResource(client, id, { imageUrls: image.imageUrls });
     return image;
-  }
-  async function continueWith(asset: SessionAsset, prompt: string) {
-    try {
-      setDraft({
-        key: Date.now(),
-        value: { mode: "agent", prompt, referenceImages: [await getGenerationAsset(asset.assetId)] },
-      });
-      setIsComposerCollapsed(false);
-    } catch {
-      setNotice("参考图片加载失败。");
-    }
   }
   function requestPublish(asset: GenerationAsset) {
     if (asset.publicationReviewStatus === "PENDING") return setNotice("该图片正在审核中。");
@@ -361,116 +345,96 @@ function ConversationPanel({ sessionId }: { sessionId: string }) {
   const limitReached = (session.data?.creationCount ?? 0) >= (session.data?.creationLimit ?? 30);
   return (
     <main className="relative flex h-[calc(100dvh-4rem)] min-w-0 flex-col bg-[var(--page-bg)] lg:h-dvh lg:min-h-0">
-      <header className="flex min-h-[74px] items-center justify-between border-b border-[var(--border)] bg-[var(--surface-bg)]/80 px-5 sm:px-8">
-        {editingTitle ? (
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              rename.mutate(String(new FormData(event.currentTarget).get("title")));
-            }}
-          >
-            <input name="title" aria-label="会话标题" defaultValue={session.data?.title} maxLength={100} required />
-            <button disabled={rename.isPending}>保存</button>
-          </form>
-        ) : (
-          <button
-            className="min-w-0 truncate text-base font-bold sm:text-lg"
-            title={session.data?.title}
-            onClick={() => setEditingTitle(true)}
-          >
-            {session.data?.title ?? "创作会话"}
-            <PencilLine className="ml-2 inline size-3.5" />
-          </button>
-        )}
-        <Link
-          href="/assets"
-          className="ml-4 inline-flex h-9 shrink-0 items-center gap-1.5 rounded-[6px] border border-[var(--border)] bg-[var(--surface-bg)] px-3 text-sm font-medium transition hover:bg-[var(--active-bg)]"
-        >
-          <FolderClock className="size-4" />
-          资产库
-        </Link>
-      </header>
+      <Link
+        href="/assets"
+        className="absolute right-5 top-[19px] z-20 inline-flex h-9 items-center gap-1.5 rounded-[6px] border border-[var(--border)] bg-[var(--surface-bg)] px-3 text-sm font-medium transition hover:bg-[var(--active-bg)] sm:right-8"
+      >
+        <FolderClock className="size-4" />
+        资产库
+      </Link>
       <div
         ref={historyRef}
         aria-label="当前会话历史"
-        className="min-h-0 flex-1 overflow-y-auto px-5 py-7 pb-[224px] sm:px-8 lg:px-12"
+        className="min-h-0 flex-1 overflow-y-auto px-5 pt-20 pb-[224px] sm:px-8 lg:px-12"
         onScroll={(event) => handleHistoryScroll(event.currentTarget)}
       >
         <div className="mx-auto max-w-[1040px]">
-          {session.isPending ? <HistorySkeleton /> : null}
-          {session.isError ? <button onClick={() => void session.refetch()}>历史加载失败，点击重试</button> : null}
-          {notice ? (
-            <p
-              role="status"
-              className="mb-4 rounded-[7px] border border-[var(--accent-border)] bg-[var(--accent-soft)] px-4 py-3 text-sm text-[var(--accent-hover)]"
-            >
-              {notice}
-            </p>
-          ) : null}
-          {session.data?.turns.map((turn) => (
-            <ConversationTurn
-              key={turn.creationId}
-              turn={turn}
-              cancelling={cancel.isPending && cancel.variables === turn.creationId}
-              submittingFormId={
-                answer.isPending && answer.variables?.creationId === turn.creationId
-                  ? answer.variables.toolCallId
-                  : null
-              }
-              onCancel={() => cancel.mutate(turn.creationId)}
-              onResolve={(toolCallId, action, form) =>
-                answer.mutate({
-                  creationId: turn.creationId,
-                  toolCallId,
-                  expectedRevision: turn.revision,
-                  action: action === "SUBMIT" ? "SUBMITTED" : "SKIPPED",
-                  form,
-                })
-              }
-              onContinue={(asset, prompt) => void continueWith(asset, prompt)}
-              onOpen={(id) => void openImage(id)}
-              onRefresh={refreshAsset}
-              onFavorite={(asset) => favorite.mutate(asset)}
-              onPublish={requestPublish}
-              onDelete={(asset) => {
-                if (window.confirm("确定删除这张图片？此操作无法撤销。")) remove.mutate(asset.id);
-              }}
-            />
-          ))}
-          {!session.isPending && !session.data?.turns.length ? (
-            <p className="flex min-h-56 items-center justify-center text-sm text-[var(--text-secondary)]">
-              这个会话还没有可展示的历史内容。
-            </p>
-          ) : null}
+          <div className="w-full max-w-[920px]">
+            {session.isPending ? <HistorySkeleton /> : null}
+            {session.isError ? <button onClick={() => void session.refetch()}>历史加载失败，点击重试</button> : null}
+            {notice ? (
+              <p
+                role="status"
+                className="mb-4 rounded-[7px] border border-[var(--accent-border)] bg-[var(--accent-soft)] px-4 py-3 text-sm text-[var(--accent-hover)]"
+              >
+                {notice}
+              </p>
+            ) : null}
+            {session.data?.turns.map((turn) => (
+              <ConversationTurn
+                key={turn.creationId}
+                turn={turn}
+                cancelling={cancel.isPending && cancel.variables === turn.creationId}
+                submittingFormId={
+                  answer.isPending && answer.variables?.creationId === turn.creationId
+                    ? answer.variables.toolCallId
+                    : null
+                }
+                onCancel={() => cancel.mutate(turn.creationId)}
+                onResolve={(toolCallId, action, form) =>
+                  answer.mutate({
+                    creationId: turn.creationId,
+                    toolCallId,
+                    expectedRevision: turn.revision,
+                    action: action === "SUBMIT" ? "SUBMITTED" : "SKIPPED",
+                    form,
+                  })
+                }
+                onOpen={(id) => void openImage(id)}
+                onRefresh={refreshAsset}
+                onFavorite={(asset) => favorite.mutate(asset)}
+                onPublish={requestPublish}
+                onDelete={(asset) => {
+                  if (window.confirm("确定删除这张图片？此操作无法撤销。")) remove.mutate(asset.id);
+                }}
+              />
+            ))}
+            {!session.isPending && !session.data?.turns.length ? (
+              <p className="flex min-h-56 items-center justify-center text-sm text-[var(--text-secondary)]">
+                这个会话还没有可展示的历史内容。
+              </p>
+            ) : null}
+          </div>
         </div>
       </div>
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 px-5 pb-5 sm:px-8 lg:px-12">
-        <div
-          className={`pointer-events-auto mx-auto w-full transition-[max-width] duration-300 ${isComposerCollapsed ? "max-w-[860px]" : "max-w-[1040px]"}`}
-        >
-          {!isFollowingBottom ? (
-            <div className="mb-3 flex justify-end">
-              <button
-                type="button"
-                onClick={scrollToBottom}
-                className="inline-flex h-10 items-center gap-2 rounded-full border border-[var(--border-strong)] bg-[var(--surface-bg)] px-4 text-xs font-medium text-[var(--primary)] shadow-lg transition hover:border-[var(--accent-border)] hover:bg-[var(--active-bg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
-              >
-                <ArrowDown className="size-4" />
-                回到底部
-              </button>
-            </div>
-          ) : null}
-          {limitReached ? (
-            <p className="mb-3 text-sm">当前会话已达到30轮创作上限，请开启新会话。已有表单仍可继续处理。</p>
-          ) : null}
-          <GenerationComposer
-            key={draft?.key ?? "composer"}
-            sessionId={sessionId}
-            compact={isComposerCollapsed}
-            onExpand={() => setIsComposerCollapsed(false)}
-            hasActiveCreation={active || limitReached}
-            initialDraft={draft?.value}
-          />
+      <div
+        ref={composerDockRef}
+        className="pointer-events-none absolute left-0 bottom-0 z-10 w-full px-5 pb-5 sm:px-8 lg:px-12"
+      >
+        <div className="mx-auto w-full max-w-[1040px]">
+          <div className="pointer-events-auto w-full max-w-[920px]">
+            {!isFollowingBottom ? (
+              <div className="mb-3 flex justify-end">
+                <button
+                  type="button"
+                  onClick={scrollToBottom}
+                  className="inline-flex h-10 items-center gap-2 rounded-full border border-[var(--border-strong)] bg-[var(--surface-bg)] px-4 text-xs font-medium text-[var(--primary)] shadow-lg transition hover:border-[var(--accent-border)] hover:bg-[var(--active-bg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+                >
+                  <ArrowDown className="size-4" />
+                  回到底部
+                </button>
+              </div>
+            ) : null}
+            {limitReached ? (
+              <p className="mb-3 text-sm">当前会话已达到30轮创作上限，请开启新会话。已有表单仍可继续处理。</p>
+            ) : null}
+            <GenerationComposer
+              sessionId={sessionId}
+              compact={isComposerCollapsed}
+              onExpand={() => setIsComposerCollapsed(false)}
+              hasActiveCreation={active || limitReached}
+            />
+          </div>
         </div>
       </div>
     </main>

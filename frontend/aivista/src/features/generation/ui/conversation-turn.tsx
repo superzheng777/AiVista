@@ -1,14 +1,9 @@
 "use client";
 /* eslint-disable @next/next/no-img-element */
 
-import { ArrowUpRight, CircleStop, LoaderCircle } from "lucide-react";
+import { CircleStop, LoaderCircle } from "lucide-react";
 import type { AgentInputForm, GenerationAsset } from "@/entities/generation/model/generation";
-import {
-  isActiveCreation,
-  type CreationTurn,
-  type SessionAsset,
-  type SessionItem,
-} from "@/entities/generation/model/session";
+import { isActiveCreation, type CreationTurn, type SessionItem } from "@/entities/generation/model/session";
 import { AgentInputFormCard } from "./agent-input-form-card";
 import { AgentProcess } from "./agent-process";
 import { GenerationImageCard } from "./generation-image-card";
@@ -29,7 +24,6 @@ export function ConversationTurn({
   submittingFormId,
   onCancel,
   onResolve,
-  onContinue,
   onOpen,
   onRefresh,
   onFavorite,
@@ -41,7 +35,6 @@ export function ConversationTurn({
   submittingFormId: string | null;
   onCancel: () => void;
   onResolve: (toolCallId: string, action: "SUBMIT" | "SKIP", form: AgentInputForm | null) => void;
-  onContinue: (asset: SessionAsset, prompt: string) => void;
   onOpen: (id: string) => void;
   onRefresh: (id: string) => Promise<GenerationAsset>;
   onFavorite: (asset: GenerationAsset) => void;
@@ -49,10 +42,6 @@ export function ConversationTurn({
   onDelete: (asset: GenerationAsset) => void;
 }) {
   const active = isActiveCreation(turn.status);
-  const process = turn.items.filter(
-    (item): item is Extract<SessionItem, { kind: "tool" | "text" }> =>
-      item.kind === "tool" || (item.kind === "text" && item.phase === "process"),
-  );
   const forms = turn.items.filter((item) => item.kind === "form");
   const final = turn.items.filter(
     (item): item is Extract<SessionItem, { kind: "text" }> => item.kind === "text" && item.phase === "final",
@@ -61,9 +50,8 @@ export function ConversationTurn({
   const images = [
     ...new Map(generations.flatMap((item) => item.assets).map((asset) => [asset.assetId, asset])).values(),
   ];
-  const continuingImage = images.find((asset) => asset.url);
   return (
-    <article aria-label="创作对话" className="mb-6">
+    <article aria-label="创作对话" className="mb-6 w-full max-w-[920px]">
       <div className="flex justify-end">
         <div aria-label="用户需求" className="max-w-[85%] rounded-[10px] bg-[var(--active-bg)] px-4 py-3">
           <p className="whitespace-pre-wrap break-words text-sm leading-7">{turn.input.prompt}</p>
@@ -112,7 +100,7 @@ export function ConversationTurn({
             </div>
           </div>
           {turn.mode === "AGENT" ? (
-            <AgentProcess items={process} active={turn.status === "RUNNING" || turn.status === "QUEUED"} />
+            <AgentProcess items={turn.items} active={turn.status === "RUNNING" || turn.status === "QUEUED"} />
           ) : null}
           {forms.length ? (
             <section aria-label="表单操作">
@@ -172,21 +160,6 @@ export function ConversationTurn({
                 ))}
               </div>
             </section>
-          ) : null}
-          {continuingImage && !active ? (
-            <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-[var(--border)] pt-3">
-              <span className="text-xs text-[var(--text-secondary)]">你可以继续：</span>
-              {["调整画面细节", "延续风格再创作"].map((prompt) => (
-                <button
-                  key={prompt}
-                  onClick={() => onContinue(continuingImage, prompt)}
-                  className="inline-flex min-h-8 items-center gap-1 rounded-full border border-[var(--border-strong)] px-3 text-xs hover:bg-[var(--active-bg)]"
-                >
-                  {prompt}
-                  <ArrowUpRight className="size-3" />
-                </button>
-              ))}
-            </div>
           ) : null}
         </div>
       </div>

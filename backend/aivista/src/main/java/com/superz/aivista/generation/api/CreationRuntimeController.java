@@ -9,6 +9,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.List;
 import java.util.Map;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.*;
 import tools.jackson.databind.JsonNode;
 
@@ -18,9 +19,10 @@ public class CreationRuntimeController {
     private final GenerationWorkerApiProperties properties;
     private final CreationImageService images;
     private final GenerationSseConnectionService events;
+    private final JdbcTemplate jdbc;
     public CreationRuntimeController(GenerationWorkerApiProperties properties,
-            CreationImageService images, GenerationSseConnectionService events) {
-        this.properties = properties; this.images = images; this.events = events;
+            CreationImageService images, GenerationSseConnectionService events, JdbcTemplate jdbc) {
+        this.properties = properties; this.images = images; this.events = events; this.jdbc = jdbc;
     }
     public record Events(List<JsonNode> events) {}
 
@@ -30,7 +32,12 @@ public class CreationRuntimeController {
         for (var event : batch.events()) {
             String type = event.path("type").asText();
             if (!List.of("creation.updated", "creation.item.upserted").contains(type)) throw new IllegalArgumentException("Invalid event type");
-            events.publishCreation(Long.parseLong(event.path("userId").asText()), type, images.signDisplay(event));
+            long userId = Long.parseLong(event.path("userId").asText());
+            long sessionId = Long.parseLong(event.path("sessionId").asText());
+            // A terminal event may arrive after the owner has deleted the session.
+            if (jdbc.queryForObject("SELECT COUNT(*) FROM generation_sessions WHERE id = ? AND user_id = ? AND deleted_at IS NULL",
+                    Integer.class, sessionId, userId) != 1) continue;
+            events.publishCreation(userId, type, images.signDisplay(event));
         }
         return Map.of("accepted", true);
     }

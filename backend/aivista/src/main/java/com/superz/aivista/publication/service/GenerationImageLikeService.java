@@ -62,8 +62,7 @@ public class GenerationImageLikeService {
         if (changed == 0) {
             return;
         }
-        if (userMapper.selectIdForUpdate(image.getUserId()) == null
-                || imageMapper.changeLikeCount(imageId, liked ? 1 : -1) != 1
+        if (imageMapper.changeLikeCount(imageId, liked ? 1 : -1) != 1
                 || userMapper.changeReceivedLikeCount(image.getUserId(), liked ? 1 : -1) != 1) {
             throw new IllegalStateException("Like counters are inconsistent");
         }

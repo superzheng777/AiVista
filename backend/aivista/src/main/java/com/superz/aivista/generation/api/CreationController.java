@@ -51,6 +51,13 @@ public class CreationController {
         return ApiResponse.success(runtime.request(userId, "PATCH", "/generation-sessions/" + sessionId, body));
     }
 
+    @DeleteMapping("/generation-sessions/{sessionId}")
+    @Operation(summary = "逻辑删除会话；有活动任务时返回409，重复删除返回204")
+    public ResponseEntity<Void> deleteSession(Authentication auth, @PathVariable long sessionId) {
+        runtime.request(userId(auth), "DELETE", "/generation-sessions/" + sessionId, null);
+        return ResponseEntity.noContent().build();
+    }
+
     @PostMapping("/creations")
     @Operation(summary = "提交普通或Agent创作；不提供sessionId时创建会话")
     public ResponseEntity<ApiResponse<JsonNode>> create(Authentication auth, @Valid @RequestBody CreationRequest request) {
@@ -99,11 +106,14 @@ public class CreationController {
 
     private ApiResponse<JsonNode> display(JsonNode value) { return ApiResponse.success(images.signDisplay(value)); }
     private void ownSession(long userId, long id) {
-        if (jdbc.queryForObject("SELECT COUNT(*) FROM generation_sessions WHERE id = ? AND user_id = ?", Integer.class, id, userId) != 1)
+        if (jdbc.queryForObject("SELECT COUNT(*) FROM generation_sessions WHERE id = ? AND user_id = ? AND deleted_at IS NULL", Integer.class, id, userId) != 1)
             throw new BusinessException(ErrorCode.GENERATION_RESOURCE_NOT_FOUND);
     }
     private void ownCreation(long userId, long id) {
-        if (jdbc.queryForObject("SELECT COUNT(*) FROM executions WHERE id = ? AND user_id = ? AND kind = 'CREATION'", Integer.class, id, userId) != 1)
+        if (jdbc.queryForObject("""
+                SELECT COUNT(*) FROM executions e JOIN generation_sessions s ON s.id = e.session_id
+                WHERE e.id = ? AND e.user_id = ? AND e.kind = 'CREATION' AND s.deleted_at IS NULL
+                """, Integer.class, id, userId) != 1)
             throw new BusinessException(ErrorCode.GENERATION_RESOURCE_NOT_FOUND);
     }
     private long userId(Authentication auth) {

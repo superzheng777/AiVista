@@ -75,12 +75,13 @@ describe("AuthDialog", () => {
     expect(await screen.findByRole("checkbox", { name: /我已阅读并同意/ })).toBeEnabled();
   });
 
-  it("submits validated registration values and clears the password afterward", async () => {
+  it("loads the agreement and submits registration under Strict Mode", async () => {
     render(
       <AuthDialogProvider>
         <AuthDialogTrigger />
         <AuthDialog />
       </AuthDialogProvider>,
+      { reactStrictMode: true },
     );
     fireEvent.click(screen.getByRole("button", { name: "打开登录" }));
     fireEvent.click(screen.getByRole("button", { name: "去注册" }));

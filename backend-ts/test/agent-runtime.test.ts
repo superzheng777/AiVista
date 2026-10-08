@@ -7,18 +7,20 @@ import {
   runAgentPrompt,
   type AgentRuntimeEvent,
 } from "../src/agent/agent-runtime.js";
-import type { AgentModelBinding } from "../src/agent/providers/bailian.js";
+import { createAgentModelBinding, type AgentModelBinding } from "../src/agent/providers/bailian.js";
 import { createGenerationTools, createInspectImageTool,
   createRequestUserInputTool, type GenerationToolRequest } from "../src/agent/tools/index.js";
 import { CREATION_STARTED, FORM_ANSWER } from "../src/sessions/session-store.js";
 import { projectSession } from "../src/sessions/session-projector.js";
 import type { CreationItem } from "../src/sessions/session-contract.js";
 import { runNormalGeneration } from "../src/sessions/normal-generation.js";
+import { injectModelImages } from "../src/sessions/model-images.js";
 
 const cleanup: Array<() => void> = [];
 
 afterEach(() => {
   for (const dispose of cleanup.splice(0)) dispose();
+  vi.unstubAllGlobals();
 });
 
 describe("Agent runtime", () => {
@@ -99,6 +101,45 @@ describe("Agent runtime", () => {
       .rejects.toThrow("maxTurns must be an integer between 1 and 20");
   });
 
+  it.each([true, false])("sets outgoing single-tool policy only when tools are available (%s)", async (withTools) => {
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () => new Response([
+      { id: "reply", object: "chat.completion.chunk", created: 1, model: "test-model",
+        choices: [{ index: 0, delta: { role: "assistant", content: "已查看参考图片。" }, finish_reason: null }] },
+      { id: "reply", object: "chat.completion.chunk", created: 1, model: "test-model",
+        choices: [{ index: 0, delta: {}, finish_reason: "stop" }] },
+    ].map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("") + "data: [DONE]\n\n", {
+      headers: { "content-type": "text/event-stream" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const binding = await createAgentModelBinding({
+      AIVISTA_AGENT_BAILIAN_BASE_URL: "https://model.example/compatible-mode/v1",
+      AIVISTA_AGENT_BAILIAN_API_KEY: "test-key",
+      AIVISTA_AGENT_MODEL: "test-model",
+      AIVISTA_AGENT_THINKING_ENABLED: false,
+    });
+    const asset = { assetId: "701", url: "https://images.example/701.png" };
+    const tools = withTools ? [createInspectImageTool({ inspect: async () => ({ assetId: asset.assetId, asset }) })] : [];
+
+    await runAgentPrompt({ binding, prompt: "请查看参考图片 [aivista-image:701]", maxTurns: 2, tools,
+      adaptProviderRequest: async (payload) => {
+        await Promise.resolve();
+        const adapted = injectModelImages(payload, new Map([[asset.assetId, asset]]), (url) => `${url}?signed=true`);
+        return { ...adapted as object, ...(withTools ? { parallel_tool_calls: true } : {}) };
+      },
+    });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const payload = JSON.parse(String(fetchMock.mock.calls[0]![1]?.body));
+    expect(payload.enable_thinking).toBe(false);
+    if (withTools) expect(payload.parallel_tool_calls).toBe(false);
+    else expect(payload).not.toHaveProperty("parallel_tool_calls");
+    expect(payload.messages).toContainEqual(expect.objectContaining({ role: "user", content: [
+      { type: "text", text: "请查看参考图片 [aivista-image:701]" },
+      { type: "text", text: "参考图片资产 ID：701" },
+      { type: "image_url", image_url: { url: "https://images.example/701.png?signed=true" } },
+    ] }));
+  });
+
   it("restores the persisted Pi context into the request-scoped session with original roles", async () => {
     const { binding, faux } = await createFauxBinding();
     const sessionManager = SessionManager.inMemory();
@@ -146,6 +187,11 @@ describe("Agent runtime", () => {
     expect(systemPrompt).toContain("inspect_image");
     expect(systemPrompt).toContain("`prompt` 和 `negativePrompt` 默认使用用户当前语言");
     expect(systemPrompt).toContain("主体、数量、关系、准确文字和关键物件是创作硬约束");
+    expect(systemPrompt).toContain("每条 assistant 消息最多调用一个工具");
+    expect(systemPrompt).toContain("先根据可用 Skill 的描述判断是否匹配");
+    expect(systemPrompt).toContain("先单独调用 `read` 阅读");
+    expect(systemPrompt).toContain("不读取无关 Skill");
+    expect(systemPrompt).toContain("不为走流程强制询问");
   });
 
   it("feeds the formal generation Tool Result into the next Pi turn", async () => {
@@ -306,6 +352,47 @@ describe("Agent runtime", () => {
     expect(traceRecorder.finishGeneration).toHaveBeenCalledOnce();
     expect(traceRecorder.startTool).toHaveBeenCalledOnce();
     expect(traceRecorder.finishTool).toHaveBeenCalledOnce();
+  });
+
+  it("blocks a batch without a form before any side effect, then accepts one tool per reply", async () => {
+    const { binding, faux } = await createFauxBinding();
+    const sessionManager = SessionManager.inMemory();
+    const requests: string[] = [];
+    const events: AgentRuntimeEvent[] = [];
+    const call = (id: string) => fauxToolCall("text_to_image", {
+      userFacingPlan: "我会采用明亮配色与简洁构图，设计一个主题鲜明的海报方向。", prompt: "测试海报", aspectRatio: "1:1", imageCount: 1,
+    }, { id });
+    faux.setResponses([
+      fauxAssistantMessage([call("blocked-1"), call("blocked-2")], { stopReason: "toolUse" }),
+      (context) => {
+        expect(requests).toEqual([]);
+        const results = context.messages.filter((message) => message.role === "toolResult");
+        expect(results).toHaveLength(2);
+        for (const result of results) expect(result).toMatchObject({ isError: true,
+          content: [{ type: "text", text: expect.stringContaining("每条 assistant 消息最多调用一个工具") }] });
+        return fauxAssistantMessage(call("allowed-1"), { stopReason: "toolUse" });
+      },
+      () => {
+        expect(requests).toEqual(["allowed-1"]);
+        return fauxAssistantMessage(call("allowed-2"), { stopReason: "toolUse" });
+      },
+      fauxAssistantMessage("两个方向已经完成。"),
+    ]);
+    const tools = createGenerationTools({ constraints: { aspectRatio: "AUTO", imageCount: 2 },
+      authorizedInputAssetIds: new Set(), executor: { execute: async (toolCallId) => {
+        requests.push(toolCallId);
+        return { generationId: String(requests.length), status: "SUCCEEDED", assets: [
+          { assetId: String(requests.length + 10), url: "https://images.example/result.png" },
+        ] };
+      } } });
+
+    const result = await runAgentPrompt({ binding, sessionManager, prompt: "设计两个海报方向", maxTurns: 4, tools,
+      onEvent: (event) => events.push(event) });
+
+    expect(result).toMatchObject({ outcome: "COMPLETED", text: "两个方向已经完成。" });
+    expect(requests).toEqual(["allowed-1", "allowed-2"]);
+    expect(events.filter((event) => event.type === "tool_start").map((event) => event.toolCallId))
+      .toEqual(["allowed-1", "allowed-2"]);
   });
 
   it("blocks every tool in a mixed form batch before any side effect runs", async () => {

@@ -28,7 +28,7 @@ export interface ExecutionRow {
 }
 export interface SessionRow {
   id: string; user_id: string; title: string; creation_count: number;
-  created_at: Date; last_message_at: Date;
+  created_at: Date; last_message_at: Date; deleted_at: Date | null;
 }
 export class ExecutionConflict extends Error {
   constructor(readonly code: "SESSION_CREATION_LIMIT" | "SESSION_BUSY" | "REVISION_CONFLICT" | "NOT_FOUND") {
@@ -43,8 +43,7 @@ export class ExecutionRepository {
   async create(userId: string, request: CreateCreation, assets: AssetReference[]): Promise<ExecutionRow> {
     return this.db.transaction().execute(async (transaction) => {
       // Serialize creation limits, concurrent submissions, and new-session creation for this user.
-      const user = await sql`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`.execute(transaction);
-      if (!user.rows.length) throw new ExecutionConflict("NOT_FOUND");
+      await this.lockUser(userId, transaction);
       let sessionId = request.sessionId;
       let isNew = false;
       if (!sessionId) {
@@ -76,15 +75,46 @@ export class ExecutionRepository {
 
   async ownedSession(userId: string, sessionId: string, db: Kysely<DatabaseSchema> = this.db,
       lock = false): Promise<SessionRow> {
-    const query = sql<SessionRow>`SELECT * FROM generation_sessions WHERE id = ${sessionId} AND user_id = ${userId}`;
+    const query = sql<SessionRow>`SELECT * FROM generation_sessions
+      WHERE id = ${sessionId} AND user_id = ${userId} AND deleted_at IS NULL`;
     const result = await (lock ? sql<SessionRow>`${query} FOR UPDATE` : query).execute(db);
     if (!result.rows[0]) throw new ExecutionConflict("NOT_FOUND");
     return result.rows[0];
   }
 
   async list(userId: string): Promise<SessionRow[]> {
-    return (await sql<SessionRow>`SELECT * FROM generation_sessions WHERE user_id = ${userId}
+    return (await sql<SessionRow>`SELECT * FROM generation_sessions WHERE user_id = ${userId} AND deleted_at IS NULL
       ORDER BY last_message_at DESC, id DESC`.execute(this.db)).rows;
+  }
+
+  async deleteSession(userId: string, sessionId: string): Promise<void> {
+    await this.db.transaction().execute(async (transaction) => {
+      // Match create/rename's user -> session order, including FK/index locks during updates.
+      await this.lockUser(userId, transaction);
+      const session = (await sql<SessionRow>`SELECT * FROM generation_sessions
+        WHERE id = ${sessionId} AND user_id = ${userId} FOR UPDATE`.execute(transaction)).rows[0];
+      if (!session) throw new ExecutionConflict("NOT_FOUND");
+      if (session.deleted_at) return;
+      // A cancelled parent may still have an accepted image request being settled.
+      const active = await sql`SELECT id FROM executions WHERE session_id = ${sessionId}
+        AND status IN ('QUEUED', 'RUNNING', 'WAITING_INPUT') LIMIT 1`.execute(transaction);
+      if (active.rows.length) throw new ExecutionConflict("SESSION_BUSY");
+      await sql`UPDATE generation_sessions SET deleted_at = UTC_TIMESTAMP(3)
+        WHERE id = ${sessionId}`.execute(transaction);
+    });
+  }
+
+  async renameSession(userId: string, sessionId: string, title: string): Promise<void> {
+    await this.db.transaction().execute(async (transaction) => {
+      await this.lockUser(userId, transaction);
+      await this.ownedSession(userId, sessionId, transaction, true);
+      await sql`UPDATE generation_sessions SET title = ${title} WHERE id = ${sessionId}`.execute(transaction);
+    });
+  }
+
+  private async lockUser(userId: string, transaction: Transaction<DatabaseSchema>): Promise<void> {
+    const user = await sql`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`.execute(transaction);
+    if (!user.rows.length) throw new ExecutionConflict("NOT_FOUND");
   }
 
   async get(id: string, db: Kysely<DatabaseSchema> = this.db): Promise<ExecutionRow> {

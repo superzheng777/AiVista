@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.superz.aivista.common.exception.BusinessException;
@@ -36,7 +37,6 @@ class PublicationServiceTests {
     @BeforeEach
     void setUp() {
         service = new PublicationService(images, users, likes, outbox, Clock.fixed(NOW, ZoneOffset.UTC));
-        when(users.selectIdForUpdate(USER_ID)).thenReturn(USER_ID);
     }
 
     @Test
@@ -49,6 +49,17 @@ class PublicationServiceTests {
         assertThat(response).hasToString("PublicationRequestResponse[imageId=42, status=PENDING]");
         verify(images).markPublicationPending(IMAGE_ID, "title", "description", NOW);
         verify(outbox).insertSelective(any());
+        verifyNoInteractions(users);
+    }
+
+    @Test
+    void rejectsMissingOrUnownedAssetBeforeStartingReview() {
+        assertThatThrownBy(() -> service.request(USER_ID, IMAGE_ID, "title", "description"))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.GENERATION_RESOURCE_NOT_FOUND));
+
+        verify(images, never()).markPublicationPending(anyLong(), any(), any(), any());
+        verifyNoInteractions(users, outbox);
     }
 
     @Test
@@ -89,6 +100,21 @@ class PublicationServiceTests {
         verify(users).changeReceivedLikeCount(USER_ID, -2);
         verify(images).withdrawPublication(IMAGE_ID);
         verify(outbox).insertSelective(any());
+    }
+
+    @Test
+    void withdrawStopsWhenReceivedCountCannotBeUpdated() {
+        ImageAsset image = imageWithStatus("APPROVED");
+        image.setPublicAt(NOW);
+        image.setLikeCount(2L);
+        when(images.selectOwnedByIdForUpdate(IMAGE_ID, USER_ID)).thenReturn(image);
+        when(likes.deleteByAssetAndVersion(IMAGE_ID, 0L)).thenReturn(2);
+
+        assertThatThrownBy(() -> service.withdraw(USER_ID, IMAGE_ID))
+                .isInstanceOf(IllegalStateException.class);
+
+        verify(images, never()).withdrawPublication(IMAGE_ID);
+        verifyNoInteractions(outbox);
     }
 
     private static ImageAsset imageWithStatus(String status) {

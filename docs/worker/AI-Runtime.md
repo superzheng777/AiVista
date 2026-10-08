@@ -22,9 +22,11 @@ pnpm build
 pnpm worker
 ```
 
-配置桥读取 Java 本地 YAML 与同目录 application.yaml，不复制密钥；TS 环境变量优先。若 Java 本地 YAML 已填写固定 worker-api.token，TS 应直接复用该值，不要另设不同的 AIVISTA_GENERATION_WORKER_TOKEN；使用环境变量方式时，两端都应通过同一占位符读取同一个值。两端使用同一个 `aivista` 数据库，Java 通过 Flyway 在空库依次执行 V1 基础表和 V2 图片任务增量迁移；已有 V1 库原地升级，不改写 V1 或删除会话、资产。确需重置开发数据时，应先停止服务，再同步清理数据库、会话目录、项目队列、搜索文档和 OSS 图片，避免 ID 重用。
+配置桥读取 Java 本地 YAML 与同目录 application.yaml，不复制密钥；TS 环境变量优先。若 Java 本地 YAML 已填写固定 worker-api.token，TS 应直接复用该值，不要另设不同的 AIVISTA_GENERATION_WORKER_TOKEN；使用环境变量方式时，两端都应通过同一占位符读取同一个值。两端使用同一个 `aivista` 数据库，Java 通过 Flyway 在空库依次执行 V1 基础表、V2 图片任务和 V3 会话逻辑删除增量迁移；已有数据库原地升级，不改写已应用迁移或删除会话、资产。确需重置开发数据时，应先停止服务，再同步清理数据库、会话目录、项目队列、搜索文档和 OSS 图片，避免 ID 重用。
 
-升级顺序：先停止 TS，确认旧进程已退出，再由 Java/Flyway 应用 `V2__persist_generation_provider_handoff.sql`，最后启动新 TS。迁移为既存 RUNNING 图片执行回填保守的调用意图标记，恢复时按结果未知收口，避免将可能已付费的请求重新发送；尚未执行的 QUEUED 记录由新调度链路接管。不要在旧 TS 仍可能调用模型时运行迁移或并行启动新消费者。
+升级顺序：先停止 TS，确认旧进程已退出，再由 Java/Flyway 应用尚未执行的迁移，最后启动新 TS。V2 为既存 RUNNING 图片执行回填保守的调用意图标记，恢复时按结果未知收口，避免将可能已付费的请求重新发送；尚未执行的 QUEUED 记录由新调度链路接管。V3 增加 `generation_sessions.deleted_at` 和可见会话列表索引，新 TS 必须在 V3 完成后启动。不要在旧 TS 仍可能调用模型时运行迁移或并行启动新消费者。
+
+内部 `DELETE /internal/generation-sessions/{sessionId}` 校验归属并锁定会话，检查创作和图片任务均已结束后写入删除时间；重复删除本人会话幂等。有活动任务返回 SESSION_BUSY，未知或他人会话返回 NOT_FOUND。查询、改名、继续创作和创作操作统一拒绝已删除会话，Java 丢弃迟到事件；JSONL、执行、资产、作品和额度均保留。外部接口返回 204，前端侧栏删除入口已接入，成功后清理会话缓存和状态提示，删除当前会话返回新对话页，详见 [创作通信协议](../architecture/creation-protocol.md)。
 
 ## 主要配置
 
@@ -55,6 +57,8 @@ LLM 使用 AIVISTA_AGENT_BAILIAN_BASE_URL 与 AIVISTA_AGENT_BAILIAN_API_KEY；�
 ## Pi 与工具
 
 Harness 使用固定项目根目录，加载 `.pi/SYSTEM.md` 与显式 Skill 目录。生产调用传入按用户/会话打开的 SessionManager；测试可使用内存 SessionManager。模型绑定跨执行复用，Pi session 对象每次执行后释放，JSONL 原始记录保留。
+
+每条 assistant 消息最多调用一个工具。有工具的模型请求在图片适配后设置 `parallel_tool_calls=false`；供应商返回多个工具时，Harness 在执行前整批阻止，让模型读取错误后改为单工具调用，不产生该批业务副作用。系统提示要求先判断现有 Skill 是否匹配并读取适用内容，再决定是否有必要发需求表单；不强制无关 Skill 或重复确认。Skill 选择属于模型遵循提示的行为，单工具数量限制则有代码校验。单次生图工具仍可生成 1–6 张，不同会话保持并发。
 
 | 工具 | 作用 |
 | --- | --- |

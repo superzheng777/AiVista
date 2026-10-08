@@ -53,6 +53,9 @@ export class CreationHttpService implements OnModuleInit, OnModuleDestroy {
     if (session && method === "PATCH") {
       this.send(response, 200, await this.runtime.title(userId, session[1]!, await readBody(request))); return;
     }
+    if (session && method === "DELETE") {
+      this.send(response, 200, await this.runtime.deleteSession(userId, session[1]!)); return;
+    }
     if (path === "/internal/creations" && method === "POST") {
       this.send(response, 202, await this.runtime.create(userId, await readBody(request))); return;
     }

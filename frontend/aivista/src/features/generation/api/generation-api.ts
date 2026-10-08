@@ -27,6 +27,9 @@ export async function updateGenerationSessionTitle(sessionId: string, title: str
   return unwrapApiResponse((await browserApiClient.patch<ApiResponse<{ sessionId: string; title: string }>>(
     `/generation-sessions/${sessionId}`, { title })).data);
 }
+export async function deleteGenerationSession(sessionId: string): Promise<void> {
+  await browserApiClient.delete(`/generation-sessions/${encodeURIComponent(sessionId)}`);
+}
 export function createGenerationTask(input: CreateGenerationTaskInput): Promise<CreatedCreation> {
   return create("NORMAL", input, { aspectRatio: input.aspectRatio, imageCount: input.imageCount,
     negativePrompt: input.negativePrompt, promptExtend: input.promptExtend });

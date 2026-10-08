@@ -73,12 +73,23 @@ export async function runAgentPrompt(options: RunAgentPromptOptions): Promise<Ag
   };
   let turnLimitReached = false;
   let inputRequest: AgentInputRequest | undefined;
-  const blockedMixedToolCallIds = new Set<string>();
+  const blockedToolCallIds = new Set<string>();
   const extension: InlineExtension = {
     name: "aivista-harness",
     hidden: true,
     factory(pi) {
-      pi.on("before_provider_request", (event) => options.adaptProviderRequest?.(event.payload));
+      pi.on("before_provider_request", async (event) => {
+        const adapted = await options.adaptProviderRequest?.(event.payload);
+        const payload = adapted === undefined ? event.payload : adapted;
+        if (!payload || typeof payload !== "object") return payload;
+        // Pi's custom OpenAI provider does not serialize Bailian's thinking switch.
+        const request = options.binding.model.provider === "aivista-bailian"
+          ? { ...payload, enable_thinking: options.binding.model.reasoning }
+          : payload;
+        const tools = Reflect.get(request, "tools");
+        if (!Array.isArray(tools) || tools.length === 0) return request;
+        return { ...request, parallel_tool_calls: false };
+      });
       pi.on("before_agent_start", (event) => {
         options.observer?.captureSystemPrompt(event.systemPrompt);
       });
@@ -104,17 +115,16 @@ export async function runAgentPrompt(options: RunAgentPromptOptions): Promise<Ag
         options.observer?.finishGeneration(event.message);
         const toolCalls = event.message.content
           .filter((content) => content.type === "toolCall")
-          .map((content) => ({ id: content.id, name: content.name }));
-        if (toolCalls.length > 1
-            && toolCalls.some((call) => call.name === REQUEST_USER_INPUT_TOOL_NAME)) {
-          for (const call of toolCalls) blockedMixedToolCallIds.add(call.id);
+          .map((content) => content.id);
+        if (toolCalls.length > 1) {
+          for (const toolCallId of toolCalls) blockedToolCallIds.add(toolCallId);
         }
       });
       pi.on("tool_call", (event) => {
-        if (blockedMixedToolCallIds.has(event.toolCallId)) {
+        if (blockedToolCallIds.has(event.toolCallId)) {
           return {
             block: true,
-            reason: "request_user_input 每条 assistant 消息只能调用一次，且不能与其他工具同时调用。",
+            reason: "每条 assistant 消息最多调用一个工具，本批工具均未执行。请只调用一个工具，等待结果后再决定下一步。",
           };
         }
       });
@@ -168,12 +178,12 @@ export async function runAgentPrompt(options: RunAgentPromptOptions): Promise<Ag
       toolSkillNames.set(event.toolCallId, toolSkillName(event.toolName, event.args));
       options.observer?.startTool({ toolCallId: event.toolCallId,
         toolName: event.toolName, args: event.args });
-      if (blockedMixedToolCallIds.has(event.toolCallId)) return;
+      if (blockedToolCallIds.has(event.toolCallId)) return;
       emit({ type: "tool_start", toolCallId: event.toolCallId, toolName: event.toolName,
         args: event.args });
     }
     if (event.type === "tool_execution_update") {
-      if (blockedMixedToolCallIds.has(event.toolCallId)) return;
+      if (blockedToolCallIds.has(event.toolCallId)) return;
       emit({ type: "tool_progress", toolCallId: event.toolCallId, toolName: event.toolName,
         partialResult: event.partialResult });
     }
@@ -182,7 +192,7 @@ export async function runAgentPrompt(options: RunAgentPromptOptions): Promise<Ag
         result: event.result, isError: event.isError });
       for (const item of toolResultItems(event.toolCallId, event.toolName, event.result, event.isError,
           toolSkillNames.get(event.toolCallId))) options.onItem?.(item);
-      if (blockedMixedToolCallIds.has(event.toolCallId)) return;
+      if (blockedToolCallIds.has(event.toolCallId)) return;
       if (!event.isError && event.toolName === REQUEST_USER_INPUT_TOOL_NAME) {
         inputRequest = inputRequestFromToolResult(event.toolCallId, event.result);
       }

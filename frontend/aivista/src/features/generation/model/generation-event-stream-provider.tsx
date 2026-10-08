@@ -77,7 +77,7 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
   const inFlightRef = useRef(false);
   const startBatchRef = useRef<() => Promise<boolean>>(() => Promise.resolve(false));
   const applyCreationUpdate = useCallback((event: CreationEvent) => {
-    receiveCreationEvent(queryClient, event);
+    if (!receiveCreationEvent(queryClient, event)) return;
     if (event.type === "creation.updated") {
       if (event.status === "SUCCEEDED" || event.status === "PARTIALLY_SUCCEEDED") {
         setCompletedSessionIds(current => new Set(current).add(event.sessionId));

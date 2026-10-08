@@ -56,13 +56,6 @@ type GenerationComposerProps = {
   compact?: boolean;
   onExpand?: () => void;
   hasActiveCreation?: boolean;
-  initialDraft?: GenerationComposerDraft;
-};
-
-export type GenerationComposerDraft = {
-  prompt: string;
-  referenceImages: GenerationAsset[];
-  mode: "agent";
 };
 
 type GenerationMode = GenerationFormValues["mode"];
@@ -153,7 +146,7 @@ function GenerationToolbarControl({
   return (
     <button
       {...buttonProps}
-      className={`inline-flex h-[42px] items-center justify-center gap-2 rounded-[6px] border border-[var(--border-strong)] px-3 text-sm text-[var(--primary)] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-60 ${isActive ? "bg-[var(--active-bg)]" : "bg-[var(--surface-bg)] hover:bg-[var(--active-bg)]"} ${className}`}
+      className={`inline-flex h-9 items-center justify-center gap-1.5 rounded-[5px] border-0 px-2 text-xs leading-5 text-[var(--primary)] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-60 ${isActive ? "bg-[var(--active-bg)]" : "bg-[var(--surface-bg)] hover:bg-[var(--active-bg)]"} ${className}`}
     >
       {children}
     </button>
@@ -166,9 +159,13 @@ function GenerationSubmitButton({ compact, disabled, isLoading, label }: Generat
       type="submit"
       disabled={disabled}
       aria-label={label}
-      className={`z-10 inline-flex size-12 shrink-0 items-center justify-center rounded-full bg-[var(--accent)] text-white transition hover:bg-[var(--accent-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 ${compact ? "absolute right-[5px] top-1/2 -translate-y-1/2" : "mr-2"}`}
+      className={`z-10 inline-flex shrink-0 items-center justify-center rounded-full bg-[var(--accent)] text-white transition hover:bg-[var(--accent-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 ${compact ? "absolute right-[5px] top-1/2 size-12 -translate-y-1/2" : "mr-1 size-10"}`}
     >
-      {isLoading ? <LoaderCircle className="size-5 animate-spin" /> : <ArrowUp className="size-5" strokeWidth={2.5} />}
+      {isLoading ? (
+        <LoaderCircle className={`${compact ? "size-5" : "size-4"} animate-spin`} />
+      ) : (
+        <ArrowUp className={compact ? "size-5" : "size-4"} strokeWidth={2.5} />
+      )}
     </button>
   );
 }
@@ -197,11 +194,11 @@ function GenerationSelect({
         aria-haspopup="listbox"
         className="w-full justify-start text-left font-normal"
       >
-        <SelectedIcon aria-hidden="true" className="size-4 shrink-0 text-[var(--accent-hover)]" />
-        <span className="min-w-0 flex-1 truncate">{selectedOption.label}</span>
+        <SelectedIcon aria-hidden="true" className="size-3.5 shrink-0 text-[var(--accent-hover)]" />
+        <span className="whitespace-nowrap leading-5">{selectedOption.label}</span>
         <ChevronDown
           aria-hidden="true"
-          className={`size-4 shrink-0 text-[var(--text-secondary)] transition-transform ${isOpen ? "rotate-180" : ""}`}
+          className={`size-3.5 shrink-0 text-[var(--text-secondary)] transition-transform ${isOpen ? "rotate-180" : ""}`}
         />
       </GenerationToolbarControl>
       {isOpen ? (
@@ -324,7 +321,6 @@ export function GenerationComposer({
   compact = false,
   onExpand,
   hasActiveCreation = false,
-  initialDraft,
 }: GenerationComposerProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -337,14 +333,14 @@ export function GenerationComposer({
   const [showConsent, setShowConsent] = useState(false);
   const [submitFeedback, setSubmitFeedback] = useState<SubmissionFeedback | null>(null);
   const [isPreparingStream, setIsPreparingStream] = useState(false);
-  const [referenceImages, setReferenceImages] = useState<GenerationAsset[]>(() => initialDraft?.referenceImages ?? []);
+  const [referenceImages, setReferenceImages] = useState<GenerationAsset[]>([]);
   const controlsRef = useRef<HTMLDivElement>(null);
   const optionsTriggerRef = useRef<HTMLButtonElement>(null);
   const form = useForm<GenerationFormValues>({
     resolver: zodResolver(generationFormSchema),
     defaultValues: {
-      mode: initialDraft?.mode ?? "image",
-      prompt: initialDraft?.prompt ?? "",
+      mode: "image",
+      prompt: "",
       negativePrompt: "",
       aspectRatio: "1:1",
       promptExtend: true,
@@ -403,7 +399,6 @@ export function GenerationComposer({
   });
 
   useEffect(() => {
-    if (initialDraft) return;
     const storedMode = window.sessionStorage.getItem(GENERATION_MODE_STORAGE_KEY);
     if (storedMode !== "image" && storedMode !== "agent") return;
     let active = true;
@@ -413,7 +408,7 @@ export function GenerationComposer({
     return () => {
       active = false;
     };
-  }, [initialDraft, setValue]);
+  }, [setValue]);
 
   useEffect(() => {
     if (!showOptions && !openSelect && !referenceMenuOpen) return;
@@ -518,11 +513,7 @@ export function GenerationComposer({
           id="generation-prompt"
           rows={1}
           disabled={isSubmitDisabled}
-          placeholder={
-            mode === "agent"
-              ? "描述你的创作目标，Agent 会分析并选择合适的工具"
-              : "描述你想生成的图片，例如：云海上的未来城市，日落，电影感"
-          }
+          placeholder="描述你的创作想法，让灵感成为画面…"
           onFocus={onExpand}
           onInput={(event) => {
             event.currentTarget.style.height = "auto";
@@ -531,7 +522,7 @@ export function GenerationComposer({
           className={
             compact
               ? "h-[58px] w-full resize-none overflow-hidden bg-transparent px-6 py-0 pr-16 text-base leading-[58px] text-[var(--primary)] outline-none placeholder:text-[var(--placeholder)] disabled:cursor-not-allowed disabled:opacity-60"
-              : "min-h-20 max-h-[240px] w-full resize-none overflow-y-auto bg-transparent px-6 pb-[18px] pt-2 text-base leading-7 text-[var(--primary)] outline-none placeholder:text-[var(--placeholder)] disabled:cursor-not-allowed disabled:opacity-60 sm:px-[26px]"
+              : "min-h-[104px] max-h-[240px] w-full resize-none overflow-y-auto bg-transparent px-6 pb-[18px] pt-5 text-base leading-7 text-[var(--primary)] outline-none placeholder:text-[var(--placeholder)] disabled:cursor-not-allowed disabled:opacity-60 sm:px-[26px]"
           }
           {...form.register("prompt")}
         />
@@ -550,9 +541,9 @@ export function GenerationComposer({
         ) : null}
 
         {!compact ? (
-          <div className="flex min-h-[88px] flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] px-4 py-3 sm:flex-nowrap sm:px-4">
-            <div ref={controlsRef} className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-[14px]">
-              <div className="w-[148px] shrink-0">
+          <div className="flex min-h-16 flex-wrap items-center justify-between gap-2 border-t border-[var(--border)] px-4 py-2 sm:flex-nowrap">
+            <div ref={controlsRef} className="flex min-w-0 flex-wrap items-center gap-1">
+              <div className="shrink-0">
                 <GenerationSelect
                   ariaLabel="生成模式"
                   value={mode}
@@ -585,8 +576,8 @@ export function GenerationComposer({
                   aria-expanded={showOptions}
                   isActive={showOptions}
                 >
-                  <Settings2 className="size-[19px] text-[var(--accent-hover)]" />
-                  <span>更多设置</span>
+                  <Settings2 className="size-4 text-[var(--accent-hover)]" />
+                  <span>设置</span>
                 </GenerationToolbarControl>
                 {showOptions ? (
                   <div
@@ -724,7 +715,7 @@ export function GenerationComposer({
                     aria-label="添加参考图片"
                     aria-expanded={isOpen}
                     aria-haspopup="menu"
-                    className="w-[42px] px-0 text-base font-semibold text-[var(--accent)]"
+                    className="w-9 px-0 text-sm font-semibold text-[var(--accent)]"
                   >
                     @
                   </GenerationToolbarControl>

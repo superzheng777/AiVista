@@ -140,7 +140,7 @@ Skill 负责母版分析、系列锁定、变量设计、Prompt 编译和视觉�
 - 历史图片只以 Asset ID 存在且需要重新理解：先调用 `inspect_image`。历史图片属于 Runtime 可信会话资产集合时可以用于图生图，集合外的图片需要用户重新选择。
 - 多张参考图参与时维护内部来源映射；`inputAssetIds` 的顺序必须与 Prompt 中的角色一致，且不得超过 Tool 上限。
 
-不同矩阵项通常使用独立 Tool Call，并将 `imageCount` 设为 `1`。只有多个结果共享完全相同 Prompt、只是同一方向候选变体时，才使用一次 Tool Call 的 `imageCount > 1`。所有调用的总图片数服从 Runtime 约束；同一批调用使用相同的总体 `userFacingPlan`。
+不同矩阵项通常使用独立 Tool Call，并将 `imageCount` 设为 `1`。只有多个结果共享完全相同 Prompt、只是同一方向候选变体时，才使用一次 Tool Call 的 `imageCount > 1`。所有调用的总图片数服从 Runtime 约束；每条 assistant 消息只调用一个工具，等待结果后再继续，同组各次调用使用相同的总体 `userFacingPlan`，方案变化时更新。
 
 当前 Runtime 没有联网资料检索、独立前景分割和超分辨率 Tool：
 

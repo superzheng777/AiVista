@@ -38,10 +38,7 @@ public class PublicationService {
     public PublicationRequestResponse request(long userId, long imageId, String title, String description) {
         String normalizedTitle = title.trim();
         String normalizedDescription = description.trim();
-        if (userMapper.selectIdForUpdate(userId) == null) {
-            throw new BusinessException(ErrorCode.UNAUTHORIZED);
-        }
-
+        // The owned asset lookup validates access and serializes publication changes.
         ImageAsset image = imageMapper.selectVisibleOwnedByIdForUpdate(imageId, userId);
         if (image == null || image.getDeletedAt() != null) {
             throw new BusinessException(ErrorCode.GENERATION_RESOURCE_NOT_FOUND);
@@ -83,7 +80,7 @@ public class PublicationService {
         boolean wasPublic = image.getPublicAt() != null;
         if (wasPublic) {
             int deleted = likeMapper.deleteByAssetAndVersion(imageId, image.getPublicationVersion());
-            if (deleted != likeCount || userMapper.selectIdForUpdate(image.getUserId()) == null
+            if (deleted != likeCount
                     || userMapper.changeReceivedLikeCount(image.getUserId(), -deleted) != 1) {
                 throw new IllegalStateException("Publication like counters are inconsistent");
             }

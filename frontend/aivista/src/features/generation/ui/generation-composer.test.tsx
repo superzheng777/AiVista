@@ -4,7 +4,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { GenerationComposer } from "@/features/generation/ui/generation-composer";
 import { createAgentCreation, createGenerationTask } from "@/features/generation/api/generation-api";
-import type { GenerationAsset } from "@/entities/generation/model/generation";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock("@/features/auth/model/auth-dialog-provider", () => ({ useAuthDialog: () => ({ open: vi.fn() }) }));
@@ -66,7 +65,7 @@ describe("GenerationComposer", () => {
       imageCount: 0,
     });
     expect(createGenerationTask).not.toHaveBeenCalled();
-    expect(screen.getByText("更多设置")).toBeInTheDocument();
+    expect(screen.getByText("设置")).toBeInTheDocument();
   });
 
   it("keeps the selected Agent mode when the composer remounts after navigation", async () => {
@@ -157,36 +156,6 @@ describe("GenerationComposer", () => {
     });
   });
 
-  it("prefills a continuation suggestion as an Agent draft without submitting it", async () => {
-    vi.mocked(createAgentCreation).mockImplementation(() => new Promise(() => undefined));
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(
-      <QueryClientProvider client={queryClient}>
-        <GenerationComposer
-          sessionId="session-1"
-          initialDraft={{
-            prompt: "基于第 2 张图片继续优化",
-            referenceImages: [{ id: "asset-existing" } as GenerationAsset],
-            mode: "agent",
-          }}
-        />
-      </QueryClientProvider>,
-    );
-
-    expect(screen.getByLabelText("创作提示")).toHaveValue("基于第 2 张图片继续优化");
-    expect(createAgentCreation).not.toHaveBeenCalled();
-    fireEvent.submit(screen.getByRole("button", { name: "开始生成" }).closest("form")!);
-
-    await waitFor(() => expect(createAgentCreation).toHaveBeenCalledTimes(1));
-    expect(createAgentCreation).toHaveBeenCalledWith({
-      sessionId: "session-1",
-      prompt: "基于第 2 张图片继续优化",
-      inputAssetIds: ["asset-existing"],
-      aspectRatio: "AUTO",
-      imageCount: 0,
-    });
-  });
-
   it("submits explicit Agent aspect ratio and image count constraints", async () => {
     vi.mocked(createAgentCreation).mockImplementation(() => new Promise(() => undefined));
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -198,7 +167,7 @@ describe("GenerationComposer", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "生成模式" }));
     fireEvent.click(screen.getByRole("option", { name: /Agent 模式/ }));
-    fireEvent.click(screen.getByRole("button", { name: "更多设置" }));
+    fireEvent.click(screen.getByRole("button", { name: "设置" }));
     fireEvent.click(screen.getByRole("radio", { name: "3:4" }));
     fireEvent.click(screen.getByRole("radio", { name: "3" }));
     fireEvent.change(screen.getByLabelText("创作提示"), { target: { value: "生成三张竖版海报" } });
@@ -224,12 +193,12 @@ describe("GenerationComposer", () => {
       </QueryClientProvider>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "更多设置" }));
+    fireEvent.click(screen.getByRole("button", { name: "设置" }));
     fireEvent.click(screen.getByRole("radio", { name: "4:3" }));
     fireEvent.click(screen.getByRole("radio", { name: "2" }));
     fireEvent.click(screen.getByRole("button", { name: "生成模式" }));
     fireEvent.click(screen.getByRole("option", { name: /Agent 模式/ }));
-    fireEvent.click(screen.getByRole("button", { name: "更多设置" }));
+    fireEvent.click(screen.getByRole("button", { name: "设置" }));
     fireEvent.click(screen.getByRole("radio", { name: "3:4" }));
     fireEvent.click(screen.getByRole("radio", { name: "3" }));
     fireEvent.click(screen.getByRole("button", { name: "生成模式" }));

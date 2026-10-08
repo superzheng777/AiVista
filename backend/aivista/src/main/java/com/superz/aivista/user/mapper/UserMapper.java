@@ -18,9 +18,6 @@ public interface UserMapper extends BaseMapper<User> {
             """)
     User selectByLoginName(@Param("loginName") String loginName);
 
-    @Select("SELECT id FROM users WHERE id = #{userId} FOR UPDATE")
-    Long selectIdForUpdate(@Param("userId") long userId);
-
     @Select("""
             <script>
             SELECT id FROM users WHERE id IN

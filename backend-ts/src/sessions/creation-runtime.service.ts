@@ -38,7 +38,7 @@ export class CreationRuntimeService {
   private readonly running = new Map<string, AbortController>();
   private readonly activeSessions = new Set<string>();
   private readonly deliveries = new Map<string, Promise<void>>();
-  constructor(private readonly config: ConfigService<Environment, true>, private readonly database: DatabaseService,
+  constructor(private readonly config: ConfigService<Environment, true>, database: DatabaseService,
       private readonly model: AgentModelService, private readonly eventClient: RuntimeEventClient,
       private readonly images: GenerationImageUrlService, private readonly tasks: GenerationTaskService,
       private readonly observability: AgentObservabilityService) {
@@ -86,9 +86,17 @@ export class CreationRuntimeService {
 
   async title(userId: string, sessionId: string, body: unknown) {
     const { title } = z.object({ title: z.string().trim().min(1).max(100) }).strict().parse(body);
-    await this.executions.ownedSession(userId, sessionId);
-    await sql`UPDATE generation_sessions SET title = ${title} WHERE id = ${sessionId}`.execute(this.database.db);
+    await this.executions.renameSession(userId, sessionId, title);
     return { sessionId, title };
+  }
+
+  async deleteSession(userId: string, sessionId: string) {
+    if (this.activeSessions.has(sessionId)) {
+      await this.executions.ownedSession(userId, sessionId);
+      throw new ExecutionConflict("SESSION_BUSY");
+    }
+    await this.executions.deleteSession(userId, sessionId);
+    return { sessionId, deleted: true };
   }
 
   async answer(userId: string, creationId: string, toolCallId: string, body: unknown) {
@@ -119,6 +127,7 @@ export class CreationRuntimeService {
   async cancel(userId: string, creationId: string) {
     await this.executions.locked(creationId, async (row, transaction) => {
       if (String(row.user_id) !== userId || row.kind !== "CREATION") throw new ExecutionConflict("NOT_FOUND");
+      await this.executions.ownedSession(userId, String(row.session_id), transaction);
       if (row.status === "CANCELLED") return;
       if (!["QUEUED", "RUNNING", "WAITING_INPUT"].includes(row.status)) throw new ExecutionConflict("REVISION_CONFLICT");
       await sql`UPDATE executions SET status = 'CANCELLED', revision = revision + 1,
