@@ -12,6 +12,7 @@ export function OwnedImageDetailActions({
   onPublish,
   onCopy,
   onDelete,
+  appearance = "detail",
 }: {
   image: GenerationAsset;
   isFavoriteUpdating: boolean;
@@ -20,7 +21,15 @@ export function OwnedImageDetailActions({
   onPublish: () => void;
   onCopy: () => Promise<void>;
   onDelete: () => void;
+  appearance?: "detail" | "card";
 }) {
+  const card = appearance === "card";
+  const buttonClassName = cn(
+    "grid size-9 place-items-center transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50",
+    card
+      ? "rounded-[6px] bg-[var(--primary)]/90 text-[var(--surface-bg)] hover:bg-[var(--primary)] lg:size-8 min-[1320px]:size-9"
+      : "rounded-[7px] text-[var(--primary)] hover:bg-[var(--surface-hover)]",
+  );
   return (
     <>
       <button
@@ -30,17 +39,14 @@ export function OwnedImageDetailActions({
         onClick={onFavorite}
         disabled={isFavoriteUpdating}
         className={cn(
-          "grid size-9 place-items-center rounded-[7px] transition hover:bg-[var(--surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50",
-          image.favorited ? "text-[var(--accent-hover)]" : "text-[var(--primary)]",
+          buttonClassName,
+          image.favorited && (card ? "text-[var(--active-bg)]" : "text-[var(--accent-hover)]"),
         )}
       >
-        <Star className={cn("size-5", image.favorited && "fill-current")} />
+        <Star className={cn(card ? "size-4" : "size-5", image.favorited && "fill-current")} />
       </button>
       <Menu.Root>
-        <Menu.Trigger
-          aria-label="更多操作"
-          className="grid size-9 place-items-center rounded-[7px] text-[var(--primary)] transition hover:bg-[var(--surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
-        >
+        <Menu.Trigger aria-label="更多操作" className={buttonClassName}>
           <MoreHorizontal className="size-5" />
         </Menu.Trigger>
         <Menu.Portal>

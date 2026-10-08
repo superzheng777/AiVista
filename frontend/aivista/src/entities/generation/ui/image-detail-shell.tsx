@@ -5,7 +5,8 @@ import { ArrowLeft, ChevronDown, ChevronUp, Download } from "lucide-react";
 import { useRef, useState } from "react";
 import type { ReactNode } from "react";
 
-import { needsImageUrlRefresh, type GenerationAsset } from "@/entities/generation/model/generation";
+import type { GenerationAsset } from "@/entities/generation/model/generation";
+import { copyGenerationImage } from "@/entities/generation/lib/copy-generation-image";
 import type { ImageDetailNavigation } from "@/entities/generation/model/use-image-detail-navigation";
 
 type ImageDetailShellProps = {
@@ -53,24 +54,6 @@ function ImageDetailShellContent({
   const imageRetryUsedRef = useRef(false);
   const showAsideHeader = Boolean(onDownload || headerActions);
 
-  async function refreshedImage(): Promise<GenerationAsset> {
-    if (!refreshImage) throw new Error("Image refresh is unavailable");
-    return refreshImage(image.id);
-  }
-
-  async function imageForAccess(): Promise<{ image: GenerationAsset; refreshed: boolean }> {
-    if (!needsImageUrlRefresh(image.imageUrls.display)) return { image, refreshed: false };
-    return { image: await refreshedImage(), refreshed: true };
-  }
-
-  async function fetchImage(imageToFetch: GenerationAsset): Promise<Blob> {
-    const url = imageToFetch.imageUrls.display?.url;
-    if (!url) throw new Error("Display image URL is unavailable");
-    const response = await fetch(url, { mode: "cors", referrerPolicy: "no-referrer" });
-    if (!response.ok) throw new Error("Image request failed");
-    return response.blob();
-  }
-
   async function download(): Promise<void> {
     if (!onDownload) return;
     setDownloadFailed(false);
@@ -82,19 +65,7 @@ function ImageDetailShellContent({
   }
   async function copy(): Promise<void> {
     try {
-      const access = await imageForAccess();
-      let imageToCopy = access.image;
-      const refreshed = access.refreshed;
-      let blob: Blob;
-      try {
-        blob = await fetchImage(imageToCopy);
-      } catch {
-        if (refreshed) throw new Error("Image request failed after refresh");
-        imageToCopy = await refreshedImage();
-        blob = await fetchImage(imageToCopy);
-      }
-      if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined") throw new Error();
-      await navigator.clipboard.write([new ClipboardItem({ [blob.type || "image/webp"]: blob })]);
+      await copyGenerationImage(image, refreshImage);
       setCopyFailed(false);
     } catch {
       setCopyFailed(true);
@@ -107,7 +78,7 @@ function ImageDetailShellContent({
     }
     imageRetryUsedRef.current = true;
     try {
-      await refreshedImage();
+      await refreshImage(image.id);
     } catch {
       setImageUnavailable(true);
     }

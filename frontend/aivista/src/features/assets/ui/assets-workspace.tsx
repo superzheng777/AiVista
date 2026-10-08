@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { personalResourceListPolicy } from "@/shared/api/resource-list-policy";
 import { patchResource, removeResources } from "@/entities/generation/model/resource-cache";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Download, Heart, LoaderCircle, MoreHorizontal, Send, Sparkles, Trash2, X } from "lucide-react";
+import { Check, Download, LoaderCircle, Sparkles, Star, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { needsImageUrlRefresh, type GenerationAsset } from "@/entities/generation/model/generation";
@@ -14,6 +14,7 @@ import {
   type ImageDetailNavigation,
 } from "@/entities/generation/model/use-image-detail-navigation";
 import { ImageDetailShell } from "@/entities/generation/ui/image-detail-shell";
+import { copyGenerationImage } from "@/entities/generation/lib/copy-generation-image";
 import { OwnedImageDetailActions } from "@/entities/generation/ui/owned-image-detail-actions";
 import {
   assetQueryKeys,
@@ -168,6 +169,14 @@ export function AssetsWorkspace() {
       setNotice("下载失败，请稍后重试。");
     }
   }
+  async function copy(asset: GenerationAsset) {
+    try {
+      await copyGenerationImage(asset, refresh);
+      setNotice("图片已复制。");
+    } catch {
+      setNotice("复制失败，请使用下载。");
+    }
+  }
   function publish(asset: GenerationAsset) {
     if (asset.publicationReviewStatus === "APPROVED") {
       router.push(`/inspirations?imageId=${encodeURIComponent(asset.id)}`);
@@ -312,6 +321,7 @@ export function AssetsWorkspace() {
                     selected={selected.has(asset.id)}
                     opening={openingId === asset.id}
                     favoriteUpdating={favorite.isPending}
+                    isDeleting={remove.isPending}
                     onOpen={() => void open(asset)}
                     onSelect={() => toggle(asset.id)}
                     onBeginManaging={() => {
@@ -320,6 +330,7 @@ export function AssetsWorkspace() {
                     }}
                     onFavorite={() => favorite.mutate({ ids: [asset.id], value: !asset.favorited })}
                     onDownload={() => void download(asset)}
+                    onCopy={() => copy(asset)}
                     onPublish={() => publish(asset)}
                     onDelete={() => setDeleting([asset.id])}
                   />
@@ -376,11 +387,13 @@ function AssetCard({
   selected,
   opening,
   favoriteUpdating,
+  isDeleting,
   onOpen,
   onSelect,
   onBeginManaging,
   onFavorite,
   onDownload,
+  onCopy,
   onPublish,
   onDelete,
 }: {
@@ -389,17 +402,17 @@ function AssetCard({
   selected: boolean;
   opening: boolean;
   favoriteUpdating: boolean;
+  isDeleting: boolean;
   onOpen: () => void;
   onSelect: () => void;
   onBeginManaging: () => void;
   onFavorite: () => void;
   onDownload: () => void;
+  onCopy: () => Promise<void>;
   onPublish: () => void;
   onDelete: () => void;
 }) {
-  const [more, setMore] = useState(false);
   const status = statusOf(asset);
-  const publishLabel = asset.publicationReviewStatus === "APPROVED" ? "查看发布" : "发布";
   return (
     <article className="min-w-0">
       <div
@@ -436,7 +449,7 @@ function AssetCard({
         {status ? (
           <span
             className={cn(
-              "pointer-events-none absolute right-3 top-3 z-10 rounded-[5px] px-2 py-1 text-xs font-medium transition-opacity group-hover:opacity-0 group-focus-within:opacity-0 lg:right-2 lg:top-2 min-[1320px]:right-3 min-[1320px]:top-3",
+              "pointer-events-none absolute right-3 top-3 z-10 rounded-[5px] px-2 py-1 text-xs font-medium transition-opacity group-hover:opacity-0 group-focus-within:opacity-0 group-has-[[data-popup-open]]:opacity-0 lg:right-2 lg:top-2 min-[1320px]:right-3 min-[1320px]:top-3",
               asset.publicationReviewStatus === "APPROVED"
                 ? "bg-[var(--active-bg)] text-[var(--accent)]"
                 : "bg-[var(--surface-bg)] text-[var(--text-secondary)]",
@@ -456,70 +469,26 @@ function AssetCard({
         >
           <Check className={cn("size-4", selected ? "opacity-100" : "opacity-0")} />
         </button>
-        <div className="absolute right-3 top-3 z-10 flex gap-2 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100 lg:right-2 lg:top-2 lg:gap-1 min-[1320px]:right-3 min-[1320px]:top-3 min-[1320px]:gap-2">
-          <button
-            type="button"
-            disabled={favoriteUpdating}
-            onClick={onFavorite}
-            className="grid size-9 place-items-center rounded-[6px] bg-[var(--primary)]/90 text-[var(--surface-bg)] lg:size-8 min-[1320px]:size-9"
-            aria-label={asset.favorited ? "取消收藏" : "收藏"}
-          >
-            <Heart className={cn("size-4", asset.favorited && "fill-current text-[var(--active-bg)]")} />
-          </button>
-          <button
-            type="button"
-            onClick={() => setMore((value) => !value)}
-            className="grid size-9 place-items-center rounded-[6px] bg-[var(--primary)]/90 text-[var(--surface-bg)] lg:size-8 min-[1320px]:size-9"
-            aria-label="更多操作"
-          >
-            <MoreHorizontal className="size-5" />
-          </button>
-          {more ? (
-            <div className="absolute right-0 top-11 w-28 overflow-hidden rounded-[6px] border border-[var(--border)] bg-[var(--surface-bg)] py-1 text-[var(--primary)] shadow-xl">
-              <button
-                type="button"
-                onClick={() => {
-                  setMore(false);
-                  onOpen();
-                }}
-                className="w-full px-3 py-2 text-left text-xs hover:bg-[var(--surface-soft)]"
-              >
-                查看详情
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setMore(false);
-                  onDelete();
-                }}
-                className="w-full px-3 py-2 text-left text-xs text-[var(--accent-hover)] hover:bg-[var(--accent-soft)]"
-              >
-                删除
-              </button>
-            </div>
-          ) : null}
-        </div>
-        <div className="absolute inset-x-3 bottom-3 z-10 flex justify-center gap-2 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100 lg:inset-x-2 lg:bottom-2 lg:gap-1 min-[1320px]:inset-x-3 min-[1320px]:bottom-3 min-[1320px]:gap-2">
+        <div className="absolute right-3 top-3 z-10 flex gap-2 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100 has-[[data-popup-open]]:opacity-100 lg:right-2 lg:top-2 lg:gap-1 min-[1320px]:right-3 min-[1320px]:top-3 min-[1320px]:gap-2">
           <button
             type="button"
             title="下载"
             aria-label="下载图片"
             onClick={onDownload}
-            className="inline-flex h-[38px] items-center gap-1.5 rounded-[6px] bg-[var(--primary)]/90 px-3 text-xs font-medium text-[var(--surface-bg)] lg:size-8 lg:justify-center lg:px-0 min-[1320px]:h-[38px] min-[1320px]:w-auto min-[1320px]:px-3"
+            className="grid size-9 place-items-center rounded-[6px] bg-[var(--primary)]/90 text-[var(--surface-bg)] transition hover:bg-[var(--primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] lg:size-8 min-[1320px]:size-9"
           >
             <Download className="size-4" />
-            <span className="lg:hidden min-[1320px]:inline">下载</span>
           </button>
-          <button
-            type="button"
-            title={publishLabel}
-            aria-label={publishLabel}
-            onClick={onPublish}
-            className="inline-flex h-[38px] items-center gap-1.5 rounded-[6px] bg-[var(--primary)]/90 px-3 text-xs font-medium text-[var(--surface-bg)] lg:size-8 lg:justify-center lg:px-0 min-[1320px]:h-[38px] min-[1320px]:w-auto min-[1320px]:px-3"
-          >
-            <Send className="size-4" />
-            <span className="lg:hidden min-[1320px]:inline">{publishLabel}</span>
-          </button>
+          <OwnedImageDetailActions
+            image={asset}
+            appearance="card"
+            isFavoriteUpdating={favoriteUpdating}
+            isDeleting={isDeleting}
+            onFavorite={onFavorite}
+            onPublish={onPublish}
+            onCopy={onCopy}
+            onDelete={onDelete}
+          />
         </div>
       </div>
     </article>
@@ -566,7 +535,7 @@ function BulkBar({
         disabled={!count || favoriteUpdating}
         className="inline-flex h-10 items-center gap-1.5 rounded-[6px] bg-white/10 px-3 text-sm disabled:opacity-40"
       >
-        <Heart className="size-4" />
+        <Star className="size-4" />
         {hasUnfavorited ? "收藏" : "取消收藏"}
       </button>
       <button
