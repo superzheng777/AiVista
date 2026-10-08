@@ -33,7 +33,7 @@ AiVista 面向希望用 AI 把视觉想法做成作品的个人创作者。我�
 - 从公开灵感、关键词搜索和创作者主页进入文生图或图生图，再将结果沉淀为个人资产并发布到社区。
 - 同时提供直接生成与 Agent 模式。Agent 可以结合对话上下文和八个内置 Skill 工作；信息不足时生成可恢复的确认表单，用户提交或跳过后继续，也可以取消整次创作。
 - 支持个人资产、收藏、关注、点赞、通知和创作者主页等社区能力。
-- 通过事务 Outbox、RabbitMQ 和独立 Worker 执行耗时任务，并按至少一次传递设计幂等收敛。
+- 创作由 TS 扫描执行记录并通过 RabbitMQ 投递，资产与额度在同一事务结算；社区待办沿用 Java Outbox，各链路按至少一次传递设计幂等收敛。
 - 原始图片存放在私有 OSS，按使用场景生成缩略图、展示图和原图访问地址。
 
 ## 产品展示
@@ -46,7 +46,7 @@ AiVista 面向希望用 AI 把视觉想法做成作品的个人创作者。我�
 
 ![AiVista AI 新对话创作页面，展示直接生成与 Agent 模式入口](docs/frontend/design/pic/show/new_generation.png)
 
-在 Agent 会话中查看 Skill 加载、结构化确认、创作过程和生成结果，并继续调整作品或进入资产库。
+Agent 回复分为可折叠的 AI 思考过程、可折叠的表单操作记录、最终回复和图片区域；过程包含每次公开文字及工具名称、执行状态。工具条目不可展开，接口不传工具参数和详细结果。可以继续调整作品或进入资产库。
 
 ![AiVista Agent 创作会话，展示 Skill 加载、需求确认、创作过程和海报结果](docs/frontend/design/pic/show/generation.png)
 
@@ -89,31 +89,32 @@ AiVista Agent 按任务需要加载对应 Skill。Skill 定义需求收集、创
 
 ## 系统架构
 
-生成请求先由 Java Core 完成鉴权、额度检查和事务落库，再通过消息队列交给 AI Runtime。Worker 调用模型并转存图片后，只能通过受保护的内部接口提交结果；任务终态、额度和用户可见资产仍由 Java 在事务中统一确认。
+生成请求由 Java Core 完成鉴权和输入图片授权，再通过内部 HTTP 交给 TS AI Runtime。TS 创建执行记录、发布并消费 MQ 命令，调用模型并转存图片，在同一 MySQL 事务中登记生成资产、结算额度和生图终态。普通生成和 Agent 创作共享一份原生 Pi 会话文件。
 
 ```mermaid
 flowchart LR
     browser["Browser<br/>Next.js"] -->|"REST"| core["Java Core API<br/>Spring Boot"]
-    core --> business[("MySQL<br/>Java 业务表")]
+    core --> business[("MySQL<br/>执行、资产与社区数据")]
     core --> search[("Meilisearch")]
-    core -->|"事务 Outbox"| rabbit["RabbitMQ<br/>Quorum Queues"]
-    rabbit --> runtime["TypeScript AI Runtime<br/>NestJS + Pi Agent"]
-    runtime --> ledger[("MySQL<br/>执行账本与检查点")]
+    core -->|"鉴权后的内部 HTTP"| runtime["TypeScript AI Runtime<br/>NestJS + Pi Agent"]
+    runtime -->|"创作命令"| rabbit["RabbitMQ<br/>Quorum Queue"]
+    rabbit --> runtime
+    runtime -->|"执行与结算事务"| business
+    runtime --> sessions[("Pi JSONL<br/>完整会话记录")]
     runtime -->|"模型调用"| bailian["阿里云百炼"]
     runtime -->|"私有对象"| oss["阿里云 OSS"]
-    runtime -->|"幂等完成回调"| core
-    runtime -. "实时 WebSocket" .-> core
+    runtime -. "HTTP 实时事件" .-> core
     core -. "SSE" .-> browser
 ```
 
-图中的两个 MySQL 节点表示同一数据库服务中的逻辑数据边界，并不要求拆成两个实例。Java Core 持有业务事实，AI Runtime 只维护执行所需的账本和检查点。实时事件用于改善交互及时性，浏览器断线或事件缺失时仍以 REST 快照恢复最终状态。
+Java 与 TS 连接同一个 MySQL 库；生成结算由 TS 负责，资产管理和社区操作由 Java 负责。会话内容保存在持久化的 Pi JSONL 中，SQL 保存会话索引和执行状态。浏览器直接把 SSE 事件合入当前会话缓存，断线后通过 REST 历史恢复。
 
 ## 关键工程取舍
 
-- **可靠投递：** Java Core 在同一事务中写入业务数据和 Outbox，再由 dispatcher 发布到 RabbitMQ quorum queue 并等待发布确认，网络失败时可以安全重试派发。
-- **幂等收敛：** 系统按至少一次传递设计。任务 revision、确定性对象键、执行账本和条件完成接口共同吸收重复消息，不宣称 exactly-once。
-- **实时与最终状态分离：** Worker 经 WebSocket 把过程事件交给 Java，再由 SSE 投影给浏览器；REST 快照始终是用户可见状态的最终依据。
-- **受控的 Agent 执行：** 工具白名单、授权输入资产、最大轮数和取消信号共同限制执行范围。需要补充意图时，Worker 结束当前执行段，Java 原子保存表单和恢复上下文；用户提交、跳过或取消后再进入原有消息链路，无需让 Worker 线程持续等待。
+- **可靠投递：** TS 扫描尚未派发的 QUEUED 执行记录，将命令发送至 RabbitMQ quorum queue，收到确认后记录派发时间。
+- **消费与结算幂等：** 消费者通过状态和 revision 原子领取任务，结算通过执行行锁和结算标记避免重复登记资产、重复退款。模型调用不自动重试。
+- **实时与历史共用协议：** TS 经内部 HTTP 将过程事件交给 Java，再由 SSE 更新浏览器的 turns/items；历史加载返回相同结构。
+- **受控的 Agent 执行：** 工具白名单、可信会话图片、轮数上限和取消信号限制执行范围。需要用户确认时保存原生表单记录并进入 WAITING_INPUT；回答追加到同一会话后恢复原创作，不占用等待中的 Agent 执行线程。
 - **可选运行追踪：** Langfuse 与 OpenTelemetry 默认关闭。观测失败不会改变业务状态，记录内容会省略图片二进制、模型思考内容和签名信息。
 - **私有图片访问：** OSS 保存私有源文件和派生变体，浏览器只获得与当前用途匹配的短期签名 URL。
 
@@ -149,7 +150,7 @@ cd AiVista
 
 ### 1. 启动 Java Core
 
-复制[本地配置模板](backend/aivista/src/main/resources/application-local.example.yaml)，填写数据库、RabbitMQ、Meilisearch、百炼、OSS 和 JWT 配置。将下方令牌占位符替换为仅在本机使用的随机值，不要向 Git 提交真实凭证。首次启动时，Flyway 会为目标数据库执行版本化迁移。
+复制[本地配置模板](backend/aivista/src/main/resources/application-local.example.yaml)，填写数据库、RabbitMQ、Meilisearch、百炼、OSS 和 JWT 配置。将下方令牌占位符替换为仅在本机使用的随机值，不要向 Git 提交真实凭证。首次启动时，Flyway 通过唯一的 V1__initialize_schema.sql 初始化空库；原有多版本迁移历史不能直接套用新 V1。
 
 ```powershell
 cd backend/aivista
@@ -175,7 +176,7 @@ pnpm build
 pnpm worker
 ```
 
-Worker 复用 Java 本地配置，但不向浏览器提供 API。Java 与 Worker 必须使用相同的 `AIVISTA_GENERATION_WORKER_TOKEN`。启用 Agent 模式时，Java 终端设置 `APP_AGENT_ENABLED=true`，TS Worker 终端设置 `AIVISTA_AGENT_ENABLED=true`，同时由 Worker 通过 `AIVISTA_JAVA_LOCAL_YAML` 读取同一份 Java 本地配置。可选环境变量见 [`.env.example`](backend-ts/.env.example)，完整说明见 [AI Runtime 文档](docs/worker/AI-Runtime.md)。
+Worker 复用 Java 本地配置，但不向浏览器提供 API。Java 与 Worker 必须使用相同的内部令牌。上述命令适用于 YAML 通过环境变量占位符取值；若本地 YAML 已固定填写 worker-api.token，应由 Worker 直接读取，不另设不同的 AIVISTA_GENERATION_WORKER_TOKEN。启用 Agent 模式时，Java 终端设置 `APP_AGENT_ENABLED=true`，TS Worker 终端设置 `AIVISTA_AGENT_ENABLED=true`，同时由 Worker 通过 `AIVISTA_JAVA_LOCAL_YAML` 读取同一份 Java 本地配置。可选环境变量见 [`.env.example`](backend-ts/.env.example)，完整说明见 [AI Runtime 文档](docs/worker/AI-Runtime.md)。
 
 ### 3. 启动 Web
 
@@ -227,7 +228,7 @@ pnpm build
 - [Java Core 后端项目开发文档](docs/java/后端项目开发文档.md)：领域模块、基础设施和实现索引。
 - [Agent 模式架构](docs/architecture/Agent模式.md)：会话、工具、事件投影、取消和一致性设计。
 - [TypeScript AI Runtime](docs/worker/AI-Runtime.md)：Worker 配置、Pi Runtime、执行流程和质量门。
-- [Generation Worker v1 协议](docs/architecture/generation-worker-v1.md)：Java 与 Worker 之间的版本化消息和完成契约。
+- [创作通信协议 协议](docs/architecture/creation-protocol.md)：Java 与 Worker 之间的版本化消息和完成契约。
 
 ## 参与贡献
 

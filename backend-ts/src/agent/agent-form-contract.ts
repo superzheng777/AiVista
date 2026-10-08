@@ -63,20 +63,4 @@ export const agentInputFormSchema = z.object({
   });
 });
 
-export const agentPendingInputSchema = z.object({
-  creationId: z.string().regex(/^[1-9]\d*$/),
-  toolCallId: z.string().min(1).max(128),
-  status: z.enum(["PENDING", "SUBMITTED", "SKIPPED", "CANCELLED"]),
-  form: agentInputFormSchema,
-}).strict().superRefine((value, context) => {
-  if (value.status !== "SUBMITTED") return;
-  value.form.fields.forEach((field, fieldIndex) => {
-    if (field.required && field.value.trim() === "") {
-      context.addIssue({ code: "custom", path: ["form", "fields", fieldIndex, "value"],
-        message: `Submitted Agent input field ${field.id} is required` });
-    }
-  });
-});
-
 export type AgentInputForm = z.infer<typeof agentInputFormSchema>;
-export type AgentPendingInput = z.infer<typeof agentPendingInputSchema>;

@@ -3,8 +3,6 @@ package com.superz.aivista.generation.service;
 import com.superz.aivista.common.exception.BusinessException;
 import com.superz.aivista.common.exception.ErrorCode;
 import com.superz.aivista.generation.config.GenerationSseProperties;
-import com.superz.aivista.generation.event.GenerationTaskStatusEvent;
-import com.superz.aivista.generation.event.AgentRealtimeEvent;
 import com.superz.aivista.publication.event.PublicationStatusEvent;
 import com.superz.aivista.user.event.InteractionNotificationCreatedEvent;
 import java.io.IOException;
@@ -47,26 +45,12 @@ public class GenerationSseConnectionService {
         return emitter;
     }
 
-    /** 向当前实例中该用户的全部在线页面发送同一状态通知。 */
-    public void publish(long userId, long eventId, GenerationTaskStatusEvent event) {
-        publish(userId, eventId, "generation.task.updated", event);
-    }
-
-    /** Best-effort projection for a phase already committed to the authoritative task row. */
-    public void publish(long userId, GenerationTaskStatusEvent event) {
-        publish(userId, null, "generation.task.updated", event);
-    }
-
     public void publish(long userId, long eventId, PublicationStatusEvent event) {
         publish(userId, eventId, "publication.updated", event);
     }
 
     public void publish(long userId, long eventId, InteractionNotificationCreatedEvent event) {
         publish(userId, eventId, "interaction.notification.created", event);
-    }
-
-    public void publishAgent(long userId, long eventId, AgentRealtimeEvent event) {
-        publish(userId, eventId, "agent.creation.event", event);
     }
 
     private void publish(long userId, Long eventId, String eventName, Object event) {
@@ -80,6 +64,10 @@ public class GenerationSseConnectionService {
                 remove(userId, connection.getKey(), connection.getValue());
             }
         }
+    }
+
+    public void publishCreation(long userId, String eventName, Object event) {
+        publish(userId, null, eventName, event);
     }
 
     /** 通过 SSE 注释心跳探测已断开的浏览器连接。 */

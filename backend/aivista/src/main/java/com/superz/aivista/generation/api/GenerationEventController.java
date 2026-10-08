@@ -4,7 +4,6 @@ import com.superz.aivista.auth.token.AccessTokenClaims;
 import com.superz.aivista.common.exception.BusinessException;
 import com.superz.aivista.common.exception.ErrorCode;
 import com.superz.aivista.generation.service.GenerationSseConnectionService;
-import com.superz.aivista.generation.service.AgentRealtimeProjectionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -20,12 +19,9 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 @RestController
 public class GenerationEventController {
     private final GenerationSseConnectionService connectionService;
-    private final AgentRealtimeProjectionService agentRealtime;
 
-    public GenerationEventController(GenerationSseConnectionService connectionService,
-            AgentRealtimeProjectionService agentRealtime) {
+    public GenerationEventController(GenerationSseConnectionService connectionService) {
         this.connectionService = connectionService;
-        this.agentRealtime = agentRealtime;
     }
 
     @Operation(summary = "建立生成任务事件流", description = "使用 Bearer Access Token 建立 SSE 连接；仅发送最小任务状态通知。")
@@ -36,7 +32,6 @@ public class GenerationEventController {
             throw new BusinessException(ErrorCode.UNAUTHORIZED);
         }
         SseEmitter emitter = connectionService.connect(userId.longValue(), claims.expiresAt());
-        agentRealtime.replay(userId.longValue());
         return emitter;
     }
 }

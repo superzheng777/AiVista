@@ -1,10 +1,7 @@
 package com.superz.aivista.generation.model;
 
-/** 图像生成模块可靠事件的用途。 */
+/** 发布审核、通知与搜索索引的可靠待办类型。 */
 public enum OutboxEventType {
-    AGENT_EXECUTE,
-    GENERATION_TASK_EXECUTE,
-    GENERATION_TASK_STATUS_CHANGED,
     PUBLICATION_TEXT_REVIEW,
     PUBLICATION_STATUS_CHANGED,
     INTERACTION_NOTIFICATION_CREATED,

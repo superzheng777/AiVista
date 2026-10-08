@@ -67,7 +67,7 @@ public interface ImageAssetMapper extends BaseMapper<ImageAsset> {
                    t.final_prompt AS publication_prompt, t.final_negative_prompt AS publication_negative_prompt,
                    t.requested_image_count AS publication_requested_image_count, t.prompt_extend AS publication_prompt_extend
             FROM image_assets a LEFT JOIN image_publications p ON p.asset_id = a.id
-            LEFT JOIN generation_tasks t ON t.id = a.origin_task_id
+            LEFT JOIN executions t ON t.id = a.origin_task_id
             WHERE a.user_id = #{userId} AND a.deleted_at IS NULL ORDER BY a.created_at DESC, a.id DESC
             """)
     List<ImageAsset> selectVisibleByUserId(@Param("userId") long userId);
@@ -79,44 +79,10 @@ public interface ImageAssetMapper extends BaseMapper<ImageAsset> {
                    t.final_prompt AS publication_prompt, t.final_negative_prompt AS publication_negative_prompt,
                    t.requested_image_count AS publication_requested_image_count, t.prompt_extend AS publication_prompt_extend
             FROM image_assets a LEFT JOIN image_publications p ON p.asset_id = a.id
-            LEFT JOIN generation_tasks t ON t.id = a.origin_task_id
+            LEFT JOIN executions t ON t.id = a.origin_task_id
             WHERE a.id = #{assetId} AND a.user_id = #{userId} AND a.deleted_at IS NULL
             """)
     ImageAsset selectVisibleDetailByUserIdAndId(@Param("userId") long userId, @Param("assetId") long assetId);
-
-    /**
-     * Resolves only an owned image that has already appeared in this Generation Session:
-     * as the current/prior Creation input or as a successfully generated output.
-     */
-    @Select("""
-            SELECT a.*
-            FROM image_assets a
-            WHERE a.id = #{assetId}
-              AND a.user_id = #{userId}
-              AND a.deleted_at IS NULL
-              AND (a.expires_at IS NULL OR a.expires_at > CURRENT_TIMESTAMP(3))
-              AND (
-                  EXISTS (
-                      SELECT 1
-                      FROM creation_task_input_assets ci
-                      INNER JOIN creation_tasks c ON c.id = ci.creation_task_id
-                      WHERE ci.image_asset_id = a.id
-                        AND c.session_id = #{sessionId}
-                        AND c.user_id = #{userId}
-                  )
-                  OR EXISTS (
-                      SELECT 1
-                      FROM generation_tasks t
-                      WHERE t.id = a.origin_task_id
-                        AND t.session_id = #{sessionId}
-                        AND t.user_id = #{userId}
-                        AND t.status IN ('SUCCEEDED', 'PARTIALLY_SUCCEEDED')
-                  )
-              )
-            LIMIT 1
-            """)
-    ImageAsset selectReadableByAgentSession(@Param("assetId") long assetId,
-            @Param("userId") long userId, @Param("sessionId") long sessionId);
 
     @Select("""
             <script>
@@ -137,7 +103,7 @@ public interface ImageAssetMapper extends BaseMapper<ImageAsset> {
                    t.final_prompt AS publication_prompt, t.final_negative_prompt AS publication_negative_prompt,
                    t.requested_image_count AS publication_requested_image_count, t.prompt_extend AS publication_prompt_extend
             FROM image_assets a INNER JOIN image_publications p ON p.asset_id = a.id
-            LEFT JOIN generation_tasks t ON t.id = a.origin_task_id
+            LEFT JOIN executions t ON t.id = a.origin_task_id
             WHERE p.public_at IS NOT NULL AND p.review_status = 'APPROVED'
               AND (#{cursorPublicAt} IS NULL OR p.public_at < #{cursorPublicAt} OR (p.public_at = #{cursorPublicAt} AND a.id < #{cursorAssetId}))
             ORDER BY p.public_at DESC, a.id DESC LIMIT #{limit}
@@ -152,7 +118,7 @@ public interface ImageAssetMapper extends BaseMapper<ImageAsset> {
                    t.final_prompt AS publication_prompt, t.final_negative_prompt AS publication_negative_prompt,
                    t.requested_image_count AS publication_requested_image_count, t.prompt_extend AS publication_prompt_extend
             FROM user_follows f INNER JOIN image_assets a ON a.user_id = f.following_user_id
-            INNER JOIN image_publications p ON p.asset_id = a.id LEFT JOIN generation_tasks t ON t.id = a.origin_task_id
+            INNER JOIN image_publications p ON p.asset_id = a.id LEFT JOIN executions t ON t.id = a.origin_task_id
             WHERE f.follower_user_id = #{viewerUserId} AND p.public_at IS NOT NULL AND p.review_status = 'APPROVED'
               AND (#{cursorPublicAt} IS NULL OR p.public_at < #{cursorPublicAt} OR (p.public_at = #{cursorPublicAt} AND a.id < #{cursorAssetId}))
             ORDER BY p.public_at DESC, a.id DESC LIMIT #{limit}
@@ -166,7 +132,7 @@ public interface ImageAssetMapper extends BaseMapper<ImageAsset> {
                    p.title AS publication_title, p.description AS publication_description, p.public_at, p.like_count,
                    t.final_prompt AS publication_prompt, t.final_negative_prompt AS publication_negative_prompt,
                    t.requested_image_count AS publication_requested_image_count, t.prompt_extend AS publication_prompt_extend
-            FROM image_assets a INNER JOIN image_publications p ON p.asset_id = a.id LEFT JOIN generation_tasks t ON t.id = a.origin_task_id
+            FROM image_assets a INNER JOIN image_publications p ON p.asset_id = a.id LEFT JOIN executions t ON t.id = a.origin_task_id
             WHERE a.id = #{assetId} AND p.public_at IS NOT NULL AND p.review_status = 'APPROVED'
             """)
     ImageAsset selectPublishedById(@Param("assetId") long assetId);
@@ -178,7 +144,7 @@ public interface ImageAssetMapper extends BaseMapper<ImageAsset> {
                    p.title AS publication_title, p.description AS publication_description, p.public_at, p.like_count,
                    t.final_prompt AS publication_prompt, t.final_negative_prompt AS publication_negative_prompt,
                    t.requested_image_count AS publication_requested_image_count, t.prompt_extend AS publication_prompt_extend
-            FROM image_assets a INNER JOIN image_publications p ON p.asset_id = a.id LEFT JOIN generation_tasks t ON t.id = a.origin_task_id
+            FROM image_assets a INNER JOIN image_publications p ON p.asset_id = a.id LEFT JOIN executions t ON t.id = a.origin_task_id
             WHERE p.public_at IS NOT NULL AND p.review_status = 'APPROVED' AND a.id IN
             <foreach collection="assetIds" item="assetId" open="(" separator="," close=")">#{assetId}</foreach>
             </script>
@@ -189,7 +155,7 @@ public interface ImageAssetMapper extends BaseMapper<ImageAsset> {
             SELECT a.*, p.review_status AS publication_review_status, p.publication_version,
                    p.title AS publication_title, p.description AS publication_description, p.public_at, p.like_count,
                    t.final_prompt AS publication_prompt
-            FROM image_assets a INNER JOIN image_publications p ON p.asset_id = a.id LEFT JOIN generation_tasks t ON t.id = a.origin_task_id
+            FROM image_assets a INNER JOIN image_publications p ON p.asset_id = a.id LEFT JOIN executions t ON t.id = a.origin_task_id
             WHERE p.public_at IS NOT NULL AND p.review_status = 'APPROVED' AND a.id > #{afterAssetId}
             ORDER BY a.id ASC LIMIT #{limit}
             """)
@@ -204,7 +170,7 @@ public interface ImageAssetMapper extends BaseMapper<ImageAsset> {
                    p.title AS publication_title, p.description AS publication_description, p.public_at, p.like_count,
                    t.final_prompt AS publication_prompt, t.final_negative_prompt AS publication_negative_prompt,
                    t.requested_image_count AS publication_requested_image_count, t.prompt_extend AS publication_prompt_extend
-            FROM image_assets a INNER JOIN image_publications p ON p.asset_id = a.id LEFT JOIN generation_tasks t ON t.id = a.origin_task_id
+            FROM image_assets a INNER JOIN image_publications p ON p.asset_id = a.id LEFT JOIN executions t ON t.id = a.origin_task_id
             WHERE a.user_id = #{userId} AND p.review_status IN ('PENDING', 'APPROVED') ORDER BY p.review_started_at DESC, a.id DESC
             """)
     List<ImageAsset> selectPublishedByUserId(@Param("userId") long userId);
@@ -214,7 +180,7 @@ public interface ImageAssetMapper extends BaseMapper<ImageAsset> {
                    p.title AS publication_title, p.description AS publication_description, p.public_at, p.like_count,
                    t.final_prompt AS publication_prompt, t.final_negative_prompt AS publication_negative_prompt,
                    t.requested_image_count AS publication_requested_image_count, t.prompt_extend AS publication_prompt_extend
-            FROM image_assets a INNER JOIN image_publications p ON p.asset_id = a.id LEFT JOIN generation_tasks t ON t.id = a.origin_task_id
+            FROM image_assets a INNER JOIN image_publications p ON p.asset_id = a.id LEFT JOIN executions t ON t.id = a.origin_task_id
             WHERE a.user_id = #{userId} AND p.public_at IS NOT NULL AND p.review_status = 'APPROVED'
             ORDER BY p.public_at DESC, a.id DESC
             """)
@@ -271,8 +237,8 @@ public interface ImageAssetMapper extends BaseMapper<ImageAsset> {
             SELECT a.* FROM image_assets a
             WHERE a.oss_cleanup_status = 'PENDING' AND a.oss_cleanup_available_at <= #{availableAt}
               AND NOT EXISTS (SELECT 1 FROM image_publications p WHERE p.asset_id = a.id AND p.public_at IS NOT NULL)
-              AND NOT EXISTS (SELECT 1 FROM generation_task_input_assets i INNER JOIN generation_tasks t ON t.id = i.task_id
-                              WHERE i.asset_id = a.id AND t.status IN ('QUEUED', 'GENERATING', 'SAVING'))
+              AND NOT EXISTS (SELECT 1 FROM executions t WHERE t.status IN ('QUEUED', 'RUNNING', 'WAITING_INPUT')
+                              AND JSON_SEARCH(t.request_json, 'one', CAST(a.id AS CHAR), NULL, '$.input.assets[*].assetId', '$.assets[*].assetId') IS NOT NULL)
             ORDER BY a.oss_cleanup_available_at ASC, a.id ASC LIMIT #{limit}
             """)
     List<ImageAsset> selectPendingOssCleanup(@Param("availableAt") Instant availableAt, @Param("limit") int limit);

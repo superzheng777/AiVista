@@ -19,17 +19,13 @@ public enum ErrorCode {
     LOGIN_NAME_EXISTS(40901, "登录账号已存在", HttpStatus.CONFLICT),
     GENERATION_CONSENT_VERSION_OUTDATED(40902, "第三方数据处理规则已更新，请重新确认", HttpStatus.CONFLICT),
     GENERATION_CONSENT_REQUIRED(40903, "请先确认第三方数据处理规则", HttpStatus.CONFLICT),
-    USER_GENERATION_CONCURRENCY_LIMIT(40905, "未完成的生成任务数量已达上限", HttpStatus.CONFLICT),
-    AGENT_TOOL_CALL_CONFLICT(40906, "Agent 工具调用与已创建任务不一致", HttpStatus.CONFLICT),
-    AGENT_CREATION_NOT_RUNNING(40907, "创作已经结束，无法取消", HttpStatus.CONFLICT),
     SESSION_CREATION_IN_PROGRESS(40908, "当前会话已有创作正在进行", HttpStatus.CONFLICT),
+    SESSION_CREATION_LIMIT(40911, "当前会话已达到30轮创作上限，请开启新会话", HttpStatus.CONFLICT),
     AGENT_FORM_CONFLICT(40909, "需求确认表单与现有状态冲突", HttpStatus.CONFLICT),
-    AGENT_FORM_NOT_PENDING(40910, "需求确认表单已经处理", HttpStatus.CONFLICT),
     GENERATION_RESOURCE_NOT_FOUND(40401, "生成资源不存在", HttpStatus.NOT_FOUND),
     VALIDATION_ERROR(42200, "请求参数校验失败", HttpStatus.UNPROCESSABLE_CONTENT),
     INVALID_CURSOR(42201, "分页游标无效", HttpStatus.UNPROCESSABLE_CONTENT),
     RATE_LIMITED(42900, "请求过于频繁，请稍后重试", HttpStatus.TOO_MANY_REQUESTS),
-    DAILY_GENERATION_QUOTA_EXCEEDED(42901, "今日生成图片额度已用尽", HttpStatus.TOO_MANY_REQUESTS),
     SYSTEM_ERROR(50000, "系统繁忙，请稍后重试", HttpStatus.INTERNAL_SERVER_ERROR),
     SEARCH_UNAVAILABLE(50301, "搜索服务暂不可用，请稍后重试", HttpStatus.SERVICE_UNAVAILABLE);
 

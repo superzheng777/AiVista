@@ -1,77 +1,4 @@
-export type GenerationTaskStatus = "QUEUED" | "GENERATING" | "SAVING" | "SUCCEEDED" | "PARTIALLY_SUCCEEDED" | "FAILED";
-
-export function isActiveGenerationStatus(status: GenerationTaskStatus): boolean {
-  return status === "QUEUED" || status === "GENERATING" || status === "SAVING";
-}
-
-/** 发布流程状态。`NONE` 表示从未提交或撤销发布后的初始状态。 */
 export type PublicationReviewStatus = "NONE" | "PENDING" | "APPROVED" | "REJECTED" | "FAILED";
-
-export type GenerationTask = {
-  id: string;
-  sessionId: string;
-  status: GenerationTaskStatus;
-  version: number;
-  retryCount: number;
-  maxRetryCount: number;
-  requestedImageCount: number;
-  completedImageCount: number;
-  failedImageCount: number;
-  failureCode: string | null;
-  failureMessage: string | null;
-  images: GenerationAsset[];
-  createdAt: string;
-  completedAt: string | null;
-};
-
-type GenerationProgressTask = Pick<GenerationTask, "requestedImageCount" | "completedImageCount" | "failedImageCount">;
-
-/** Image progress comes only from real generation tasks, never from Agent Tool attempts. */
-export function generationImageProgress(tasks: readonly GenerationProgressTask[]) {
-  const requested = tasks.reduce((total, task) => total + task.requestedImageCount, 0);
-  const completed = tasks.reduce((total, task) => total + task.completedImageCount, 0);
-  const failed = tasks.reduce((total, task) => total + task.failedImageCount, 0);
-  return { completed, failed, total: Math.max(requested, completed + failed) };
-}
-
-const SESSION_TITLE_DISPLAY_LENGTH = 10;
-
-/** Keep session titles compact without changing their persisted value. */
-export function formatSessionTitle(title: string): string {
-  const characters = Array.from(title);
-  if (characters.length <= SESSION_TITLE_DISPLAY_LENGTH) return title;
-  return `${characters.slice(0, SESSION_TITLE_DISPLAY_LENGTH).join("")}...`;
-}
-
-export type GenerationSession = {
-  id: string;
-  title: string;
-  lastMessageAt: string;
-  latestTask: Pick<GenerationTask, "id" | "status" | "version"> | null;
-  hasActiveTask: boolean;
-};
-
-export type ConversationMessage = {
-  id: string;
-  sequenceNo: number;
-  role: "USER" | "ASSISTANT";
-  content: string | null;
-  createdAt: string;
-};
-
-export type GenerationTurn = {
-  id: string;
-  mode: "NORMAL" | "AGENT";
-  status: "RUNNING" | "WAITING_INPUT" | "SUCCEEDED" | "FAILED" | "CANCELLED";
-  failureCode: string | null;
-  revision: number;
-  userMessage: ConversationMessage;
-  assistantMessage: ConversationMessage | null;
-  normalGenerationRequest: { negativePrompt: string | null } | null;
-  generations: GenerationTask[];
-  activities: CreationActivity[];
-  forms: CreationForm[];
-};
 
 export type AgentInputFormOption = { value: string; label: string };
 export type AgentInputFormField =
@@ -87,25 +14,6 @@ export type AgentInputFormField =
       customLabel?: string;
     };
 export type AgentInputForm = { schemaVersion: 2; title: string; fields: AgentInputFormField[] };
-export type CreationForm = {
-  id: string;
-  status: "PENDING" | "SUBMITTED" | "SKIPPED" | "CANCELLED";
-  form: AgentInputForm;
-  requestedAt: string;
-  resolvedAt: string | null;
-};
-
-export type CreationActivity = {
-  sequenceNo: number;
-  type: "NARRATION" | "SKILL" | "TOOL";
-  outcome: "COMPLETED" | "FAILED" | "CANCELLED";
-  content: string;
-  toolName: string | null;
-  generationTaskId: string | null;
-  startedAt: string;
-  completedAt: string;
-};
-
 export type GenerationAsset = {
   id: string;
   sourceIndex: number;

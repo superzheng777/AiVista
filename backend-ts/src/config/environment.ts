@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { loadJavaLocalEnvironment } from "./java-local-environment.js";
 
@@ -8,6 +9,9 @@ const optionalNonEmpty = z.preprocess(
 
 export const environmentSchema = z.object({
   AIVISTA_JAVA_LOCAL_YAML: optionalNonEmpty,
+  AIVISTA_RUNTIME_HOST: z.string().default("127.0.0.1"),
+  AIVISTA_RUNTIME_PORT: z.coerce.number().int().min(1).max(65_535).default(8890),
+  AIVISTA_SESSION_DIRECTORY: z.string().min(1).default(fileURLToPath(new URL("../../var/sessions", import.meta.url))),
   AIVISTA_JAVA_BASE_URL: z.string().url().default("http://127.0.0.1:8888/api"),
   AIVISTA_GENERATION_WORKER_TOKEN: optionalNonEmpty,
   AIVISTA_JAVA_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
@@ -20,16 +24,17 @@ export const environmentSchema = z.object({
   AIVISTA_OSS_BUCKET: optionalNonEmpty,
   AIVISTA_OSS_ACCESS_KEY_ID: optionalNonEmpty,
   AIVISTA_OSS_ACCESS_KEY_SECRET: optionalNonEmpty,
-  AIVISTA_OSS_SIGNED_URL_TTL_SECONDS: z.coerce.number().int().positive().default(86_400),
   AIVISTA_OSS_ORIGINAL_SIGNED_URL_TTL_SECONDS: z.coerce.number().int().positive().default(600),
   AIVISTA_OSS_OBJECT_PREFIX: z.string().min(1).default("users"),
   AIVISTA_TRANSFER_SOURCE_READ_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
+  AIVISTA_GENERATION_MODEL: z.string().default("bailian/qwen-image-2.0"),
+  AIVISTA_GENERATION_DAILY_IMAGE_QUOTA: z.coerce.number().int().positive().default(12),
+  AIVISTA_GENERATION_MAX_ACTIVE_PER_USER: z.coerce.number().int().positive().default(4),
   AIVISTA_GENERATION_MAX_CONCURRENT_CALLS: z.coerce.number().int().positive().default(25),
   AIVISTA_GENERATION_RATE_LIMIT_PER_SECOND: z.coerce.number().int().positive().default(2),
   AIVISTA_BAILIAN_ENDPOINT: optionalNonEmpty,
   AIVISTA_BAILIAN_API_KEY: optionalNonEmpty,
   AIVISTA_BAILIAN_READ_TIMEOUT_MS: z.coerce.number().int().positive().default(330_000),
-  AIVISTA_BAILIAN_MAX_RETRIES: z.coerce.number().int().nonnegative().default(3),
   AIVISTA_AGENT_ENABLED: z.stringbool().default(false),
   AIVISTA_AGENT_MODEL: z.string().min(1).default("qwen3.8-flash"),
   AIVISTA_AGENT_BAILIAN_BASE_URL: optionalNonEmpty,
@@ -37,7 +42,6 @@ export const environmentSchema = z.object({
   AIVISTA_AGENT_THINKING_ENABLED: z.stringbool().default(false),
   AIVISTA_AGENT_MAX_TURNS: z.coerce.number().int().min(1).max(20).default(20),
   AIVISTA_AGENT_MAX_CONCURRENT: z.coerce.number().int().positive().default(4),
-  AIVISTA_AGENT_TOOL_WAIT_TIMEOUT_MS: z.coerce.number().int().positive().default(660_000),
   AIVISTA_AGENT_LOOP_TIMEOUT_MS: z.coerce.number().int().positive().default(1_200_000),
   AIVISTA_LANGFUSE_ENABLED: z.stringbool().default(false),
   LANGFUSE_PUBLIC_KEY: optionalNonEmpty,
@@ -49,18 +53,11 @@ export const environmentSchema = z.object({
   AIVISTA_RABBITMQ_PASSWORD: optionalNonEmpty,
   AIVISTA_RABBITMQ_VHOST: z.string().min(1).default("/aivista"),
   AIVISTA_GENERATION_QUEUE_ENABLED: z.stringbool().default(false),
-  AIVISTA_GENERATION_EXCHANGE: z.string().min(1).default("aivista.generation.commands"),
-  AIVISTA_AGENT_QUEUE_NAME: z.string().min(1).default("agent.creation.execute"),
-  AIVISTA_AGENT_ROUTING_KEY: z.string().min(1).default("agent.creation.execute"),
-  AIVISTA_GENERATION_DEAD_LETTER_EXCHANGE: z.string().min(1).default("aivista.generation.dead-letter"),
-  AIVISTA_GENERATION_QUEUE_NAME: z.string().min(1).default("generation.task.execute"),
-  AIVISTA_GENERATION_CONSUMER_CONCURRENCY: z.coerce.number().int().positive().default(25),
-  AIVISTA_GENERATION_ROUTING_KEY: z.string().min(1).default("generation.task.execute"),
   AIVISTA_RABBITMQ_CONFIRM_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
 }).superRefine((value, context) => {
   if (value.AIVISTA_AGENT_ENABLED && !value.AIVISTA_GENERATION_QUEUE_ENABLED) {
     context.addIssue({ code: "custom", path: ["AIVISTA_GENERATION_QUEUE_ENABLED"],
-      message: "Agent mode requires the Generation consumer because Agent tools reuse its pipeline" });
+      message: "Agent mode requires the creation queue consumer" });
   }
   if (value.AIVISTA_LANGFUSE_ENABLED && !value.LANGFUSE_PUBLIC_KEY) {
     context.addIssue({ code: "custom", path: ["LANGFUSE_PUBLIC_KEY"],

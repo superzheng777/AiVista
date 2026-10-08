@@ -101,11 +101,11 @@ describe("AgentTraceRecorder", () => {
       { type: "image", data: "tool-image-base64", mimeType: "image/png" },
     ], details: { assetId: "701" } } });
     recorder.finishTool({ toolCallId: "call-a", isError: false,
-      result: { details: { generationTaskId: "901" } } });
+      result: { details: { generationId: "901" } } });
 
     const toolA = root.children.find((child) => child.name === "TOOL:text_to_image")!;
     const toolB = root.children.find((child) => child.name === "TOOL:inspect_image")!;
-    expect(toolA.updates[0]).toEqual({ output: { details: { generationTaskId: "901" } } });
+    expect(toolA.updates[0]).toEqual({ output: { details: { generationId: "901" } } });
     expect(toolB.updates[0]).toEqual({ output: { content: [
       { type: "image", mimeType: "image/png", omitted: true },
     ], details: { assetId: "701" } } });
@@ -148,14 +148,14 @@ describe("AgentTraceRecorder", () => {
   });
 
   it.each([
-    ["COMPLETED", { outcome: "COMPLETED" as const, text: "创作完成。", context: agentContext() },
+    ["COMPLETED", { outcome: "COMPLETED" as const, text: "创作完成。" },
       { outcome: "COMPLETED", finalMessage: "创作完成。" }],
     ["WAITING_FOR_USER", { outcome: "WAITING_FOR_USER" as const, request: {
       toolCallId: "call-form", form: { schemaVersion: 2 as const, title: "确认创作方向", fields: [
         { id: "theme", type: "TEXT" as const, label: "主题", required: true, value: "" },
         { id: "style", type: "TEXT" as const, label: "风格", required: true, value: "" },
       ] },
-    }, context: agentContext() },
+    } },
     { outcome: "WAITING_FOR_USER", toolCallId: "call-form", title: "确认创作方向", fieldCount: 2 }],
   ])("records a compact %s root output", (_name, result, output) => {
     const root = new FakeObservation("AGENT_RUN", "agent");
@@ -228,7 +228,7 @@ describe("AgentTraceRecorder", () => {
       recorder.finishGeneration(assistantMessage());
       recorder.startTool({ toolCallId: "call-1", toolName: "read", args: {} });
       recorder.finishTool({ toolCallId: "call-1", result: {}, isError: true });
-      recorder.finishRun({ outcome: "COMPLETED", text: "完成", context: agentContext() });
+      recorder.finishRun({ outcome: "COMPLETED", text: "完成" });
       recorder.failRun(failure);
       recorder.closeOpenObservations();
     }).not.toThrow();
@@ -278,8 +278,4 @@ function assistantMessage(overrides: Partial<AssistantMessage> = {}): AssistantM
     timestamp: 1,
     ...overrides,
   };
-}
-
-function agentContext() {
-  return { schemaVersion: 1 as const, compaction: null, messages: [] };
 }

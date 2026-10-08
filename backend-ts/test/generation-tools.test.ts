@@ -45,9 +45,9 @@ describe("Agent generation tools", () => {
 
   it("normalizes fixed Agent generation parameters before execution", async () => {
     const execute = vi.fn(async (_toolCallId: string, _request: GenerationToolRequest) => ({
-      outcome: "SUCCEEDED" as const,
-      generationTaskId: "9001",
-      imageAssetIds: ["7001"],
+      status: "SUCCEEDED" as const,
+      generationId: "9001",
+      assets: [{ assetId: "7001", url: "https://oss.example/7001.png" }],
     }));
     const [textToImage] = createGenerationTools({
       executor: { execute },
@@ -71,7 +71,7 @@ describe("Agent generation tools", () => {
       promptExtend: true,
       imageCount: 3,
     }, undefined);
-    expect(result.details).toMatchObject({ outcome: "SUCCEEDED", generationTaskId: "9001" });
+    expect(result.details).toMatchObject({ status: "SUCCEEDED", generationId: "9001" });
   });
 
   it("returns an actionable Tool Result without executing an unauthorized image", async () => {
@@ -95,7 +95,7 @@ describe("Agent generation tools", () => {
       text: expect.stringMatching(/999.*101.*重新调用/),
     });
     expect(result.details).toMatchObject({
-      outcome: "FAILED",
+      status: "FAILED",
       code: "INPUT_ASSET_NOT_AUTHORIZED",
       retryable: true,
     });
@@ -125,10 +125,10 @@ describe("Agent generation tools", () => {
 
   it("releases the missing image count after a partially successful generation", async () => {
     const execute = vi.fn()
-      .mockResolvedValueOnce({ outcome: "SUCCEEDED" as const, generationTaskId: "9001",
-        imageAssetIds: ["7001"] })
-      .mockResolvedValueOnce({ outcome: "SUCCEEDED" as const, generationTaskId: "9002",
-        imageAssetIds: ["7002", "7003"] });
+      .mockResolvedValueOnce({ status: "PARTIALLY_SUCCEEDED" as const, generationId: "9001",
+        assets: [{ assetId: "7001", url: "https://oss.example/7001.png" }] })
+      .mockResolvedValueOnce({ status: "SUCCEEDED" as const, generationId: "9002",
+        assets: [{ assetId: "7002", url: "https://oss.example/7002.png" }, { assetId: "7003", url: "https://oss.example/7003.png" }] });
     const [textToImage] = createGenerationTools({
       executor: { execute },
       authorizedInputAssetIds: new Set(),
@@ -153,9 +153,9 @@ describe("Agent generation tools", () => {
       imageCount: 1,
     }, undefined, undefined, {} as never);
 
-    expect(partial.details).toMatchObject({ outcome: "SUCCEEDED", imageAssetIds: ["7001"] });
-    expect(remainder.details).toMatchObject({ outcome: "SUCCEEDED", imageAssetIds: ["7002", "7003"] });
-    expect(excess.details).toMatchObject({ outcome: "FAILED", code: "IMAGE_COUNT_EXCEEDS_REMAINING" });
+    expect(partial.details).toMatchObject({ status: "PARTIALLY_SUCCEEDED", assets: [{ assetId: "7001", url: "https://oss.example/7001.png" }] });
+    expect(remainder.details).toMatchObject({ status: "SUCCEEDED", assets: [{ assetId: "7002", url: "https://oss.example/7002.png" }, { assetId: "7003", url: "https://oss.example/7003.png" }] });
+    expect(excess.details).toMatchObject({ status: "FAILED", code: "IMAGE_COUNT_EXCEEDS_REMAINING" });
     expect(execute).toHaveBeenCalledTimes(2);
   });
 });
@@ -163,7 +163,7 @@ describe("Agent generation tools", () => {
 function executorOf(): GenerationToolExecutor {
   return {
     async execute() {
-      return { outcome: "SUCCEEDED", generationTaskId: "1", imageAssetIds: ["2"] };
+      return { status: "SUCCEEDED", generationId: "1", assets: [{ assetId: "2", url: "https://oss.example/2.png" }] };
     },
   };
 }

@@ -2,9 +2,10 @@ import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import OSS from "ali-oss";
 import { Readable, Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import type { Selectable } from "kysely";
 import type { Environment } from "../config/environment.js";
-import type { GenerationTaskTable } from "../database/database.types.js";
+import type { GenerationExecution } from "../database/database.types.js";
 
 export interface TransferredImage { sourceIndex: number; objectKey: string; fileSize: bigint; width: number; height: number }
 
@@ -26,7 +27,7 @@ export class GenerationImageTransferService {
     this.readTimeoutMs = config.get("AIVISTA_TRANSFER_SOURCE_READ_TIMEOUT_MS", { infer: true });
   }
 
-  async transfer(task: Selectable<GenerationTaskTable>, urls: string[]): Promise<TransferredImage[]> {
+  async transfer(task: Selectable<GenerationExecution>, urls: string[]): Promise<TransferredImage[]> {
     const images: TransferredImage[] = [];
     for (let index = 0; index < urls.length; index++) {
       try { images.push(await this.transferOne(task, index, urls[index]!)); }
@@ -35,7 +36,7 @@ export class GenerationImageTransferService {
     return images;
   }
 
-  private async transferOne(task: Selectable<GenerationTaskTable>, sourceIndex: number, url: string): Promise<TransferredImage> {
+  private async transferOne(task: Selectable<GenerationExecution>, sourceIndex: number, url: string): Promise<TransferredImage> {
     if (!this.client || !this.bucket) throw new Error("OSS transfer configuration is missing");
     const uri = new URL(url); if (uri.protocol !== "https:") throw new Error("Provider image URL must use HTTPS");
     const objectKey = `${this.prefix}/${task.user_id}/tasks/${task.id}/${sourceIndex}`;
@@ -44,9 +45,12 @@ export class GenerationImageTransferService {
       const response = await fetch(uri, { signal: AbortSignal.timeout(this.readTimeoutMs) });
       if (!response.ok || !response.body) throw new Error(`Provider image download failed with HTTP ${response.status}`);
       const counter = new ByteCountingTransform();
-      Readable.fromWeb(response.body as never).pipe(counter);
-      await this.client.put(original, counter, { headers: { "Content-Type": "image/png",
-        "Cache-Control": `private, max-age=${this.originalTtlSeconds}` } });
+      const source = Readable.fromWeb(response.body as never);
+      try {
+        await Promise.all([pipeline(source, counter), this.client.put(original, counter, {
+          headers: { "Content-Type": "image/png", "Cache-Control": `private, max-age=${this.originalTtlSeconds}` },
+        })]);
+      } finally { source.destroy(); counter.destroy(); }
       const processClient = this.client as OSS & { processObjectSave(source: string, target: string, process: string): Promise<unknown> };
       await processClient.processObjectSave(original, `${objectKey}/card.webp`, "image/resize,l_640/format,webp/quality,Q_80");
       await processClient.processObjectSave(original, `${objectKey}/display.webp`, "image/resize,l_1600/format,webp/quality,Q_85");

@@ -1,5 +1,6 @@
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import type { GenerationResult } from "../../sessions/session-contract.js";
 
 const aspectRatioSchema = Type.Union([
   Type.Literal("1:1"),
@@ -38,19 +39,21 @@ const imageCountSchema = Type.Integer({
 });
 
 const textToImageParameters = Type.Object({
-  userFacingPlan: userFacingPlanSchema,
+  userFacingPlan: Type.Optional(userFacingPlanSchema),
   prompt: promptSchema,
   negativePrompt: negativePromptSchema,
   aspectRatio: aspectRatioSchema,
   imageCount: imageCountSchema,
+  promptExtend: Type.Optional(Type.Boolean({ description: "是否启用图像模型的提示词扩展，默认 true。" })),
 }, { additionalProperties: false });
 
 const imageToImageParameters = Type.Object({
-  userFacingPlan: userFacingPlanSchema,
+  userFacingPlan: Type.Optional(userFacingPlanSchema),
   prompt: promptSchema,
   negativePrompt: negativePromptSchema,
   aspectRatio: aspectRatioSchema,
   imageCount: imageCountSchema,
+  promptExtend: Type.Optional(Type.Boolean({ description: "是否启用图像模型的提示词扩展，默认 true。" })),
   inputAssetIds: inputAssetIdsSchema,
 }, { additionalProperties: false });
 
@@ -60,16 +63,12 @@ export type GenerationToolRequest = {
   negativePrompt: string | null;
   aspectRatio: "1:1" | "16:9" | "9:16" | "4:3" | "3:4";
   inputAssetIds: string[];
-  promptExtend: true;
+  promptExtend: boolean;
   imageCount: number;
 };
 
-export type GenerationToolOutcome =
-  | { outcome: "SUCCEEDED"; generationTaskId: string; imageAssetIds: string[] }
-  | { outcome: "FAILED"; generationTaskId?: string; code: string; message: string; retryable: boolean };
-
 export interface GenerationToolExecutor {
-  execute(toolCallId: string, request: GenerationToolRequest, signal?: AbortSignal): Promise<GenerationToolOutcome>;
+  execute(toolCallId: string, request: GenerationToolRequest, signal?: AbortSignal): Promise<GenerationResult>;
 }
 
 export interface GenerationToolOptions {
@@ -89,31 +88,31 @@ export function createGenerationTools(options: GenerationToolOptions): ToolDefin
   async function executeGeneration(request: GenerationToolRequest, toolCallId: string, signal?: AbortSignal) {
     if (options.constraints.aspectRatio !== "AUTO"
       && request.aspectRatio !== options.constraints.aspectRatio) {
-      return resultOf({ outcome: "FAILED", code: "ASPECT_RATIO_CONSTRAINT_MISMATCH",
+      return generationToolResult({ status: "FAILED", generationId: null, assets: [], code: "ASPECT_RATIO_CONSTRAINT_MISMATCH",
         message: `用户已指定画幅比例 ${options.constraints.aspectRatio}，请修正参数后重新调用。`, retryable: true });
     }
     const target = options.constraints.imageCount;
     if (target > 0 && allocatedImageCount + request.imageCount > target) {
       const remaining = Math.max(0, target - allocatedImageCount);
-      return resultOf({ outcome: "FAILED", code: "IMAGE_COUNT_EXCEEDS_REMAINING",
+      return generationToolResult({ status: "FAILED", generationId: null, assets: [], code: "IMAGE_COUNT_EXCEEDS_REMAINING",
         message: `本轮目标共 ${target} 张，目前还可请求 ${remaining} 张，请修正 imageCount。`, retryable: remaining > 0 });
     }
     allocatedImageCount += request.imageCount;
     try {
       const outcome = await options.executor.execute(toolCallId, request, signal);
-      if (outcome.outcome === "FAILED") {
+      if (outcome.status === "FAILED") {
         allocatedImageCount -= request.imageCount;
       } else {
-        allocatedImageCount += outcome.imageAssetIds.length - request.imageCount;
+        allocatedImageCount += outcome.assets.length - request.imageCount;
       }
-      return resultOf(outcome);
+      return generationToolResult(outcome);
     } catch (error) {
       allocatedImageCount -= request.imageCount;
       throw error;
     }
   }
 
-  const textToImage = defineTool<typeof textToImageParameters, GenerationToolOutcome>({
+  const textToImage = defineTool<typeof textToImageParameters, GenerationResult>({
     name: "text_to_image",
     label: "文生图",
     description: "根据完整文字描述生成一张新图片。没有参考图片时使用；不要用于修改已有图片。",
@@ -127,13 +126,13 @@ export function createGenerationTools(options: GenerationToolOptions): ToolDefin
         negativePrompt: optionalText(params.negativePrompt),
         aspectRatio: params.aspectRatio,
         inputAssetIds: [],
-        promptExtend: true,
+        promptExtend: params.promptExtend ?? true,
         imageCount: params.imageCount,
       }, toolCallId, signal);
     },
   });
 
-  const imageToImage = defineTool<typeof imageToImageParameters, GenerationToolOutcome>({
+  const imageToImage = defineTool<typeof imageToImageParameters, GenerationResult>({
     name: "image_to_image",
     label: "图生图",
     description: "根据一至三张当前请求已授权的参考图片进行修改或再创作。需要参考已有图片时使用。",
@@ -144,8 +143,8 @@ export function createGenerationTools(options: GenerationToolOptions): ToolDefin
       const unauthorized = params.inputAssetIds.filter((id) => !options.authorizedInputAssetIds.has(id));
       if (unauthorized.length > 0) {
         const allowed = [...options.authorizedInputAssetIds];
-        return resultOf({
-          outcome: "FAILED",
+        return generationToolResult({
+          status: "FAILED", generationId: null, assets: [],
           code: "INPUT_ASSET_NOT_AUTHORIZED",
           message: `图片资产未获得当前请求授权：${unauthorized.join(", ")}。`
             + (allowed.length > 0
@@ -160,7 +159,7 @@ export function createGenerationTools(options: GenerationToolOptions): ToolDefin
         negativePrompt: optionalText(params.negativePrompt),
         aspectRatio: params.aspectRatio,
         inputAssetIds: params.inputAssetIds,
-        promptExtend: true,
+        promptExtend: params.promptExtend ?? true,
         imageCount: params.imageCount,
       }, toolCallId, signal);
     },
@@ -170,28 +169,20 @@ export function createGenerationTools(options: GenerationToolOptions): ToolDefin
 }
 
 function invalidPromptResult() {
-  return resultOf({
-    outcome: "FAILED",
+  return generationToolResult({
+    status: "FAILED", generationId: null, assets: [],
     code: "INVALID_PROMPT",
     message: "prompt 不能只包含空白字符，请提供明确的画面描述。",
     retryable: true,
   });
 }
 
-function resultOf(result: GenerationToolOutcome) {
-  if (result.outcome === "SUCCEEDED") {
-    return {
-      content: [{
-        type: "text" as const,
-        text: `图片生成成功。任务 ID：${result.generationTaskId}；图片资产 ID：${result.imageAssetIds.join(", ")}。`,
-      }],
-      details: result,
-    };
-  }
-  return {
-    content: [{ type: "text" as const, text: `图片生成失败（${result.code}）：${result.message}` }],
-    details: result,
-  };
+/** The same result supplies model text and the persisted UI projection. */
+export function generationToolResult(result: GenerationResult) {
+  const text = result.status === "FAILED"
+    ? `图片生成失败（${result.code ?? "GENERATION_FAILED"}）：${result.message ?? "本次未交付的图片不会扣除额度。"}`
+    : `图片生成${result.status === "PARTIALLY_SUCCEEDED" ? "部分成功" : "成功"}。任务 ID：${result.generationId}；已交付 ${result.assets.length} 张，图片资产 ID：${result.assets.map((asset) => asset.assetId).join(", ")}。`;
+  return { content: [{ type: "text" as const, text }], details: result };
 }
 
 function optionalText(value: string | undefined): string | null {

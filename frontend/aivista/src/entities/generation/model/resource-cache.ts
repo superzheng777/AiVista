@@ -1,9 +1,9 @@
 import { notifyManager, type InfiniteData, type QueryClient, type QueryKey } from "@tanstack/react-query";
 
-import type { GenerationAsset, GenerationTurn } from "./generation";
+import type { GenerationAsset } from "./generation";
+import type { SessionAsset, SessionDetail } from "./session";
 
 type ImagePage = { items: GenerationAsset[] };
-type TurnPage = { items: GenerationTurn[] };
 type ImageUpdate = (image: GenerationAsset, key: QueryKey) => GenerationAsset | null;
 
 function mapStable<T>(values: T[], update: (value: T) => T): T[] {
@@ -39,26 +39,6 @@ export function updateResourceCaches(client: QueryClient, update: ImageUpdate): 
           return items === page.items ? page : { ...page, items };
         });
         if (pages !== feed.pages) next = { ...feed, pages };
-      } else if (key[0] === "generation" && key[3] === "turns") {
-        const feed = data as InfiniteData<TurnPage>;
-        const pages = mapStable(feed.pages, (page) => {
-          const items = mapStable(page.items, (turn) => {
-            const generations = mapStable(turn.generations, (task) => {
-              const images = mapStable(
-                task.images,
-                (image) =>
-                  apply(image) ?? {
-                    ...image,
-                    imageUrls: { thumbnail: null, display: null },
-                  },
-              );
-              return images === task.images ? task : { ...task, images };
-            });
-            return generations === turn.generations ? turn : { ...turn, generations };
-          });
-          return items === page.items ? page : { ...page, items };
-        });
-        if (pages !== feed.pages) next = { ...feed, pages };
       } else if (key[0] === "public-image-detail" || key[0] === "direct-public-image") {
         // List membership changes should not create a missing-data refetch in an open detail.
         next = apply(data as GenerationAsset) ?? data;
@@ -70,10 +50,16 @@ export function updateResourceCaches(client: QueryClient, update: ImageUpdate): 
 
 export function patchResource(client: QueryClient, id: string, patch: Partial<GenerationAsset>): void {
   updateResourceCaches(client, (image) => (image.id === id ? { ...image, ...patch } : image));
+  if (patch.imageUrls?.display) {
+    const display = patch.imageUrls.display;
+    updateSessionAssets(client, (asset) => asset.assetId === id ? { ...asset, ...display } : asset);
+  }
 }
 
 export function removeResources(client: QueryClient, ids: string[], publicationOnly = false): void {
   const removed = new Set(ids);
+  if (!publicationOnly) updateSessionAssets(client,
+    (asset) => removed.has(asset.assetId) ? { ...asset, url: null, expiresAt: null } : asset);
   updateResourceCaches(client, (image, key) => {
     if (!removed.has(image.id)) return image;
     // Asset deletion and publication withdrawal are independent backend operations.
@@ -84,6 +70,24 @@ export function removeResources(client: QueryClient, ids: string[], publicationO
     }
     return null;
   });
+}
+
+function updateSessionAssets(client: QueryClient, update: (asset: SessionAsset) => SessionAsset): void {
+  for (const query of client.getQueryCache().findAll({ queryKey: ["generation", "session"] })) {
+    const current = query.state.data as SessionDetail | undefined;
+    if (!current) continue;
+    const turns = mapStable(current.turns, (turn) => {
+      const assets = mapStable(turn.input.assets, update);
+      const items = mapStable(turn.items, (item) => {
+        if (item.kind !== "generation") return item;
+        const images = mapStable(item.assets, update);
+        return images === item.assets ? item : { ...item, assets: images };
+      });
+      return assets === turn.input.assets && items === turn.items ? turn
+        : { ...turn, input: { ...turn.input, assets }, items };
+    });
+    if (turns !== current.turns) query.setState({ data: { ...current, turns } });
+  }
 }
 
 /** Membership changes happen only after the like API succeeds. */

@@ -1,12 +1,13 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import type { SessionDetail } from "@/entities/generation/model/session";
+import { sessionFixture } from "./session-events.test-fixture";
 import { useEffect } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { useAuthStore } from "@/features/auth/model/auth-store";
 import {
   GenerationEventStreamProvider,
-  useAgentLiveRuns,
   useGenerationEventStream,
 } from "@/features/generation/model/generation-event-stream-provider";
 
@@ -25,9 +26,10 @@ function StreamStateProbe({ onCommit }: { onCommit: () => void }) {
 }
 
 function LiveRunsProbe({ onCommit }: { onCommit: () => void }) {
-  const liveRuns = useAgentLiveRuns();
+  const { data } = useQuery<SessionDetail>({ queryKey: ["generation", "session", "1"], enabled: false });
+  const item = data?.turns[0]?.items[0];
   useEffect(onCommit);
-  return <span>实时文本：{liveRuns["creation-1"]?.text ?? ""}</span>;
+  return <span>实时文本：{item?.kind === "text" ? item.text : ""}</span>;
 }
 
 describe("GenerationEventStreamProvider", () => {
@@ -58,6 +60,7 @@ describe("GenerationEventStreamProvider", () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
+    queryClient.setQueryData(["generation", "session", "1"], sessionFixture());
     const view = render(
       <QueryClientProvider client={queryClient}>
         <GenerationEventStreamProvider>
@@ -76,7 +79,7 @@ describe("GenerationEventStreamProvider", () => {
     await act(async () => {
       streamController?.enqueue(
         encoder.encode(
-          'event: agent.creation.event\ndata: {"creationId":"creation-1","sessionId":"session-1","revision":0,"streamId":"stream-1","sequence":1,"eventType":"TEXT_DELTA","payload":{"delta":"正在构图"}}\n\n',
+          'event: creation.item.upserted\ndata: {"creationId":"2","sessionId":"1","item":{"id":"text-1","kind":"text","text":"正在构图"}}\n\n',
         ),
       );
     });

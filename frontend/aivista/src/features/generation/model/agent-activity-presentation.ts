@@ -12,8 +12,3 @@ const SKILL_DISPLAY_NAMES: Readonly<Record<string, string>> = {
 export function skillDisplayName(skillName: string): string {
   return SKILL_DISPLAY_NAMES[skillName] ?? skillName;
 }
-
-export function skillActivityText(content: string): string {
-  const legacy = content.match(/^已启用(.+)能力。?$/);
-  return legacy ? `已加载技能：${legacy[1]}` : content;
-}

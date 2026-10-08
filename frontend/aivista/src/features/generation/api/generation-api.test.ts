@@ -1,195 +1,28 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
-vi.mock("@/shared/api/browser-client", () => ({
-  browserApiClient: { get: vi.fn(), put: vi.fn() },
-}));
-
-import type { AgentInputForm } from "@/entities/generation/model/generation";
-import { listGenerationTurns, resolveAgentForm } from "@/features/generation/api/generation-api";
 import { browserApiClient } from "@/shared/api/browser-client";
-
-const client = vi.mocked(browserApiClient);
-
-function responseData<T>(data: T): never {
-  return { data: { code: 0, message: "ok", data } } as never;
-}
-
-const filledForm: AgentInputForm = {
-  schemaVersion: 2,
-  title: "Logo 设计需求确认",
-  fields: [
-    { id: "brandName", type: "TEXT", label: "品牌名称", required: true, value: "superZ" },
-    {
-      id: "personality",
-      type: "SINGLE_SELECT",
-      label: "品牌性格",
-      required: true,
-      value: "NATURAL_FRESH",
-      options: [
-        { value: "NATURAL_FRESH", label: "自然 · 清新" },
-        { value: "PRECISE_TECH", label: "精密 · 科技" },
-      ],
-      allowCustom: true,
-    },
-  ],
-};
-
-describe("generation-api forms", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
+import { createAgentCreation, createGenerationTask, listGenerationSessions, resolveAgentForm } from "./generation-api";
+vi.mock("@/shared/api/browser-client", () => ({ browserApiClient: { get: vi.fn(), post: vi.fn(), put: vi.fn() } }));
+beforeEach(() => {
+  vi.clearAllMocks();
+  for (const method of [browserApiClient.get, browserApiClient.post, browserApiClient.put])
+    vi.mocked(method).mockResolvedValue({ data: { code: 0, message: "ok", data: [] } });
+});
+describe("creation REST contract", () => {
+  it("loads sessions without pagination", async () => {
+    await listGenerationSessions(); expect(browserApiClient.get).toHaveBeenCalledWith("/generation-sessions");
   });
-
-  it("submits the complete filled form document", async () => {
-    client.put.mockResolvedValue(
-      responseData({
-        creationId: "31",
-        revision: 5,
-        form: {
-          formId: "701",
-          status: "SUBMITTED",
-          form: filledForm,
-          requestedAt: "2026-09-20T01:00:00Z",
-          resolvedAt: "2026-09-20T01:01:00Z",
-        },
-      }),
-    );
-
-    const result = await resolveAgentForm({
-      creationId: "31",
-      formId: "701",
-      expectedRevision: 4,
-      action: "SUBMIT",
-      form: filledForm,
-    });
-
-    expect(client.put).toHaveBeenCalledWith("/agent-creations/31/forms/701/response", {
-      expectedRevision: 4,
-      action: "SUBMIT",
-      form: filledForm,
-    });
-    expect(result.form).toEqual({
-      id: "701",
-      status: "SUBMITTED",
-      form: filledForm,
-      requestedAt: "2026-09-20T01:00:00Z",
-      resolvedAt: "2026-09-20T01:01:00Z",
-    });
+  it("uses one creation resource for both modes", async () => {
+    await createGenerationTask({ prompt: "海报", aspectRatio: "3:4", imageCount: 1, promptExtend: true });
+    await createAgentCreation({ sessionId: "1", prompt: "设计海报", inputAssetIds: ["9"], aspectRatio: "AUTO", imageCount: 0 });
+    expect(browserApiClient.post).toHaveBeenNthCalledWith(1, "/creations", expect.objectContaining({ mode: "NORMAL",
+      input: { prompt: "海报", assetIds: [] }, settings: expect.objectContaining({ aspectRatio: "3:4", imageCount: 1 }) }));
+    expect(browserApiClient.post).toHaveBeenNthCalledWith(2, "/creations", expect.objectContaining({ mode: "AGENT", sessionId: "1",
+      input: { prompt: "设计海报", assetIds: ["9"] }, settings: { aspectRatio: undefined, imageCount: undefined } }));
   });
-
-  it("sends no filled form when the user skips", async () => {
-    client.put.mockResolvedValue(
-      responseData({
-        creationId: "31",
-        revision: 5,
-        form: {
-          formId: "701",
-          status: "SKIPPED",
-          form: filledForm,
-          requestedAt: "2026-09-20T01:00:00Z",
-          resolvedAt: "2026-09-20T01:01:00Z",
-        },
-      }),
-    );
-
-    await resolveAgentForm({
-      creationId: "31",
-      formId: "701",
-      expectedRevision: 4,
-      action: "SKIP",
-      form: null,
-    });
-
-    expect(client.put).toHaveBeenCalledWith("/agent-creations/31/forms/701/response", {
-      expectedRevision: 4,
-      action: "SKIP",
-      form: null,
-    });
-  });
-
-  it("ignores legacy forms at the REST boundary instead of crashing the conversation", async () => {
-    client.get.mockResolvedValue(
-      responseData({
-        items: [
-          turnWithForms([
-            {
-              formId: "700",
-              status: "SUBMITTED",
-              form: {
-                schemaVersion: 1,
-                title: "旧表单",
-                fields: [{ id: "brandName", type: "TEXT", label: "品牌名称", required: true }],
-              },
-              requestedAt: "2026-09-20T01:00:00Z",
-              resolvedAt: "2026-09-20T01:01:00Z",
-            },
-            {
-              formId: "701",
-              status: "SUBMITTED",
-              form: filledForm,
-              requestedAt: "2026-09-20T01:00:00Z",
-              resolvedAt: "2026-09-20T01:01:00Z",
-            },
-          ]),
-        ],
-        nextBefore: null,
-        hasMore: false,
-      }),
-    );
-
-    const result = await listGenerationTurns("12");
-
-    expect(result.items[0]?.forms).toEqual([
-      {
-        id: "701",
-        status: "SUBMITTED",
-        form: filledForm,
-        requestedAt: "2026-09-20T01:00:00Z",
-        resolvedAt: "2026-09-20T01:01:00Z",
-      },
-    ]);
-  });
-
-  it("rejects an invalid pending form instead of leaving a waiting turn without controls", async () => {
-    client.get.mockResolvedValue(
-      responseData({
-        items: [
-          turnWithForms([
-            {
-              formId: "700",
-              status: "PENDING",
-              form: { schemaVersion: 1, title: "旧表单", fields: [] },
-              requestedAt: "2026-09-20T01:00:00Z",
-              resolvedAt: null,
-            },
-          ]),
-        ],
-        nextBefore: null,
-        hasMore: false,
-      }),
-    );
-
-    await expect(listGenerationTurns("12")).rejects.toThrow("无效的待填写 Agent 表单");
+  it("submits field values and execution revision", async () => {
+    await resolveAgentForm({ creationId: "2", toolCallId: "call/1", expectedRevision: 3, action: "SUBMITTED",
+      form: { schemaVersion: 2, title: "确认", fields: [{ id: "theme", label: "主题", type: "TEXT", required: true, value: "猫" }] } });
+    expect(browserApiClient.put).toHaveBeenCalledWith("/creations/2/forms/call%2F1/response",
+      { expectedRevision: 3, action: "SUBMITTED", values: { theme: "猫" } });
   });
 });
-
-function turnWithForms(forms: unknown[]) {
-  return {
-    creationId: "31",
-    mode: "AGENT",
-    status: "SUCCEEDED",
-    failureCode: null,
-    revision: 5,
-    userMessage: {
-      messageId: "41",
-      sequenceNo: 1,
-      role: "USER",
-      content: "设计 Logo",
-      createdAt: "2026-09-20T01:00:00Z",
-    },
-    assistantMessage: null,
-    normalGenerationRequest: null,
-    generations: [],
-    activities: [],
-    forms,
-  };
-}

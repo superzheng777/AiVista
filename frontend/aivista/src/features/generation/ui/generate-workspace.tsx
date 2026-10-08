@@ -1,45 +1,23 @@
 "use client";
 
-import { patchResource, removeResources } from "@/entities/generation/model/resource-cache";
-import { type InfiniteData, useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  ArrowDown,
-  ArrowUpRight,
-  CheckCircle2,
-  ChevronDown,
-  CircleStop,
-  Clipboard,
-  Download,
-  Ellipsis,
-  FolderClock,
-  Heart,
-  Image as ImageIcon,
-  ImageOff,
-  LoaderCircle,
-  MessageSquare,
-  PencilLine,
-  Send,
-  Sparkles,
-  Trash2,
-  Wrench,
-} from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowDown, CheckCircle2, FolderClock, MessageSquare, PencilLine, Sparkles } from "lucide-react";
 import Link from "next/link";
+import { cn } from "@/shared/lib/cn";
+import { AccentSquare, DotMatrix } from "@/shared/ui/editorial-ornaments/editorial-ornaments";
+import { BOTTOM_FOLLOW_THRESHOLD_PX, nextBottomFollowState } from "../model/conversation-scroll";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { GenerationAsset } from "@/entities/generation/model/generation";
 import {
-  formatSessionTitle,
-  generationImageProgress,
-  isActiveGenerationStatus,
-  needsImageUrlRefresh,
-  type AgentInputForm,
-  type GenerationAsset,
-  type GenerationSession,
-  type GenerationTask,
-  type GenerationTurn,
-} from "@/entities/generation/model/generation";
-import { useImageDetailNavigation } from "@/entities/generation/model/use-image-detail-navigation";
+  isActiveCreation,
+  mergeSessionSnapshot,
+  type SessionAsset,
+  type SessionDetail,
+} from "@/entities/generation/model/session";
 import { ImageDetailShell } from "@/entities/generation/ui/image-detail-shell";
 import { OwnedImageDetailActions } from "@/entities/generation/ui/owned-image-detail-actions";
+import { patchResource, removeResources } from "@/entities/generation/model/resource-cache";
 import {
   deleteGenerationAssets,
   getGenerationAsset,
@@ -47,65 +25,26 @@ import {
 } from "@/features/assets/api/asset-api";
 import { downloadOriginalGenerationImage } from "@/features/assets/lib/original-image-download";
 import {
-  cancelAgentCreation,
+  cancelCreation,
   generationQueryKeys,
+  getGenerationSession,
   listGenerationSessions,
-  listGenerationTurns,
   resolveAgentForm,
+  updateGenerationSessionTitle,
 } from "@/features/generation/api/generation-api";
-import { GenerationComposer, type GenerationComposerDraft } from "@/features/generation/ui/generation-composer";
-import { AgentInputFormCard } from "@/features/generation/ui/agent-input-form-card";
-import {
-  useAgentLiveRuns,
-  useGenerationEventStream,
-  type GenerationSessionIndicator,
-} from "@/features/generation/model/generation-event-stream-provider";
-import type { AgentLiveRun } from "@/features/generation/model/generation-event-stream-parsing";
-import { BOTTOM_FOLLOW_THRESHOLD_PX, nextBottomFollowState } from "@/features/generation/model/conversation-scroll";
-import { skillActivityText, skillDisplayName } from "@/features/generation/model/agent-activity-presentation";
-import {
-  mergeGenerationTurnPageData,
-  applyAgentFormUpdateToTurns,
-  type GenerationTurnPage,
-} from "@/features/generation/model/generation-turn-cache";
+import { hydrateSession, receiveCreationEvent } from "@/features/generation/model/session-events";
+import { useGenerationEventStream } from "@/features/generation/model/generation-event-stream-provider";
+import { GenerationComposer, type GenerationComposerDraft } from "./generation-composer";
+import { ConversationTurn } from "./conversation-turn";
 import { PublicationFormDialog } from "@/features/publication/ui/publication-form-dialog";
-import { cn } from "@/shared/lib/cn";
-import { AccentSquare, DotMatrix } from "@/shared/ui/editorial-ornaments/editorial-ornaments";
-
-function taskStatusText(task: Pick<GenerationTask, "status" | "retryCount" | "maxRetryCount">): string {
-  const retryProgress = `${task.retryCount}/${task.maxRetryCount}`;
-  if (task.status === "QUEUED" && task.retryCount > 0) return `模型调用失败，正在重试（${retryProgress}）`;
-  if (task.status === "QUEUED") return "图片排队中";
-  if (task.status === "GENERATING") return "正在生成图片";
-  if (task.status === "SAVING") return "正在保存图片";
-  if (task.status === "SUCCEEDED") return "生成已完成";
-  if (task.status === "PARTIALLY_SUCCEEDED") return "部分图片已生成";
-  if (task.status === "FAILED") return "生成失败";
-  return "尚未开始生成";
-}
 
 export function GenerateWorkspace() {
-  const queryClient = useQueryClient();
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const sessionId = searchParams.get("sessionId");
-  const { sessionIndicators, syncVersion } = useGenerationEventStream();
-  const sessionsQuery = useInfiniteQuery({
-    queryKey: generationQueryKeys.sessions(),
-    queryFn: ({ pageParam }) => listGenerationSessions(pageParam),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
-  });
-  const sessions = sessionsQuery.data?.pages.flatMap((page) => page.items);
-  const activeSessionTitle = sessionId ? sessions?.find((session) => session.id === sessionId)?.title : undefined;
-  useEffect(() => {
-    if (syncVersion > 0)
-      void queryClient.refetchQueries({
-        queryKey: generationQueryKeys.sessions(),
-        type: "active",
-      });
-  }, [queryClient, syncVersion]);
-  function selectSession(nextSessionId: string): void {
+  const sessionId = useSearchParams().get("sessionId");
+  const { sessionIndicators } = useGenerationEventStream();
+  const sessionsQuery = useQuery({ queryKey: generationQueryKeys.sessions(), queryFn: listGenerationSessions });
+  const sessions = sessionsQuery.data;
+  function selectSession(nextSessionId: string) {
     router.push(`/generate?sessionId=${encodeURIComponent(nextSessionId)}`);
   }
 
@@ -130,26 +69,50 @@ export function GenerateWorkspace() {
               新对话
             </button>
             <div className="mt-5">
-              <SessionList
-                sessions={sessions}
-                indicators={sessionIndicators}
-                isLoading={sessionsQuery.isLoading}
-                isError={sessionsQuery.isError}
-                hasNextPage={sessionsQuery.hasNextPage}
-                isFetchingNextPage={sessionsQuery.isFetchingNextPage}
-                activeSessionId={sessionId}
-                onSelect={selectSession}
-                onLoadMore={() => void sessionsQuery.fetchNextPage()}
-                onRetry={() => void sessionsQuery.refetch()}
-              />
+              <nav aria-label="历史会话" className="space-y-2">
+                {sessionsQuery.isPending ? <SessionSkeleton /> : null}
+                {sessionsQuery.isError ? (
+                  <button
+                    onClick={() => void sessionsQuery.refetch()}
+                    className="px-2 py-3 text-sm text-[var(--accent-hover)]"
+                  >
+                    会话加载失败，点击重试
+                  </button>
+                ) : null}
+                {sessions?.map((session) => (
+                  <button
+                    key={session.sessionId}
+                    type="button"
+                    onClick={() => selectSession(session.sessionId)}
+                    aria-current={sessionId === session.sessionId ? "page" : undefined}
+                    className={cn(
+                      "flex h-[52px] w-full items-center gap-[10px] rounded-[7px] px-[14px] text-left text-sm transition",
+                      sessionId === session.sessionId
+                        ? "border border-[var(--accent-border)] bg-[var(--active-bg)] font-medium text-[var(--primary)]"
+                        : "text-[var(--text-secondary)] hover:bg-[var(--surface-soft)] hover:text-[var(--primary)]",
+                    )}
+                  >
+                    <MessageSquare className="size-[18px] shrink-0" />
+                    <span title={session.title} className="min-w-0 flex-1 truncate">
+                      {session.title}
+                    </span>
+                    {sessionId === session.sessionId ? (
+                      <span aria-label="当前会话" className="size-[9px] shrink-0 bg-[var(--accent)]" />
+                    ) : sessionIndicators?.[session.sessionId] === "COMPLETED" ? (
+                      <CheckCircle2 aria-label="有新的生成结果" className="size-3.5 shrink-0 text-[var(--accent)]" />
+                    ) : sessionIndicators?.[session.sessionId] === "ATTENTION" ? (
+                      <span aria-label="生成失败" className="size-2 shrink-0 bg-[var(--accent-hover)]" />
+                    ) : null}
+                  </button>
+                ))}
+                {!sessionsQuery.isPending && !sessions?.length ? (
+                  <p className="px-2 py-2 text-xs leading-5 text-[var(--text-secondary)]">尚无历史会话。</p>
+                ) : null}
+              </nav>
             </div>
           </div>
         </aside>
-        {sessionId ? (
-          <ConversationPanel key={sessionId} sessionId={sessionId} sessionTitle={activeSessionTitle} />
-        ) : (
-          <NewConversationPanel />
-        )}
+        {sessionId ? <ConversationPanel key={sessionId} sessionId={sessionId} /> : <NewConversationPanel />}
       </div>
     </section>
   );
@@ -180,328 +143,307 @@ function NewConversationPanel() {
   );
 }
 
-function ConversationPanel({ sessionId, sessionTitle }: { sessionId: string; sessionTitle?: string }) {
-  const queryClient = useQueryClient();
+function ConversationPanel({ sessionId }: { sessionId: string }) {
+  const client = useQueryClient();
   const router = useRouter();
-  const { acknowledgeSession, sessionIndicators, syncVersion } = useGenerationEventStream();
-  const agentRuns = useAgentLiveRuns();
-  const historyRef = useRef<HTMLElement>(null);
-  const positionedSessionRef = useRef<string | null>(null);
-  const lastScrollTopRef = useRef(0);
+  const { syncVersion, acknowledgeSession } = useGenerationEventStream();
+  const lastSync = useRef(syncVersion);
+  const historyRef = useRef<HTMLDivElement>(null);
+  const positioned = useRef(false);
+  const lastScrollTop = useRef(0);
   const [isFollowingBottom, setIsFollowingBottom] = useState(true);
   const [isComposerCollapsed, setIsComposerCollapsed] = useState(false);
-  const [detailAssetId, setDetailAssetId] = useState<string | null>(null);
-  const [publishAsset, setPublishAsset] = useState<GenerationAsset | null>(null);
-  const [actionNotice, setActionNotice] = useState<string | null>(null);
-  const [composerDraft, setComposerDraft] = useState<{
-    key: number;
-    value: GenerationComposerDraft;
-  } | null>(null);
-  const turnsQuery = useInfiniteQuery<
-    GenerationTurnPage,
-    Error,
-    InfiniteData<GenerationTurnPage>,
-    ReturnType<typeof generationQueryKeys.turns>,
-    string | undefined
-  >({
-    queryKey: generationQueryKeys.turns(sessionId),
-    queryFn: ({ pageParam }) => listGenerationTurns(sessionId, pageParam),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (lastPage) => lastPage.nextBefore ?? undefined,
-    structuralSharing: mergeGenerationTurnPageData,
+  const [detail, setDetail] = useState<GenerationAsset | null>(null);
+  const [publication, setPublication] = useState<GenerationAsset | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [draft, setDraft] = useState<{ key: number; value: GenerationComposerDraft } | null>(null);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const session = useQuery({
+    queryKey: generationQueryKeys.session(sessionId),
+    queryFn: async () => hydrateSession(client, await getGenerationSession(sessionId)),
+    structuralSharing: (current, incoming) =>
+      mergeSessionSnapshot(current as SessionDetail | undefined, incoming as SessionDetail),
+    staleTime: Infinity,
   });
-  const turns = useMemo(
-    () => (turnsQuery.data ? [...turnsQuery.data.pages].reverse().flatMap((page) => page.items) : undefined),
-    [turnsQuery.data],
-  );
-  const navigableImages =
-    turns?.flatMap((turn) => turn.generations.flatMap((task) => task.images)).filter(isNavigableImage) ?? [];
-  const detailAsset = detailAssetId ? (navigableImages.find((image) => image.id === detailAssetId) ?? null) : null;
-  const hasActiveCreation =
-    turns?.some((turn) => turn.status === "RUNNING" || turn.status === "WAITING_INPUT") ?? false;
+
   useEffect(() => {
-    if (turnsQuery.isLoading || !turns || positionedSessionRef.current === sessionId) return;
+    acknowledgeSession(sessionId);
+    if (lastSync.current !== syncVersion) {
+      lastSync.current = syncVersion;
+      void client.invalidateQueries({ queryKey: generationQueryKeys.session(sessionId) });
+      void client.invalidateQueries({ queryKey: generationQueryKeys.sessions() });
+    }
+  }, [acknowledgeSession, client, sessionId, syncVersion]);
+  useEffect(() => {
+    if (!session.data || !isFollowingBottom) return;
     const frame = window.requestAnimationFrame(() => {
       const history = historyRef.current;
-      if (history) {
-        history.scrollTop = history.scrollHeight;
-        lastScrollTopRef.current = history.scrollTop;
-      }
-      setIsFollowingBottom(true);
-      positionedSessionRef.current = sessionId;
+      if (!history) return;
+      // Content can grow as streamed text, forms and images finish layout.
+      history.scrollTo({ top: history.scrollHeight, behavior: positioned.current ? "smooth" : "auto" });
+      lastScrollTop.current = history.scrollTop;
+      positioned.current = true;
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [sessionId, turns, turnsQuery.isLoading]);
-  useEffect(() => {
-    if (!isFollowingBottom || positionedSessionRef.current !== sessionId) return;
-    const frame = window.requestAnimationFrame(() => scrollToConversationBottom("smooth"));
-    return () => window.cancelAnimationFrame(frame);
-  }, [agentRuns, isFollowingBottom, sessionId, turns]);
-  useEffect(() => {
-    if (syncVersion > 0)
-      void queryClient.refetchQueries({
-        queryKey: generationQueryKeys.turns(sessionId),
-        type: "active",
-      });
-  }, [queryClient, sessionId, syncVersion]);
-  const favoriteMutation = useMutation({
-    mutationFn: ({ asset, favorite }: { asset: GenerationAsset; favorite: boolean }) =>
-      setGenerationImageFavorites([asset.id], favorite),
-    onMutate: async ({ asset, favorite }) => {
-      await queryClient.cancelQueries({ queryKey: generationQueryKeys.turns(sessionId) });
-      patchResource(queryClient, asset.id, { favorited: favorite });
-    },
-    onError: (_error, { asset }) => {
-      patchResource(queryClient, asset.id, { favorited: asset.favorited });
-      setActionNotice("收藏状态更新失败，请重试。");
-    },
+  }, [session.data, isFollowingBottom]);
+
+  function scrollToBottom() {
+    setIsFollowingBottom(true);
+    setIsComposerCollapsed(false);
+    historyRef.current?.scrollTo({
+      top: historyRef.current.scrollHeight,
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+    });
+  }
+  function handleHistoryScroll(history: HTMLDivElement) {
+    const distance = history.scrollHeight - history.scrollTop - history.clientHeight;
+    const scrollingUp = history.scrollTop < lastScrollTop.current - 1;
+    lastScrollTop.current = history.scrollTop;
+    setIsComposerCollapsed(distance > BOTTOM_FOLLOW_THRESHOLD_PX);
+    setIsFollowingBottom((current) => nextBottomFollowState(current, distance, scrollingUp));
+  }
+
+  const cancel = useMutation({
+    mutationFn: cancelCreation,
+    onSuccess: (result) => receiveCreationEvent(client, { type: "creation.updated", sessionId, ...result }),
+    onError: () => setNotice("取消失败，请重试。"),
   });
-  const deleteMutation = useMutation({
-    mutationFn: (imageId: string) => deleteGenerationAssets([imageId]),
-    onSuccess: (_result, imageId) => {
-      setDetailAssetId((id) => (id === imageId ? null : id));
-      removeResources(queryClient, [imageId]);
-    },
-    onError: () => setActionNotice("删除失败，请重试。"),
-  });
-  const cancelMutation = useMutation({
-    mutationFn: cancelAgentCreation,
-    onSuccess: () =>
-      void Promise.all([
-        queryClient.refetchQueries({
-          queryKey: generationQueryKeys.sessions(),
-          type: "active",
-        }),
-        queryClient.refetchQueries({
-          queryKey: generationQueryKeys.turns(sessionId),
-          type: "active",
-        }),
-      ]),
-    onError: () => setActionNotice("取消失败，创作可能已经结束，请刷新后重试。"),
-  });
-  const formMutation = useMutation({
+  const answer = useMutation({
     mutationFn: resolveAgentForm,
     onSuccess: (result) => {
-      queryClient.setQueryData<InfiniteData<GenerationTurnPage>>(generationQueryKeys.turns(sessionId), (current) =>
-        applyAgentFormUpdateToTurns(current, result.creationId, result.revision, result.form, "RUNNING"),
+      receiveCreationEvent(client, {
+        type: "creation.item.upserted",
+        sessionId,
+        creationId: result.creationId,
+        item: result.item,
+      });
+      receiveCreationEvent(client, {
+        type: "creation.updated",
+        sessionId,
+        creationId: result.creationId,
+        status: result.status,
+        revision: result.revision,
+      });
+    },
+    onError: () => setNotice("表单提交失败，请检查内容后重试。"),
+  });
+  const rename = useMutation({
+    mutationFn: (title: string) => updateGenerationSessionTitle(sessionId, title),
+    onSuccess: ({ title }) => {
+      client.setQueryData<SessionDetail>(generationQueryKeys.session(sessionId), (value) =>
+        value ? { ...value, title } : value,
+      );
+      void client.invalidateQueries({ queryKey: generationQueryKeys.sessions() });
+      setEditingTitle(false);
+    },
+    onError: () => setNotice("标题修改失败，请重试。"),
+  });
+  const favorite = useMutation({
+    mutationFn: async (asset: GenerationAsset) => {
+      await setGenerationImageFavorites([asset.id], !asset.favorited);
+      return { ...asset, favorited: !asset.favorited };
+    },
+    onSuccess: (asset) => {
+      setDetail(asset);
+      patchResource(client, asset.id, { favorited: asset.favorited });
+    },
+    onError: () => setNotice("收藏更新失败。"),
+  });
+  const remove = useMutation({
+    mutationFn: (id: string) => deleteGenerationAssets([id]),
+    onSuccess: (_, id) => {
+      setDetail(null);
+      removeResources(client, [id]);
+      client.setQueryData<SessionDetail>(generationQueryKeys.session(sessionId), (value) =>
+        value
+          ? {
+              ...value,
+              turns: value.turns.map((turn) => ({
+                ...turn,
+                items: turn.items.map((item) =>
+                  item.kind === "generation"
+                    ? {
+                        ...item,
+                        assets: item.assets.map((asset) => (asset.assetId === id ? { ...asset, url: null } : asset)),
+                      }
+                    : item,
+                ),
+              })),
+            }
+          : value,
       );
     },
-    onError: () => setActionNotice("表单提交失败，请检查填写内容后重试。"),
+    onError: () => setNotice("图片删除失败。"),
   });
-  useEffect(() => {
-    if (sessionIndicators[sessionId] === "COMPLETED" || sessionIndicators[sessionId] === "ATTENTION")
-      acknowledgeSession(sessionId);
-  }, [acknowledgeSession, sessionId, sessionIndicators]);
-  async function refreshAsset(imageId: string): Promise<GenerationAsset> {
-    const refreshed = await getGenerationAsset(imageId);
-    patchResource(queryClient, imageId, { imageUrls: refreshed.imageUrls });
-    return refreshed;
-  }
-  async function openAsset(asset: GenerationAsset): Promise<void> {
+  async function openImage(assetId: string) {
     try {
-      if (needsImageUrlRefresh(asset.imageUrls.display)) await refreshAsset(asset.id);
-      setDetailAssetId(asset.id);
+      setDetail(await getGenerationAsset(assetId));
     } catch {
-      setActionNotice("图片访问地址刷新失败，请稍后重试。 ");
+      setNotice("图片已删除或暂时无法读取。");
     }
   }
-  const detailNavigation = useImageDetailNavigation({
-    items: navigableImages,
-    currentImageId: detailAssetId,
-    onSelect: openAsset,
-    hasPreviousPage: Boolean(turnsQuery.hasNextPage),
-    loadPreviousPage: async () => {
-      let result = await turnsQuery.fetchNextPage();
-      let images: GenerationAsset[];
-      do {
-        const loadedTurns = result.data
-          ? [...result.data.pages].reverse().flatMap((page) => page.items)
-          : (turns ?? []);
-        images = loadedTurns
-          .flatMap((turn) => turn.generations.flatMap((task) => task.images))
-          .filter(isNavigableImage);
-        if (images.findIndex((image) => image.id === detailAssetId) > 0 || !result.hasNextPage || result.isError) break;
-        result = await turnsQuery.fetchNextPage();
-      } while (true);
-      return images;
-    },
-  });
-  function requestPublish(asset: GenerationAsset): void {
-    if (asset.publicationReviewStatus === "PENDING") return setActionNotice("该图片正在审核中。");
-    if (asset.publicationReviewStatus === "APPROVED") {
-      router.push(`/inspirations?imageId=${encodeURIComponent(asset.id)}`);
-      return;
-    }
-    setPublishAsset(asset);
-  }
-  function handlePublicationSuccess(): void {
-    setPublishAsset(null);
 
-    setActionNotice("图片已发布，正在审核。");
+  async function refreshAsset(id: string) {
+    const image = await getGenerationAsset(id);
+    patchResource(client, id, { imageUrls: image.imageUrls });
+    return image;
   }
-  function scrollToConversationBottom(behavior: ScrollBehavior): void {
-    const history = historyRef.current;
-    if (!history) return;
-    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    history.scrollTo({
-      top: history.scrollHeight,
-      behavior: reducedMotion ? "auto" : behavior,
-    });
+  async function continueWith(asset: SessionAsset, prompt: string) {
+    try {
+      setDraft({
+        key: Date.now(),
+        value: { mode: "agent", prompt, referenceImages: [await getGenerationAsset(asset.assetId)] },
+      });
+      setIsComposerCollapsed(false);
+    } catch {
+      setNotice("参考图片加载失败。");
+    }
   }
-  function handleHistoryScroll(history: HTMLElement): void {
-    const distanceFromBottom = history.scrollHeight - history.scrollTop - history.clientHeight;
-    const isScrollingUp = history.scrollTop < lastScrollTopRef.current - 1;
-    lastScrollTopRef.current = history.scrollTop;
-    setIsComposerCollapsed(distanceFromBottom > BOTTOM_FOLLOW_THRESHOLD_PX);
-    setIsFollowingBottom((current) => nextBottomFollowState(current, distanceFromBottom, isScrollingUp));
+  function requestPublish(asset: GenerationAsset) {
+    if (asset.publicationReviewStatus === "PENDING") return setNotice("该图片正在审核中。");
+    if (asset.publicationReviewStatus === "APPROVED") router.push(`/inspirations?imageId=${asset.id}`);
+    else setPublication(asset);
   }
-  if (detailAsset)
+  const imageIds =
+    session.data?.turns.flatMap((turn) =>
+      turn.items.flatMap((item) =>
+        item.kind === "generation" ? item.assets.filter((asset) => asset.url).map((asset) => asset.assetId) : [],
+      ),
+    ) ?? [];
+  const detailIndex = detail ? imageIds.indexOf(detail.id) : -1;
+  if (detail)
     return (
       <>
-        {actionNotice ? (
-          <p
-            role="status"
-            className="m-4 rounded-[7px] border border-[var(--accent-border)] bg-[var(--accent-soft)] px-4 py-3 text-sm text-[var(--accent-hover)]"
-          >
-            {actionNotice}
-          </p>
-        ) : null}
         <ImageDetailShell
-          image={detailAsset}
-          refreshImage={refreshAsset}
-          navigation={detailNavigation}
-          onDownload={() => downloadOriginalGenerationImage(detailAsset)}
-          allowCopy={detailAsset.publicationReviewStatus === "NONE"}
-          onClose={() => setDetailAssetId(null)}
+          image={detail}
+          navigation={{
+            hasPrevious: detailIndex > 0,
+            hasNext: detailIndex >= 0 && detailIndex < imageIds.length - 1,
+            pending: false,
+            previous: () => void openImage(imageIds[detailIndex - 1]!),
+            next: () => void openImage(imageIds[detailIndex + 1]!),
+          }}
+          onClose={() => setDetail(null)}
+          allowCopy={detail.publicationReviewStatus === "NONE"}
+          refreshImage={async (id) => {
+            const value = await getGenerationAsset(id);
+            setDetail(value);
+            return value;
+          }}
+          onDownload={() => downloadOriginalGenerationImage(detail)}
           actions={
             <OwnedImageDetailActions
-              image={detailAsset}
-              isFavoriteUpdating={favoriteMutation.isPending}
-              isDeleting={deleteMutation.isPending}
-              onFavorite={() =>
-                favoriteMutation.mutate({
-                  asset: detailAsset,
-                  favorite: !detailAsset.favorited,
-                })
-              }
-              onPublish={() => requestPublish(detailAsset)}
+              image={detail}
+              isFavoriteUpdating={favorite.isPending}
+              isDeleting={remove.isPending}
+              onFavorite={() => favorite.mutate(detail)}
+              onPublish={() => requestPublish(detail)}
               onDelete={() => {
-                if (window.confirm("确定删除这张图片？此操作无法撤销。")) deleteMutation.mutate(detailAsset.id);
+                if (window.confirm("确定删除这张图片？此操作无法撤销。")) remove.mutate(detail.id);
               }}
             />
           }
         />
-        {publishAsset ? (
+        {publication ? (
           <PublicationFormDialog
-            asset={publishAsset}
-            onClose={() => setPublishAsset(null)}
-            onSuccess={handlePublicationSuccess}
+            asset={publication}
+            onClose={() => setPublication(null)}
+            onSuccess={() => {
+              setPublication(null);
+              void openImage(detail.id);
+            }}
           />
         ) : null}
+        {notice ? <p role="status">{notice}</p> : null}
       </>
     );
+  const active = session.data?.turns.some((turn) => isActiveCreation(turn.status)) ?? false;
+  const limitReached = (session.data?.creationCount ?? 0) >= (session.data?.creationLimit ?? 30);
   return (
-    <main className="relative flex min-h-[calc(100dvh-4rem)] min-w-0 flex-col bg-[var(--page-bg)] lg:h-dvh lg:min-h-0">
+    <main className="relative flex h-[calc(100dvh-4rem)] min-w-0 flex-col bg-[var(--page-bg)] lg:h-dvh lg:min-h-0">
       <header className="flex min-h-[74px] items-center justify-between border-b border-[var(--border)] bg-[var(--surface-bg)]/80 px-5 sm:px-8">
-        <h1 title={sessionTitle ?? "创作会话"} className="min-w-0 truncate text-base font-bold sm:text-lg">
-          {formatSessionTitle(sessionTitle ?? "创作会话")}
-        </h1>
-        <div className="ml-4 flex shrink-0 items-center gap-3">
-          <Link
-            href="/assets"
-            className="inline-flex h-9 items-center gap-1.5 rounded-[6px] border border-[var(--border)] bg-[var(--surface-bg)] px-3 text-sm font-medium transition hover:bg-[var(--active-bg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+        {editingTitle ? (
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              rename.mutate(String(new FormData(event.currentTarget).get("title")));
+            }}
           >
-            <FolderClock className="size-4" />
-            资产库
-          </Link>
-        </div>
+            <input name="title" aria-label="会话标题" defaultValue={session.data?.title} maxLength={100} required />
+            <button disabled={rename.isPending}>保存</button>
+          </form>
+        ) : (
+          <button
+            className="min-w-0 truncate text-base font-bold sm:text-lg"
+            title={session.data?.title}
+            onClick={() => setEditingTitle(true)}
+          >
+            {session.data?.title ?? "创作会话"}
+            <PencilLine className="ml-2 inline size-3.5" />
+          </button>
+        )}
+        <Link
+          href="/assets"
+          className="ml-4 inline-flex h-9 shrink-0 items-center gap-1.5 rounded-[6px] border border-[var(--border)] bg-[var(--surface-bg)] px-3 text-sm font-medium transition hover:bg-[var(--active-bg)]"
+        >
+          <FolderClock className="size-4" />
+          资产库
+        </Link>
       </header>
-      <section
+      <div
         ref={historyRef}
         aria-label="当前会话历史"
-        onScroll={(event) => handleHistoryScroll(event.currentTarget)}
         className="min-h-0 flex-1 overflow-y-auto px-5 py-7 pb-[224px] sm:px-8 lg:px-12"
+        onScroll={(event) => handleHistoryScroll(event.currentTarget)}
       >
         <div className="mx-auto max-w-[1040px]">
-          {actionNotice ? (
+          {session.isPending ? <HistorySkeleton /> : null}
+          {session.isError ? <button onClick={() => void session.refetch()}>历史加载失败，点击重试</button> : null}
+          {notice ? (
             <p
               role="status"
               className="mb-4 rounded-[7px] border border-[var(--accent-border)] bg-[var(--accent-soft)] px-4 py-3 text-sm text-[var(--accent-hover)]"
             >
-              {actionNotice}
+              {notice}
             </p>
           ) : null}
-          {turnsQuery.isLoading ? <HistorySkeleton /> : null}
-          {turnsQuery.isError ? (
-            <div
-              role="alert"
-              className="border border-[var(--accent)]/30 bg-[var(--accent-soft)] px-4 py-3 text-sm text-[var(--accent-hover)]"
-            >
-              <p>历史对话加载失败，请重试。</p>
-              <button
-                type="button"
-                onClick={() => void (turnsQuery.hasNextPage ? turnsQuery.fetchNextPage() : turnsQuery.refetch())}
-                className="mt-1 font-medium underline"
-              >
-                重试
-              </button>
-            </div>
-          ) : null}
-          {turnsQuery.hasNextPage ? (
-            <div className="mb-5 flex justify-center">
-              <button
-                type="button"
-                onClick={() => void turnsQuery.fetchNextPage()}
-                disabled={turnsQuery.isFetchingNextPage}
-                className="inline-flex min-h-10 items-center gap-2 rounded-[6px] border border-[var(--border-strong)] bg-[var(--surface-bg)] px-3 text-sm text-[var(--text-secondary)] disabled:opacity-60"
-              >
-                {turnsQuery.isFetchingNextPage ? <LoaderCircle className="size-4 animate-spin" /> : null}
-                加载更早的对话
-              </button>
-            </div>
-          ) : null}
-          {turns?.map((turn) => (
+          {session.data?.turns.map((turn) => (
             <ConversationTurn
-              key={turn.id}
+              key={turn.creationId}
               turn={turn}
-              live={agentRuns[turn.id]}
-              isCancelling={cancelMutation.isPending && cancelMutation.variables === turn.id}
-              onCancel={() => cancelMutation.mutate(turn.id)}
-              resolvingFormId={formMutation.isPending ? (formMutation.variables?.formId ?? null) : null}
-              onResolveForm={(formId, action, form) =>
-                formMutation.mutate({
-                  creationId: turn.id,
-                  formId,
+              cancelling={cancel.isPending && cancel.variables === turn.creationId}
+              submittingFormId={
+                answer.isPending && answer.variables?.creationId === turn.creationId
+                  ? answer.variables.toolCallId
+                  : null
+              }
+              onCancel={() => cancel.mutate(turn.creationId)}
+              onResolve={(toolCallId, action, form) =>
+                answer.mutate({
+                  creationId: turn.creationId,
+                  toolCallId,
                   expectedRevision: turn.revision,
-                  action,
+                  action: action === "SUBMIT" ? "SUBMITTED" : "SKIPPED",
                   form,
                 })
               }
-              onContinue={(draft) => {
-                setComposerDraft({ key: Date.now(), value: draft });
-                setIsComposerCollapsed(false);
-              }}
-              onOpenAsset={openAsset}
-              onRefreshAsset={refreshAsset}
-              onFavorite={(asset) =>
-                favoriteMutation.mutate({
-                  asset,
-                  favorite: !asset.favorited,
-                })
-              }
+              onContinue={(asset, prompt) => void continueWith(asset, prompt)}
+              onOpen={(id) => void openImage(id)}
+              onRefresh={refreshAsset}
+              onFavorite={(asset) => favorite.mutate(asset)}
               onPublish={requestPublish}
-              onDelete={(image) => {
-                if (window.confirm("确定删除这张图片？此操作无法撤销。")) deleteMutation.mutate(image.id);
+              onDelete={(asset) => {
+                if (window.confirm("确定删除这张图片？此操作无法撤销。")) remove.mutate(asset.id);
               }}
             />
           ))}
-          {!turnsQuery.isLoading && !turns?.length ? (
-            <div className="flex min-h-56 items-center justify-center">
-              <p className="text-sm text-[var(--text-secondary)]">这个会话还没有可展示的历史内容。</p>
-            </div>
+          {!session.isPending && !session.data?.turns.length ? (
+            <p className="flex min-h-56 items-center justify-center text-sm text-[var(--text-secondary)]">
+              这个会话还没有可展示的历史内容。
+            </p>
           ) : null}
         </div>
-      </section>
+      </div>
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 px-5 pb-5 sm:px-8 lg:px-12">
         <div
           className={`pointer-events-auto mx-auto w-full transition-[max-width] duration-300 ${isComposerCollapsed ? "max-w-[860px]" : "max-w-[1040px]"}`}
@@ -510,10 +452,7 @@ function ConversationPanel({ sessionId, sessionTitle }: { sessionId: string; ses
             <div className="mb-3 flex justify-end">
               <button
                 type="button"
-                onClick={() => {
-                  setIsFollowingBottom(true);
-                  scrollToConversationBottom("smooth");
-                }}
+                onClick={scrollToBottom}
                 className="inline-flex h-10 items-center gap-2 rounded-full border border-[var(--border-strong)] bg-[var(--surface-bg)] px-4 text-xs font-medium text-[var(--primary)] shadow-lg transition hover:border-[var(--accent-border)] hover:bg-[var(--active-bg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
               >
                 <ArrowDown className="size-4" />
@@ -521,600 +460,23 @@ function ConversationPanel({ sessionId, sessionTitle }: { sessionId: string; ses
               </button>
             </div>
           ) : null}
+          {limitReached ? (
+            <p className="mb-3 text-sm">当前会话已达到30轮创作上限，请开启新会话。已有表单仍可继续处理。</p>
+          ) : null}
           <GenerationComposer
-            key={composerDraft?.key ?? "composer"}
+            key={draft?.key ?? "composer"}
             sessionId={sessionId}
             compact={isComposerCollapsed}
             onExpand={() => setIsComposerCollapsed(false)}
-            hasActiveCreation={hasActiveCreation}
-            initialDraft={composerDraft?.value}
+            hasActiveCreation={active || limitReached}
+            initialDraft={draft?.value}
           />
         </div>
       </div>
-      {publishAsset ? (
-        <PublicationFormDialog
-          asset={publishAsset}
-          onClose={() => setPublishAsset(null)}
-          onSuccess={handlePublicationSuccess}
-        />
-      ) : null}
     </main>
   );
 }
 
-function SessionList({
-  sessions,
-  indicators,
-  isLoading,
-  isError,
-  hasNextPage,
-  isFetchingNextPage,
-  activeSessionId,
-  onSelect,
-  onLoadMore,
-  onRetry,
-}: {
-  sessions: GenerationSession[] | undefined;
-  indicators: Record<string, GenerationSessionIndicator>;
-  isLoading: boolean;
-  isError: boolean;
-  hasNextPage: boolean;
-  isFetchingNextPage: boolean;
-  activeSessionId: string | null;
-  onSelect: (sessionId: string) => void;
-  onLoadMore: () => void;
-  onRetry: () => void;
-}) {
-  return (
-    <div className="space-y-2">
-      {isLoading ? <SessionSkeleton /> : null}
-      {isError ? (
-        <div role="alert" className="px-2 py-3 text-sm text-[var(--accent-hover)]">
-          <p>会话加载失败，请重试。</p>
-          <button type="button" onClick={onRetry} className="mt-1 font-medium underline">
-            重试
-          </button>
-        </div>
-      ) : null}
-      {sessions?.map((session) => (
-        <SessionListItem
-          key={session.id}
-          session={session}
-          indicator={activeSessionId === session.id ? undefined : indicators[session.id]}
-          active={activeSessionId === session.id}
-          onSelect={onSelect}
-        />
-      ))}
-      {hasNextPage ? (
-        <button
-          type="button"
-          onClick={onLoadMore}
-          disabled={isFetchingNextPage}
-          className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-[6px] px-3 text-sm text-[var(--text-secondary)] disabled:opacity-60"
-        >
-          {isFetchingNextPage ? <LoaderCircle className="size-4 animate-spin" /> : null}
-          加载更多会话
-        </button>
-      ) : null}
-      {!isLoading && !sessions?.length ? (
-        <p className="px-2 py-2 text-xs leading-5 text-[var(--text-secondary)]">尚无历史会话。</p>
-      ) : null}
-    </div>
-  );
-}
-
-function SessionListItem({
-  session,
-  indicator,
-  active,
-  onSelect,
-}: {
-  session: GenerationSession;
-  indicator?: GenerationSessionIndicator;
-  active: boolean;
-  onSelect: (sessionId: string) => void;
-}) {
-  const statusIndicator = session.hasActiveTask ? (
-    <LoaderCircle aria-label="正在生成" className="size-3.5 shrink-0 animate-spin text-[var(--accent)]" />
-  ) : indicator === "ATTENTION" ? (
-    <span aria-label="生成失败" className="size-2 shrink-0 bg-[var(--accent-hover)]" />
-  ) : indicator === "COMPLETED" ? (
-    <CheckCircle2 aria-label="有新的生成结果" className="size-3.5 shrink-0 text-[var(--accent)]" />
-  ) : null;
-  return (
-    <button
-      type="button"
-      onClick={() => onSelect(session.id)}
-      className={cn(
-        "flex h-[52px] w-full items-center gap-[10px] rounded-[7px] px-[14px] text-left text-sm transition",
-        active
-          ? "border border-[var(--accent-border)] bg-[var(--active-bg)] font-medium text-[var(--primary)]"
-          : "text-[var(--text-secondary)] hover:bg-[var(--surface-soft)] hover:text-[var(--primary)]",
-      )}
-    >
-      <MessageSquare className="size-[18px] shrink-0" />
-      <span title={session.title} className="min-w-0 flex-1 truncate">
-        {formatSessionTitle(session.title)}
-      </span>
-      {statusIndicator}
-      {active ? <span aria-label="当前会话" className="size-[9px] shrink-0 bg-[var(--accent)]" /> : null}
-    </button>
-  );
-}
-
-function ConversationTurn({
-  turn,
-  live,
-  isCancelling,
-  onCancel,
-  resolvingFormId,
-  onResolveForm,
-  onContinue,
-  onOpenAsset,
-  onRefreshAsset,
-  onFavorite,
-  onPublish,
-  onDelete,
-}: {
-  turn: GenerationTurn;
-  live: AgentLiveRun | undefined;
-  isCancelling: boolean;
-  onCancel: () => void;
-  resolvingFormId: string | null;
-  onResolveForm: (formId: string, action: "SUBMIT" | "SKIP", form: AgentInputForm | null) => void;
-  onContinue: (draft: GenerationComposerDraft) => void;
-  onOpenAsset: (asset: GenerationAsset) => Promise<void>;
-  onRefreshAsset: (imageId: string) => Promise<GenerationAsset>;
-  onFavorite: (asset: GenerationAsset) => void;
-  onPublish: (asset: GenerationAsset) => void;
-  onDelete: (asset: GenerationAsset) => void;
-}) {
-  const isResolvingForm = resolvingFormId !== null && turn.forms.some((form) => form.id === resolvingFormId);
-  const transientTools = live?.tools;
-  const transientSkills = live?.skills.filter(
-    (skillName) =>
-      !turn.activities.some(
-        (activity) => activity.type === "SKILL" && activity.content.includes(skillDisplayName(skillName)),
-      ),
-  );
-  const images = turn.generations.flatMap((task) => task.images);
-  const {
-    completed: completedImageCount,
-    failed: failedImageCount,
-    total: progressTotal,
-  } = generationImageProgress(turn.generations);
-  const failures = [
-    ...new Set(
-      turn.generations.map((task) => task.failureMessage).filter((message): message is string => Boolean(message)),
-    ),
-  ];
-  const showProcess =
-    turn.mode === "AGENT" &&
-    (turn.activities.length > 0 ||
-      Boolean(transientTools?.length) ||
-      Boolean(transientSkills?.length) ||
-      Boolean(live?.text));
-  const processActivities = turn.activities.filter((activity) => activity.type !== "TOOL");
-  const persistedNarration = turn.activities
-    .filter((activity) => activity.type === "NARRATION")
-    .map((activity) => activity.content)
-    .join("\n");
-  const liveText = live?.text && !persistedNarration.includes(live.text.trim()) ? live.text : "";
-  const suggestions = turn.mode === "AGENT" && turn.status === "SUCCEEDED" ? continuationSuggestions(images) : [];
-  const firstGeneration = turn.generations[0];
-  const isStatusActive =
-    turn.mode === "NORMAL"
-      ? firstGeneration
-        ? isActiveGenerationStatus(firstGeneration.status)
-        : turn.status === "RUNNING"
-      : turn.status === "RUNNING";
-  return (
-    <article className="py-7 first:pt-0">
-      {turn.mode === "AGENT" ? (
-        <div className="flex justify-end" aria-label="用户消息">
-          <div className="w-fit max-w-[92%] rounded-[12px] border border-[var(--accent-border)] bg-[var(--active-bg)] px-5 py-3 text-[var(--primary)] sm:max-w-[82%] sm:px-6">
-            <p className="whitespace-pre-wrap break-words text-sm leading-7">{turn.userMessage.content}</p>
-          </div>
-        </div>
-      ) : null}
-      <div className="mt-5 flex justify-start" aria-label="AI 回复">
-        <div className="w-full max-w-[920px] rounded-[10px] border border-[var(--border)] bg-[var(--surface-bg)] p-4 shadow-[0_2px_4px_rgb(43_35_25_/_3%)] sm:p-[18px]">
-          <div className="flex items-center justify-between gap-3">
-            <p className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--accent-hover)]">
-              <span className="size-[11px] bg-[var(--accent)]" />
-              AiVista
-            </p>
-            <div className="flex items-center gap-2">
-              <span className="inline-flex items-center gap-1.5 rounded-[5px] bg-[var(--accent-soft)] px-2 py-1 text-xs font-medium text-[var(--accent)]">
-                {isStatusActive ? (
-                  <LoaderCircle
-                    aria-hidden="true"
-                    className="size-3.5 shrink-0 animate-spin motion-reduce:animate-none"
-                  />
-                ) : null}
-                {turn.mode === "NORMAL" && firstGeneration
-                  ? taskStatusText(firstGeneration)
-                  : creationStatusText(turn.status)}
-              </span>
-              {turn.mode === "AGENT" && (turn.status === "RUNNING" || turn.status === "WAITING_INPUT") ? (
-                <button
-                  type="button"
-                  onClick={onCancel}
-                  disabled={isCancelling || isResolvingForm}
-                  className="inline-flex h-7 items-center gap-1 rounded-[5px] border border-[var(--border-strong)] px-2 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-soft)] disabled:opacity-50"
-                >
-                  <CircleStop className="size-3.5" />
-                  {isCancelling ? "正在停止" : "停止"}
-                </button>
-              ) : null}
-            </div>
-          </div>
-          {showProcess ? (
-            <details
-              open={turn.status === "RUNNING" || turn.status === "WAITING_INPUT" ? true : undefined}
-              className="group mt-3 rounded-[7px] border border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2"
-            >
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-xs font-medium text-[var(--text-secondary)] marker:content-none">
-                创作过程 <ChevronDown className="size-4 transition-transform group-open:rotate-180" />
-              </summary>
-              {processActivities.length || transientSkills?.length ? (
-                <ol
-                  aria-label="创作步骤"
-                  className="mt-3 space-y-2 border-t border-[var(--border)] pt-3 text-xs text-[var(--text-secondary)]"
-                >
-                  {processActivities.map((activity) => (
-                    <li
-                      key={activity.sequenceNo}
-                      className={
-                        activity.type === "NARRATION"
-                          ? "text-sm leading-7 text-[var(--primary)]"
-                          : "flex items-start gap-2 text-sm leading-6 text-[var(--text-secondary)]"
-                      }
-                    >
-                      {activity.type === "SKILL" ? (
-                        <Wrench aria-hidden="true" strokeWidth={1.5} className="mt-1 size-4 shrink-0" />
-                      ) : null}
-                      <span>{activity.type === "SKILL" ? skillActivityText(activity.content) : activity.content}</span>
-                    </li>
-                  ))}
-                  {transientSkills?.map((skillName) => (
-                    <li
-                      key={`live-skill:${skillName}`}
-                      className="flex items-start gap-2 text-sm leading-6 text-[var(--text-secondary)]"
-                    >
-                      <Wrench aria-hidden="true" strokeWidth={1.5} className="mt-1 size-4 shrink-0" />
-                      <span>已加载技能：{skillDisplayName(skillName)}</span>
-                    </li>
-                  ))}
-                </ol>
-              ) : null}
-              {liveText ? <StreamingText text={liveText} /> : null}
-              {progressTotal > 0 ? (
-                <p className="mt-3 inline-flex items-center gap-2 text-sm leading-6 text-[var(--text-secondary)]">
-                  {completedImageCount + failedImageCount >= progressTotal ? (
-                    <ImageIcon aria-hidden="true" className="size-4 shrink-0" />
-                  ) : (
-                    <LoaderCircle
-                      aria-label="图片生成中"
-                      className="size-4 shrink-0 animate-spin text-[var(--accent)]"
-                    />
-                  )}
-                  {generationToolDisplayName(turn, live)} · （{completedImageCount}/{progressTotal}）图片
-                  {completedImageCount + failedImageCount >= progressTotal ? "已生成" : "生成中…"}
-                </p>
-              ) : null}
-            </details>
-          ) : null}
-          {turn.forms.map((form) => (
-            <AgentInputFormCard
-              key={form.id}
-              value={form}
-              enabled={turn.status === "WAITING_INPUT" && form.status === "PENDING"}
-              submitting={resolvingFormId === form.id}
-              cancelling={isCancelling}
-              onCancel={onCancel}
-              onResolve={(action, resolvedForm) => onResolveForm(form.id, action, resolvedForm)}
-            />
-          ))}
-          {turn.mode === "NORMAL" ? (
-            <div className="mt-3">
-              <p className="whitespace-pre-wrap text-sm leading-7">{turn.userMessage.content}</p>
-              {turn.normalGenerationRequest?.negativePrompt ? (
-                <p className="mt-2 text-xs leading-5 text-[var(--text-secondary)]">
-                  负面提示词：{turn.normalGenerationRequest.negativePrompt}
-                </p>
-              ) : null}
-            </div>
-          ) : turn.assistantMessage?.content ? (
-            <p className="mt-3 whitespace-pre-wrap text-sm leading-7">{turn.assistantMessage.content}</p>
-          ) : null}
-          {turn.mode === "NORMAL" && progressTotal > 0 ? (
-            <p className="mt-3 text-xs leading-5 text-[var(--text-secondary)]">
-              （{completedImageCount}/{progressTotal}）图片
-              {completedImageCount + failedImageCount >= progressTotal ? "已生成" : "生成中…"}
-              {failedImageCount > 0 ? `，${failedImageCount} 张失败` : ""}
-            </p>
-          ) : null}
-          {failures.map((message) => (
-            <p key={message} role="alert" className="mt-2 text-xs leading-5 text-[var(--accent-hover)]">
-              {message}
-            </p>
-          ))}
-          {images.length ? (
-            <div aria-label={`${images.length} 张生成图片`} className="mt-4 flex gap-2 overflow-x-auto pb-2">
-              {images.map((image) => (
-                <div key={image.id} className="w-[180px] shrink-0 sm:w-[220px]">
-                  <GenerationImageCard
-                    image={image}
-                    onOpen={() => void onOpenAsset(image)}
-                    onRefresh={() => onRefreshAsset(image.id)}
-                    onFavorite={() => onFavorite(image)}
-                    onPublish={() => onPublish(image)}
-                    onDelete={() => onDelete(image)}
-                  />
-                </div>
-              ))}
-            </div>
-          ) : null}
-          {suggestions.length ? (
-            <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-[var(--border)] pt-3">
-              <span className="text-xs font-medium text-[var(--text-secondary)]">你可以继续：</span>
-              {suggestions.map((suggestion) => (
-                <button
-                  key={`${suggestion.asset.id}:${suggestion.prompt}`}
-                  type="button"
-                  onClick={() =>
-                    onContinue({
-                      prompt: suggestion.prompt,
-                      referenceImages: [suggestion.asset],
-                      mode: "agent",
-                    })
-                  }
-                  className="inline-flex min-h-8 items-center gap-1 rounded-full border border-[var(--border-strong)] bg-[var(--surface-bg)] px-3 text-xs text-[var(--primary)] transition hover:border-[var(--accent-border)] hover:bg-[var(--active-bg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
-                >
-                  {suggestion.label}
-                  <ArrowUpRight className="size-3" />
-                </button>
-              ))}
-            </div>
-          ) : null}
-        </div>
-      </div>
-      <ConversationArchiveLine />
-    </article>
-  );
-}
-
-function StreamingText({ text }: { text: string }) {
-  return (
-    <p aria-label="实时回复" aria-live="polite" className="mt-3 whitespace-pre-wrap text-sm leading-7">
-      {text}
-      <span aria-hidden="true" className="ml-0.5 inline-block h-4 w-px animate-pulse bg-current align-middle" />
-    </p>
-  );
-}
-
-function generationToolDisplayName(turn: GenerationTurn, live: AgentLiveRun | undefined): string {
-  const toolNames = [
-    ...turn.activities.map((activity) => activity.toolName),
-    ...(live?.tools.map((tool) => tool.toolName) ?? []),
-  ];
-  return toolNames.includes("image_to_image") ? "图生图" : "文生图";
-}
-
-function continuationSuggestions(
-  images: GenerationAsset[],
-): Array<{ label: string; prompt: string; asset: GenerationAsset }> {
-  const [asset] = images;
-  if (!asset) return [];
-  if (images.length > 1)
-    return images.slice(0, 3).map((asset, index) => ({
-      label: `继续优化第 ${index + 1} 张`,
-      prompt: `基于第 ${index + 1} 张图片继续优化，保留核心主题和构图，并提升画面细节与完成度。`,
-      asset,
-    }));
-  return [
-    {
-      label: "调整配色",
-      prompt: "基于这张图片调整整体配色，保留核心主题和构图。",
-      asset,
-    },
-    {
-      label: "修改画面文案",
-      prompt: "基于这张图片优化画面中的文案与文字层级，保留整体设计方向。",
-      asset,
-    },
-    {
-      label: "继续优化细节",
-      prompt: "基于这张图片继续优化画面细节和完成度，保留核心主题与构图。",
-      asset,
-    },
-  ];
-}
-function creationStatusText(status: GenerationTurn["status"]): string {
-  if (status === "RUNNING") return "创作中";
-  if (status === "WAITING_INPUT") return "等待确认";
-  if (status === "SUCCEEDED") return "已完成";
-  if (status === "CANCELLED") return "已取消";
-  return "未完成";
-}
-function isNavigableImage(image: GenerationAsset): boolean {
-  return image.imageUrls.thumbnail !== null || image.imageUrls.display !== null;
-}
-
-function GenerationImageCard({
-  image,
-  onOpen,
-  onRefresh,
-  onFavorite,
-  onPublish,
-  onDelete,
-}: {
-  image: GenerationAsset;
-  onOpen: () => void;
-  onRefresh: () => Promise<GenerationAsset>;
-  onFavorite: () => void;
-  onPublish: () => void;
-  onDelete: () => void;
-}) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [imageUnavailable, setImageUnavailable] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const retryUsedRef = useRef(false);
-  async function retryImage(): Promise<void> {
-    if (retryUsedRef.current) return setImageUnavailable(true);
-    retryUsedRef.current = true;
-    try {
-      await onRefresh();
-    } catch {
-      setImageUnavailable(true);
-    }
-  }
-  async function download(): Promise<void> {
-    try {
-      await downloadOriginalGenerationImage(image);
-    } catch {
-      setActionError("下载失败，请稍后重试。");
-    }
-  }
-  async function copy(): Promise<void> {
-    try {
-      let current = image;
-      if (needsImageUrlRefresh(current.imageUrls.display)) current = await onRefresh();
-      const fetchDisplay = async (asset: GenerationAsset) => {
-        const url = asset.imageUrls.display?.url;
-        if (!url) throw new Error("missing display");
-        const response = await fetch(url, {
-          mode: "cors",
-          referrerPolicy: "no-referrer",
-        });
-        if (!response.ok) throw new Error("image fetch failed");
-        return response.blob();
-      };
-      let blob: Blob;
-      try {
-        blob = await fetchDisplay(current);
-      } catch {
-        blob = await fetchDisplay(await onRefresh());
-      }
-      if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined") throw new Error("clipboard unavailable");
-      await navigator.clipboard.write([new ClipboardItem({ [blob.type || "image/webp"]: blob })]);
-    } catch {
-      setActionError("复制失败，请使用下载。");
-    }
-  }
-  if (!image.imageUrls.thumbnail)
-    return (
-      <div
-        role="status"
-        className="flex aspect-square flex-col items-center justify-center gap-2 rounded-[6px] border border-dashed border-[var(--border-strong)] bg-[var(--surface-soft)] px-4 text-center text-xs text-[var(--text-secondary)]"
-      >
-        <ImageOff className="size-5" />
-        图片已从资产库删除
-      </div>
-    );
-  return (
-    <div className="group relative overflow-visible rounded-[6px] border border-[var(--border)] bg-[var(--surface-bg)]">
-      <button
-        type="button"
-        onClick={onOpen}
-        className="block w-full overflow-hidden rounded-[5px] text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
-      >
-        {imageUnavailable ? (
-          <span className="flex aspect-square items-center justify-center bg-[var(--surface-soft)] text-xs text-[var(--text-secondary)]">
-            图片已从资产库删除
-          </span>
-        ) : (
-          <>
-            {/* Private short-lived signed URLs must not be sent through an image optimizer. */}
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={image.imageUrls.thumbnail.url}
-              alt="本次生成的图片"
-              loading="lazy"
-              decoding="async"
-              referrerPolicy="no-referrer"
-              onError={() => void retryImage()}
-              className="aspect-square w-full object-cover transition duration-200 group-hover:scale-[1.015]"
-            />
-          </>
-        )}
-      </button>
-      <div className="absolute right-2 top-2 z-10 flex translate-y-1 items-center gap-1 rounded-[6px] border border-white/30 bg-[var(--primary)]/90 p-1 text-[var(--surface-bg)] opacity-0 shadow-lg transition duration-150 group-hover:translate-y-0 group-hover:opacity-100 focus-within:translate-y-0 focus-within:opacity-100">
-        <button
-          type="button"
-          onClick={() => void download()}
-          className="grid size-7 place-items-center rounded-[4px] hover:bg-white/15"
-          aria-label="下载原图"
-        >
-          <Download className="size-3.5" />
-        </button>
-        <button
-          type="button"
-          onClick={() => void copy()}
-          className="grid size-7 place-items-center rounded-[4px] hover:bg-white/15"
-          aria-label="复制展示图"
-        >
-          <Clipboard className="size-3.5" />
-        </button>
-        <button
-          type="button"
-          onClick={() => setMenuOpen((open) => !open)}
-          className="grid size-7 place-items-center rounded-[4px] hover:bg-white/15"
-          aria-expanded={menuOpen}
-          aria-label="更多图片操作"
-        >
-          <Ellipsis className="size-4" />
-        </button>
-        {menuOpen ? (
-          <div className="absolute right-0 top-[calc(100%+6px)] w-28 overflow-hidden rounded-[6px] border border-[var(--border)] bg-[var(--surface-bg)] py-1 text-[var(--primary)] shadow-xl">
-            <button
-              type="button"
-              onClick={() => {
-                setMenuOpen(false);
-                onFavorite();
-              }}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-[var(--surface-soft)]"
-            >
-              <Heart className={cn("size-3.5", image.favorited && "fill-[var(--accent)] text-[var(--accent)]")} />
-              {image.favorited ? "取消收藏" : "收藏"}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setMenuOpen(false);
-                onPublish();
-              }}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-[var(--surface-soft)]"
-            >
-              <Send className="size-3.5" />
-              {image.publicationReviewStatus === "APPROVED" ? "查看发布" : "发布"}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setMenuOpen(false);
-                onDelete();
-              }}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-[var(--accent-hover)] hover:bg-[var(--accent-soft)]"
-            >
-              <Trash2 className="size-3.5" />
-              删除
-            </button>
-          </div>
-        ) : null}
-      </div>
-      {actionError ? (
-        <p
-          role="status"
-          className="absolute inset-x-1 bottom-1 rounded-[4px] bg-[var(--primary)]/85 px-2 py-1 text-center text-[10px] text-white"
-        >
-          {actionError}
-        </p>
-      ) : null}
-    </div>
-  );
-}
 function WorkspaceDecorations() {
   return (
     <div aria-hidden="true" className="pointer-events-none absolute inset-0 select-none">
@@ -1135,18 +497,6 @@ function ArchiveLine({ label }: { label: string }) {
         {label}
       </span>
       <span className="size-2 shrink-0 bg-[var(--accent)]" />
-    </div>
-  );
-}
-function ConversationArchiveLine() {
-  return (
-    <div aria-hidden="true" className="my-6 flex items-center gap-3">
-      <span className="h-px flex-1 bg-[var(--border-strong)]" />
-      <span className="whitespace-nowrap text-[10px] font-medium tracking-[0.18em] text-[var(--text-secondary)]">
-        CREATED FROM YOUR IDEA
-      </span>
-      <span className="size-2 bg-[var(--accent)]" />
-      <span className="h-px flex-1 bg-[var(--border-strong)]" />
     </div>
   );
 }

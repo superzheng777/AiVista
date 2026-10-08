@@ -137,7 +137,7 @@ Skill 负责母版分析、系列锁定、变量设计、Prompt 编译和视觉�
 
 - 系列不依赖图片，仅由文字母版驱动：使用 `text_to_image`。
 - 当前授权图片需要参与主体、产品、角色、Logo、风格、构图或材质延展：使用 `image_to_image`，并在 Prompt 中明确每张图片的用途。
-- 历史图片只以 Asset ID 存在且需要重新理解：先调用 `inspect_image`。历史图片要成为图生图输入时，仍需用户在当前请求重新选择。
+- 历史图片只以 Asset ID 存在且需要重新理解：先调用 `inspect_image`。历史图片属于 Runtime 可信会话资产集合时可以用于图生图，集合外的图片需要用户重新选择。
 - 多张参考图参与时维护内部来源映射；`inputAssetIds` 的顺序必须与 Prompt 中的角色一致，且不得超过 Tool 上限。
 
 不同矩阵项通常使用独立 Tool Call，并将 `imageCount` 设为 `1`。只有多个结果共享完全相同 Prompt、只是同一方向候选变体时，才使用一次 Tool Call 的 `imageCount > 1`。所有调用的总图片数服从 Runtime 约束；同一批调用使用相同的总体 `userFacingPlan`。

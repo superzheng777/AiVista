@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  formatSessionTitle,
   mapGenerationAssetImage,
   needsImageUrlRefresh,
   type GenerationAssetImageDto,
@@ -92,17 +91,5 @@ describe("needsImageUrlRefresh", () => {
         Date.parse("2026-08-11T12:00:00.000Z"),
       ),
     ).toBe(true);
-  });
-});
-
-describe("formatSessionTitle", () => {
-  it("keeps titles with no more than ten characters unchanged", () => {
-    expect(formatSessionTitle("一二三四五六七八九十")).toBe("一二三四五六七八九十");
-    expect(formatSessionTitle("短标题")).toBe("短标题");
-  });
-
-  it("shows the first ten characters followed by three dots", () => {
-    expect(formatSessionTitle("一二三四五六七八九十一")).toBe("一二三四五六七八九十...");
-    expect(formatSessionTitle("123456789😀x")).toBe("123456789😀...");
   });
 });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Value } from "typebox/value";
-import { agentInputFormSchema, agentPendingInputSchema } from "../src/agent/agent-form-contract.js";
+import { agentInputFormSchema } from "../src/agent/agent-form-contract.js";
 import { createRequestUserInputTool } from "../src/agent/tools/request-user-input.js";
 
 describe("Agent form contract", () => {
@@ -10,23 +10,11 @@ describe("Agent form contract", () => {
       .toMatchObject({ value: "自定义方向", allowCustom: true });
   });
 
-  it("rejects legacy answer and initial-value fields", () => {
+  it("rejects unsupported initial-value fields", () => {
     expect(() => agentInputFormSchema.parse({ ...form(), fields: [
       { ...form().fields[0], initialValue: "旧值" },
       form().fields[1],
     ] })).toThrow();
-    expect(() => agentPendingInputSchema.parse({
-      creationId: "151", toolCallId: "call-form", status: "SKIPPED", form: form(), answers: null,
-    })).toThrow();
-  });
-
-  it("allows blank proposed values but requires submitted mandatory values", () => {
-    expect(agentPendingInputSchema.parse({
-      creationId: "151", toolCallId: "call-form", status: "PENDING", form: form(),
-    })).toMatchObject({ status: "PENDING" });
-    expect(() => agentPendingInputSchema.parse({
-      creationId: "151", toolCallId: "call-form", status: "SUBMITTED", form: form(),
-    })).toThrow("Submitted Agent input field subject is required");
   });
 
   it("accepts a custom select value only when the field allows it", () => {

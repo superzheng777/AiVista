@@ -2,27 +2,17 @@
 
 import { assetQueryKeys } from "@/features/assets/api/asset-api";
 import { publicationQueryKeys } from "@/features/publication/api/publication-api";
-import { type InfiniteData, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { createContext, type ReactNode, use, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { generationQueryKeys } from "@/features/generation/api/generation-api";
+import { receiveCreationEvent, clearSessionEvents } from "./session-events";
+import type { CreationEvent } from "@/entities/generation/model/session";
 import { useAuthStore } from "@/features/auth/model/auth-store";
 import {
-  applyGenerationTaskUpdateToTurns,
-  applyAgentFormUpdateToTurns,
-  type GenerationTurnPage,
-} from "@/features/generation/model/generation-turn-cache";
-import {
   consumeSseStream,
-  isTerminalStatus,
   reconnectDelayMs,
   type GenerationSessionIndicator,
   type GenerationStreamStatus,
-  type GenerationTaskUpdateEvent,
-  applyAgentRealtimeEvent,
-  type AgentLiveRun,
-  type AgentRealtimeEvent,
-  agentFormFromEvent,
 } from "@/features/generation/model/generation-event-stream-parsing";
 
 export type { GenerationSessionIndicator } from "@/features/generation/model/generation-event-stream-parsing";
@@ -45,7 +35,6 @@ type GenerationEventStreamContextValue = {
   acknowledgeCompletedResults: () => void;
 };
 
-type AgentLiveRunsContextValue = Record<string, AgentLiveRun>;
 
 const READY_TIMEOUT_MS = 5_000;
 /** 提交路径等待实时连接就绪的上限，避免后端不可用时提交无限挂起。 */
@@ -53,7 +42,6 @@ const READY_WAIT_MS = 10_000;
 const SYNC_POLL_MS = 25;
 
 const GenerationEventStreamContext = createContext<GenerationEventStreamContextValue | null>(null);
-const AgentLiveRunsContext = createContext<AgentLiveRunsContextValue | null>(null);
 
 function wait(delay: number, signal: AbortSignal): Promise<void> {
   if (!delay) return Promise.resolve();
@@ -80,7 +68,6 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
   const [syncVersion, setSyncVersion] = useState(0);
   const [publicationRefreshVersion, setPublicationRefreshVersion] = useState(0);
   const [notificationRefreshVersion, setNotificationRefreshVersion] = useState(0);
-  const [agentRuns, setAgentRuns] = useState<Record<string, AgentLiveRun>>({});
   const readyRef = useRef(false);
   const everReadyRef = useRef(false);
   const lifecycleControllerRef = useRef<AbortController | null>(null);
@@ -89,37 +76,19 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
   const batchRef = useRef<Promise<boolean> | null>(null);
   const inFlightRef = useRef(false);
   const startBatchRef = useRef<() => Promise<boolean>>(() => Promise.resolve(false));
-  const applyTaskUpdate = useCallback(
-    (event: GenerationTaskUpdateEvent) => {
+  const applyCreationUpdate = useCallback((event: CreationEvent) => {
+    receiveCreationEvent(queryClient, event);
+    if (event.type === "creation.updated") {
       if (event.status === "SUCCEEDED" || event.status === "PARTIALLY_SUCCEEDED") {
-        setCompletedSessionIds((current) =>
-          current.has(event.sessionId) ? current : new Set(current).add(event.sessionId),
-        );
+        setCompletedSessionIds(current => new Set(current).add(event.sessionId));
+      } else if (event.status === "FAILED") {
+        setAttentionSessionIds(current => new Set(current).add(event.sessionId));
       }
-      if (event.status === "FAILED") {
-        setAttentionSessionIds((current) =>
-          current.has(event.sessionId) ? current : new Set(current).add(event.sessionId),
-        );
-      }
-      void (async () => {
-        await queryClient.cancelQueries({ queryKey: generationQueryKeys.turns(event.sessionId) });
-        queryClient.setQueryData<InfiniteData<GenerationTurnPage>>(
-          generationQueryKeys.turns(event.sessionId),
-          (current) => applyGenerationTaskUpdateToTurns(current, event),
-        );
-        await Promise.all([
-          queryClient.refetchQueries({ queryKey: generationQueryKeys.sessions(), type: "active" }),
-          queryClient.refetchQueries({ queryKey: generationQueryKeys.turns(event.sessionId), type: "active" }),
-        ]);
-        if (isTerminalStatus(event.status)) {
-          if (event.status === "SUCCEEDED" || event.status === "PARTIALLY_SUCCEEDED") {
-            await queryClient.invalidateQueries({ queryKey: ["assets"] });
-          }
-        }
-      })();
-    },
-    [queryClient],
-  );
+    }
+    if (event.type === "creation.item.upserted" && event.item.kind === "generation" && event.item.assets.length) {
+      void queryClient.invalidateQueries({ queryKey: assetQueryKeys.all });
+    }
+  }, [queryClient]);
 
   const applyPublicationUpdate = useCallback(() => {
     // The SSE event carries no unread count or message body; consumers refresh their own queries.
@@ -127,57 +96,6 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
     void queryClient.invalidateQueries({ queryKey: assetQueryKeys.all });
     void queryClient.invalidateQueries({ queryKey: publicationQueryKeys.mine });
   }, [queryClient]);
-  const applyAgentEvent = useCallback(
-    (event: AgentRealtimeEvent) => {
-      if (
-        event.eventType === "RUN_FINISHED" ||
-        event.eventType === "RUN_FAILED" ||
-        event.eventType === "RUN_CANCELLED"
-      ) {
-        void Promise.all([
-          queryClient.refetchQueries({ queryKey: generationQueryKeys.sessions(), type: "active" }),
-          queryClient.refetchQueries({ queryKey: generationQueryKeys.turns(event.sessionId), type: "active" }),
-        ]).finally(() =>
-          setAgentRuns((current) => {
-            if (!(event.creationId in current)) return current;
-            const next = { ...current };
-            delete next[event.creationId];
-            return next;
-          }),
-        );
-        return;
-      }
-      const form = agentFormFromEvent(event);
-      if (form) {
-        queryClient.setQueryData<InfiniteData<GenerationTurnPage>>(
-          generationQueryKeys.turns(event.sessionId),
-          (current) =>
-            applyAgentFormUpdateToTurns(
-              current,
-              event.creationId,
-              event.revision,
-              form,
-              event.eventType === "FORM_REQUESTED" ? "WAITING_INPUT" : "RUNNING",
-            ),
-        );
-        return;
-      }
-      setAgentRuns((current) => {
-        const next = applyAgentRealtimeEvent(current[event.creationId], event);
-        return next === current[event.creationId] ? current : { ...current, [event.creationId]: next };
-      });
-      if (event.eventType === "RUN_STARTED") {
-        // The transient event can arrive before the POST success handler has loaded the new Creation.
-        // Load its shell immediately so subsequent text/tool deltas have a visible turn to render into.
-        void Promise.all([
-          queryClient.refetchQueries({ queryKey: generationQueryKeys.sessions(), type: "active" }),
-          queryClient.refetchQueries({ queryKey: generationQueryKeys.turns(event.sessionId), type: "active" }),
-        ]);
-      }
-    },
-    [queryClient],
-  );
-
   const startBatch = useCallback((): Promise<boolean> => {
     if (readyRef.current) return Promise.resolve(true);
     if (batchRef.current) return batchRef.current;
@@ -225,10 +143,9 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
             () => {
               serverReady = true;
             },
-            applyTaskUpdate,
+            applyCreationUpdate,
             applyPublicationUpdate,
             () => setNotificationRefreshVersion((current) => current + 1),
-            applyAgentEvent,
           )
             .catch(() => undefined)
             .finally(() => {
@@ -270,7 +187,7 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
 
     batchRef.current = batch;
     return batch;
-  }, [applyAgentEvent, applyPublicationUpdate, applyTaskUpdate]);
+  }, [applyPublicationUpdate, applyCreationUpdate]);
 
   const ensureReady = useCallback(async (): Promise<boolean> => {
     if (readyRef.current) return true;
@@ -306,7 +223,7 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
       queueMicrotask(() => {
         setCompletedSessionIds(new Set());
         setAttentionSessionIds(new Set());
-        setAgentRuns({});
+        clearSessionEvents(queryClient);
       });
       return;
     }
@@ -325,7 +242,7 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
       connectionSequenceRef.current += 1;
       readyRef.current = false;
     };
-  }, [authStatus, startBatch]);
+  }, [authStatus, startBatch, queryClient]);
 
   const acknowledgeSession = useCallback((sessionId: string) => {
     setCompletedSessionIds((current) => {
@@ -386,7 +303,7 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
 
   return (
     <GenerationEventStreamContext value={streamValue}>
-      <AgentLiveRunsContext value={agentRuns}>{children}</AgentLiveRunsContext>
+      {children}
     </GenerationEventStreamContext>
   );
 }
@@ -394,11 +311,5 @@ export function GenerationEventStreamProvider({ children }: { children: ReactNod
 export function useGenerationEventStream(): GenerationEventStreamContextValue {
   const value = use(GenerationEventStreamContext);
   if (!value) throw new Error("useGenerationEventStream must be used within GenerationEventStreamProvider.");
-  return value;
-}
-
-export function useAgentLiveRuns(): AgentLiveRunsContextValue {
-  const value = use(AgentLiveRunsContext);
-  if (!value) throw new Error("useAgentLiveRuns must be used within GenerationEventStreamProvider.");
   return value;
 }

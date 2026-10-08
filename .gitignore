@@ -26,3 +26,7 @@ backend/aivista/src/main/resources/application-local.yaml
 
 /docs/interview/AiVista面试题库.md
 /docs/interview/AiVista项目面试复习手册.local.md
+
+# Local verification output and native conversation files
+.runlogs/
+backend-ts/var/

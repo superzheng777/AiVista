@@ -5,79 +5,63 @@ import { BailianProviderError, BailianTransportError } from "../src/generation/g
 afterEach(() => vi.unstubAllGlobals());
 
 describe("generation Bailian client", () => {
-  it("builds the Java-equivalent multimodal request and validates a successful response", async () => {
+  it("builds the multimodal request and validates a successful response", async () => {
     const fetchMock = vi.fn().mockResolvedValue(response(200, successBody()));
     vi.stubGlobal("fetch", fetchMock);
-    const client = createClient([{ asset_id: 9n, source_index: 0 }], [{ id: 9n, original_object_key: "users/7/original.png" }]);
-    const result = await client.generate(task());
+    const client = createClient();
+    const result = await client.generate(task(), [{ assetId: "9", url: "https://oss.example/users/7/original.png" }]);
     const [, init] = fetchMock.mock.calls[0]!;
     expect(JSON.parse(init.body)).toEqual({ model: "qwen-image-2.0", input: { messages: [{ role: "user", content: [
-      { image: "signed:users/7/original.png" }, { text: "a city" },
+      { image: "signed:https://oss.example/users/7/original.png" }, { text: "a city" },
     ] }] }, parameters: { negative_prompt: "", size: "2048*2048", n: 1, prompt_extend: true, watermark: false } });
     expect(init.headers).toMatchObject({ authorization: "Bearer secret", "x-dashscope-wait-timeout": "30" });
-    expect(result).toMatchObject({ requestId: "req-1", imageUrls: ["https://provider/image.png"],
-      declaredImageCount: 1, declaredWidth: 2048, declaredHeight: 2048 });
-    expect(client.restore(result.snapshot).imageUrls).toEqual(result.imageUrls);
+    expect(result).toEqual({ requestId: "req-1", imageUrls: ["https://provider/image.png"] });
   });
 
   it("preserves official error fields from a non-2xx response", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(429, { code: "Throttling", message: "slow", request_id: "req-2" })));
-    await expect(createClient([], []).generate(task())).rejects.toMatchObject({
+    await expect(createClient().generate(task())).rejects.toMatchObject({
       name: "BailianProviderError", httpStatus: 429, providerCode: "Throttling", requestId: "req-2",
     });
   });
 
-  it("does not retry an ambiguous fetch failure", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("fetch failed")));
-    await expect(createClient([], []).generate(task())).rejects.toMatchObject({
-      name: "BailianTransportError", requestDefinitelyUnsent: false,
-    });
-  });
-
-  it("only marks known pre-connect failures as definitely unsent", async () => {
-    const error = new TypeError("fetch failed", { cause: Object.assign(new Error("dns"), { code: "ENOTFOUND" }) });
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(error));
-    await expect(createClient([], []).generate(task())).rejects.toMatchObject({
-      name: "BailianTransportError", requestDefinitelyUnsent: true,
-    });
+  it.each([
+    new TypeError("fetch failed"),
+    new TypeError("fetch failed", { cause: Object.assign(new Error("dns"), { code: "ENOTFOUND" }) }),
+  ])("does not retry a transport failure: %s", async (error) => {
+    const fetchMock = vi.fn().mockRejectedValue(error);
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(createClient().generate(task())).rejects.toMatchObject({ name: "BailianTransportError", cause: error });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("treats a response-body failure as an unknown Provider outcome", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: true, status: 200, text: vi.fn().mockRejectedValue(new Error("socket closed")),
     }));
-    await expect(createClient([], []).generate(task())).rejects.toSatisfy((error) =>
-      error instanceof BailianTransportError && !error.requestDefinitelyUnsent);
+    await expect(createClient().generate(task())).rejects.toBeInstanceOf(BailianTransportError);
   });
 
   it("rejects malformed success responses and mismatched image counts", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(response(200, { request_id: "req-3", output: { choices: [] }, usage: {} }))
       .mockResolvedValueOnce(response(200, successBody())));
-    const client = createClient([], []);
+    const client = createClient();
     await expect(client.generate(task())).rejects.toBeInstanceOf(BailianProviderError);
     await expect(client.generate({ ...task(), requested_image_count: 2 })).rejects.toMatchObject({ httpStatus: 200, providerCode: null });
   });
 });
 
-function createClient(inputs: any[], assets: any[]) {
-  const db = { selectFrom: (table: string) => chain(table === "generation_task_input_assets" ? inputs : assets) };
+function createClient() {
   const config = { get: (key: string) => ({ AIVISTA_BAILIAN_ENDPOINT: "https://bailian.example/generate",
     AIVISTA_BAILIAN_API_KEY: "secret", AIVISTA_BAILIAN_READ_TIMEOUT_MS: 330_000 } as Record<string, unknown>)[key] };
-  return new GenerationBailianClientService(config as never, { db } as never,
-    { original: (key: string) => `signed:${key}` } as never);
+  return new GenerationBailianClientService(config as never,
+    { signReference: (url: string) => `signed:${url}` } as never);
 }
-
-function chain(result: any[]) { const query: any = {}; for (const name of ["select", "where", "orderBy"]) query[name] = () => query;
-  query.execute = async () => result; return query; }
 
 function response(status: number, body: unknown) { return new Response(JSON.stringify(body), { status }); }
 function successBody() { return { request_id: "req-1", output: { choices: [{ finish_reason: "stop", message: { content: [
   { image: "https://provider/image.png" }, { text: "ignored" },
 ] } }] }, usage: { output_image_count: 1, output_width: 2048, output_height: 2048 } }; }
-function task() { return { id: 301n, user_id: 7n, session_id: 1n, creation_task_id: 1n,
-  tool_call_id: null, operation: "TEXT_TO_IMAGE",
-  model: "bailian/qwen-image-2.0", status: "QUEUED", revision: 0, attempt_count: 0,
-  final_prompt: "a city", final_negative_prompt: null, width: 2048, height: 2048,
-  prompt_extend: true, requested_image_count: 1, completed_image_count: 0, quota_refunded_at: null,
-  provider_request_id: null, failure_code: null, created_at: new Date(), updated_at: new Date(),
-  completed_at: null }; }
+function task() { return { id: "1", user_id: "7", session_id: "2", parent_id: "3", operation: "TEXT_TO_IMAGE",
+ model: "bailian/qwen-image-2.0", status: "RUNNING", revision: 1, final_prompt: "a city", final_negative_prompt: null,
+ width: 2048, height: 2048, prompt_extend: true, requested_image_count: 1 }; }

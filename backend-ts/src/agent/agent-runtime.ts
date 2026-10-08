@@ -9,9 +9,10 @@ import {
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import type { AgentModelBinding } from "./providers/bailian.js";
-import type { AssistantMessage, ImageContent } from "@earendil-works/pi-ai";
+import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { AgentGenerationConstraints } from "./tools/generation.js";
-import { exportAgentContext, restoreAgentContext, type AgentSessionContext } from "./agent-context.js";
+import { assistantItems, toolResultItems, toolSkillName } from "../sessions/message-items.js";
+import type { CreationItem } from "../sessions/session-contract.js";
 import { inputRequestFromToolResult, REQUEST_USER_INPUT_TOOL_NAME,
   type AgentInputRequest } from "./tools/request-user-input.js";
 
@@ -41,18 +42,19 @@ export interface RunAgentPromptOptions {
   prompt: string;
   maxTurns: number;
   tools?: Array<ToolDefinition<any, any>>;
-  images?: ImageContent[];
   authorizedInputAssetIds?: string[];
   generationConstraints?: AgentGenerationConstraints;
-  context?: AgentSessionContext | null;
+  sessionManager?: SessionManager;
+  adaptProviderRequest?: (payload: unknown) => unknown;
+  onItem?: (item: CreationItem) => void;
   signal?: AbortSignal;
   onEvent?: (event: AgentRuntimeEvent) => void;
   observer?: AgentRuntimeObserver;
 }
 
 export type AgentPromptResult =
-  | { outcome: "COMPLETED"; text: string; context: AgentSessionContext }
-  | { outcome: "WAITING_FOR_USER"; request: AgentInputRequest; context: AgentSessionContext };
+  | { outcome: "COMPLETED"; text: string }
+  | { outcome: "WAITING_FOR_USER"; request: AgentInputRequest };
 
 export class AgentTurnLimitError extends Error {
   constructor(readonly maxTurns: number) {
@@ -76,6 +78,7 @@ export async function runAgentPrompt(options: RunAgentPromptOptions): Promise<Ag
     name: "aivista-harness",
     hidden: true,
     factory(pi) {
+      pi.on("before_provider_request", (event) => options.adaptProviderRequest?.(event.payload));
       pi.on("before_agent_start", (event) => {
         options.observer?.captureSystemPrompt(event.systemPrompt);
       });
@@ -136,8 +139,7 @@ export async function runAgentPrompt(options: RunAgentPromptOptions): Promise<Ag
   });
   await resourceLoader.reload();
   const tools = options.tools ?? [];
-  const sessionManager = SessionManager.inMemory(AGENT_PROJECT_ROOT);
-  restoreAgentContext(sessionManager, options.context);
+  const sessionManager = options.sessionManager ?? SessionManager.inMemory(AGENT_PROJECT_ROOT);
   const settingsManager = SettingsManager.inMemory({
     compaction: { enabled: true, reserveTokens: 16_384, keepRecentTokens: 20_000 },
   });
@@ -155,10 +157,15 @@ export async function runAgentPrompt(options: RunAgentPromptOptions): Promise<Ag
   });
   let resolveSettled!: () => void;
   const settled = new Promise<void>((resolvePromise) => { resolveSettled = resolvePromise; });
+  const toolSkillNames = new Map<string, string | undefined>();
   const unsubscribe = session.subscribe((event) => {
     if (event.type === "agent_start") emit({ type: "agent_start" });
     if (event.type === "agent_settled") resolveSettled();
+    if (event.type === "message_end" && event.message.role === "assistant") {
+      for (const item of assistantItems(event.message)) options.onItem?.(item);
+    }
     if (event.type === "tool_execution_start") {
+      toolSkillNames.set(event.toolCallId, toolSkillName(event.toolName, event.args));
       options.observer?.startTool({ toolCallId: event.toolCallId,
         toolName: event.toolName, args: event.args });
       if (blockedMixedToolCallIds.has(event.toolCallId)) return;
@@ -173,6 +180,8 @@ export async function runAgentPrompt(options: RunAgentPromptOptions): Promise<Ag
     if (event.type === "tool_execution_end") {
       options.observer?.finishTool({ toolCallId: event.toolCallId,
         result: event.result, isError: event.isError });
+      for (const item of toolResultItems(event.toolCallId, event.toolName, event.result, event.isError,
+          toolSkillNames.get(event.toolCallId))) options.onItem?.(item);
       if (blockedMixedToolCallIds.has(event.toolCallId)) return;
       if (!event.isError && event.toolName === REQUEST_USER_INPUT_TOOL_NAME) {
         inputRequest = inputRequestFromToolResult(event.toolCallId, event.result);
@@ -182,6 +191,13 @@ export async function runAgentPrompt(options: RunAgentPromptOptions): Promise<Ag
     }
     if (event.type !== "message_update") return;
     const update = event.assistantMessageEvent;
+    if (update.type === "text_delta" || update.type === "text_end") {
+      const message = event.message as AssistantMessage;
+      const block = message.content[update.contentIndex];
+      if (block?.type === "text") options.onItem?.({
+        id: `text:${message.timestamp}:${update.contentIndex}`, kind: "text", text: block.text, phase: "process",
+      });
+    }
     if (update.type === "text_start") {
       emit({ type: "text_start", contentIndex: update.contentIndex });
     } else if (update.type === "text_delta") {
@@ -196,16 +212,15 @@ export async function runAgentPrompt(options: RunAgentPromptOptions): Promise<Ag
   try {
     options.signal?.throwIfAborted();
     options.signal?.addEventListener("abort", abort, { once: true });
-    await session.prompt(options.prompt, options.images?.length ? { images: options.images } : undefined);
+    await session.prompt(options.prompt);
     await settled;
     if (abortPromise) await abortPromise;
     options.signal?.throwIfAborted();
     if (turnLimitReached) throw new AgentTurnLimitError(options.maxTurns);
-    const context = exportAgentContext(sessionManager, options.authorizedInputAssetIds ?? []);
-    if (inputRequest) return { outcome: "WAITING_FOR_USER", request: inputRequest, context };
+    if (inputRequest) return { outcome: "WAITING_FOR_USER", request: inputRequest };
     const text = session.getLastAssistantText()?.trim();
     if (!text) throw new Error("Agent returned an empty final response");
-    return { outcome: "COMPLETED", text, context };
+    return { outcome: "COMPLETED", text };
   } finally {
     options.signal?.removeEventListener("abort", abort);
     if (abortPromise) await abortPromise;

@@ -7,11 +7,6 @@ spring:
     username: ${AIVISTA_RABBITMQ_USERNAME:}
     password: ${AIVISTA_RABBITMQ_PASSWORD:}
     virtual-host: ${AIVISTA_RABBITMQ_VHOST:/aivista}
-    connection-timeout: 5s
-    publisher-confirm-type: correlated
-    publisher-returns: true
-    template:
-      mandatory: true
   datasource:
     url: ${AIVISTA_DB_URL:}
     username: ${AIVISTA_DB_USERNAME:}
@@ -31,6 +26,8 @@ server:
     context-path: /api
 
 app:
+  creation-runtime:
+    base-url: ${AIVISTA_CREATION_RUNTIME_URL:http://127.0.0.1:8890}
   agent:
     enabled: ${AIVISTA_AGENT_ENABLED:false}
     model:
@@ -40,7 +37,6 @@ app:
       thinking-enabled: ${AIVISTA_AGENT_THINKING_ENABLED:false}
     max-turns: ${AIVISTA_AGENT_MAX_TURNS:20}
     max-concurrent: ${AIVISTA_AGENT_MAX_CONCURRENT:4}
-    tool-wait-timeout: 11m
     loop-timeout: 20m
   meilisearch:
     enabled: ${MEILISEARCH_ENABLED:false}
@@ -103,32 +99,15 @@ app:
       dispatcher-batch-size: 100
       processing-lease: 30s
     queue:
-      # 当前所有开发配置统一维护在本文件；未配置 RabbitMQ 时保持 false，避免启动分发器。
-      enabled: true
-      exchange: aivista.generation.commands
-      agent-name: agent.creation.execute
-      agent-routing-key: agent.creation.execute
-      generation-name: generation.task.execute
-      generation-routing-key: generation.task.execute
-      # 并发度由 backend-ts 从本配置读取；Java 不消费生成命令。
-      generation-consumer-concurrency: 25
-      dispatcher-fixed-delay: 1s
-      dispatcher-batch-size: 20
-      processing-lease: 30s
-      delivery-max-attempts: 5
-      delivery-retry-delay: 5s
-      queue-timeout: 3m
-      queue-timeout-fixed-delay: 30s
+      # TS publishes and consumes unified creation commands; Java only shares configuration.
+      enabled: ${AIVISTA_GENERATION_QUEUE_ENABLED:true}
     bailian:
       endpoint: ${AIVISTA_BAILIAN_ENDPOINT:}
       api-key: ${AIVISTA_BAILIAN_API_KEY:}
-      connect-timeout: 5s
       read-timeout: 330s
       max-concurrent-calls: 25
       rate-limit-per-second: 2
-      max-retries: 3
     image-transfer:
-      source-connect-timeout: 5s
       source-read-timeout: 30s
     oss:
       endpoint: ${AIVISTA_OSS_ENDPOINT:}
@@ -151,28 +130,18 @@ app:
       model: bailian/qwen-image-2.0
       max-active-tasks-per-user: 4
       daily-image-quota: 12
-      max-prompt-code-points: 1000
-      max-negative-prompt-code-points: 500
-      min-image-count: 1
-      max-image-count: 6
-      aspect-ratios:
-        "[1:1]": "2048*2048"
-        "[16:9]": "2688*1536"
-        "[9:16]": "1536*2688"
-        "[4:3]": "2368*1728"
-        "[3:4]": "1728*2368"
     consent:
-      policy-version: 2026-08-27-v3
+      policy-version: 2026-10-07-v1
       policy-content: |-
         第三方数据处理说明
 
         为向你提供文生图服务，AiVista 需要将本次生成所需的信息发送至阿里云百炼服务处理。请在提交生成任务前阅读并确认本说明。
 
         一、处理目的
-        AiVista 使用阿里云百炼的图像生成能力，根据你本次提交的提示词生成图片。创作会话中的历史提示词仅用于向你展示生成记录，不会作为本次生成的模型输入。
+        AiVista 使用阿里云百炼的图像生成能力，根据你本次提交的提示词生成图片。普通生成使用本次填写的提示词；Agent 创作会使用本会话的历史消息、表单回答和必要的图片，以理解并继续你的创作。
 
         二、处理的信息
-        本次生成可能发送你本次填写的正向提示词、负向提示词，以及图片数量、画面尺寸等生成参数。请不要在提示词中输入密码、身份证号、银行卡号、精确住址、联系方式、医疗健康信息或其他敏感个人信息。
+        本次生成可能发送你本次填写的正向提示词、负向提示词，参考图片、已确认的表单内容、必要的历史上下文，以及图片数量、画面尺寸等生成参数。请不要在提示词中输入密码、身份证号、银行卡号、精确住址、联系方式、医疗健康信息或其他敏感个人信息。
 
         三、接收方与处理方式
         接收方为阿里云百炼服务。AiVista 后端通过接口将上述生成所需内容发送至阿里云百炼，由其完成图像生成。AiVista 不会向其提供你的登录密码、Refresh Token 或 Access Token。

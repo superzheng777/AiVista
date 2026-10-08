@@ -5,16 +5,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.superz.aivista.auth.entity.AuthSession;
 import com.superz.aivista.auth.mapper.AuthSessionMapper;
 import com.superz.aivista.generation.mapper.ImageAssetMapper;
-import com.superz.aivista.generation.mapper.ConversationMessageMapper;
-import com.superz.aivista.generation.mapper.CreationTaskInputAssetMapper;
-import com.superz.aivista.generation.mapper.CreationTaskMapper;
-import com.superz.aivista.generation.mapper.GenerationSessionMapper;
-import com.superz.aivista.generation.mapper.GenerationTaskMapper;
 import com.superz.aivista.generation.mapper.OutboxEventMapper;
 import com.superz.aivista.generation.entity.OutboxEvent;
 import com.superz.aivista.generation.mapper.UserConsentMapper;
-import com.superz.aivista.generation.mapper.UserGenerationDailyUsageMapper;
-import com.superz.aivista.generation.mapper.AgentSessionContextMapper;
 import com.superz.aivista.user.entity.User;
 import com.superz.aivista.user.mapper.UserMapper;
 import java.nio.charset.StandardCharsets;
@@ -61,34 +54,13 @@ class DataAccessIntegrationIT {
     private AuthSessionMapper authSessionMapper;
 
     @Autowired
-    private GenerationSessionMapper generationSessionMapper;
-
-    @Autowired
-    private ConversationMessageMapper conversationMessageMapper;
-
-    @Autowired
-    private CreationTaskMapper creationTaskMapper;
-
-    @Autowired
-    private CreationTaskInputAssetMapper creationTaskInputAssetMapper;
-
-    @Autowired
-    private GenerationTaskMapper generationTaskMapper;
-
-    @Autowired
     private ImageAssetMapper imageAssetMapper;
 
     @Autowired
     private OutboxEventMapper outboxEventMapper;
 
     @Autowired
-    private UserGenerationDailyUsageMapper userGenerationDailyUsageMapper;
-
-    @Autowired
     private UserConsentMapper userConsentMapper;
-
-    @Autowired
-    private AgentSessionContextMapper agentSessionContextMapper;
 
     @BeforeEach
     void cleanDatabase() {
@@ -98,80 +70,11 @@ class DataAccessIntegrationIT {
     }
 
     @Test
-    void flywayCreatesExpectedTables() {
-        Integer tableCount = jdbcTemplate.queryForObject("""
-                SELECT COUNT(*)
-                FROM information_schema.tables
-                WHERE table_schema = DATABASE()
-                  AND table_name IN (
-                    'users', 'auth_sessions', 'generation_sessions', 'conversation_messages',
-                    'creation_tasks', 'creation_task_input_assets',
-                    'generation_tasks', 'image_assets', 'generation_task_input_assets',
-                    'image_publications', 'image_asset_likes', 'outbox_events',
-                    'user_generation_daily_usage', 'user_consents', 'agent_session_contexts',
-                    'creation_forms'
-                  )
-                """, Integer.class);
-
-        assertThat(tableCount).isEqualTo(16);
-    }
-
-    @Test
-    void flywayAddsAgentContextSnapshotAndPendingInputMetadata() {
-        var columns = jdbcTemplate.queryForList("""
-                SELECT column_name
-                FROM information_schema.columns
-                WHERE table_schema = DATABASE()
-                  AND table_name = 'agent_session_contexts'
-                  AND column_name IN (
-                    'snapshot_creation_task_id', 'snapshot_revision',
-                    'pending_tool_call_id', 'pending_input_status'
-                  )
-                """, String.class);
-
-        assertThat(columns).containsExactlyInAnyOrder(
-                "snapshot_creation_task_id", "snapshot_revision",
-                "pending_tool_call_id", "pending_input_status");
-
-        var formColumns = jdbcTemplate.queryForList("""
-                SELECT column_name
-                FROM information_schema.columns
-                WHERE table_schema = DATABASE()
-                  AND table_name = 'creation_forms'
-                  AND column_name IN ('form_json', 'answer_json')
-                """, String.class);
-        assertThat(formColumns).containsExactly("form_json");
-
-        String formStatusCheck = jdbcTemplate.queryForObject("""
-                SELECT check_clause
-                FROM information_schema.check_constraints
-                WHERE constraint_schema = DATABASE()
-                  AND constraint_name = 'chk_creation_forms_status'
-                """, String.class);
-        String pendingInputCheck = jdbcTemplate.queryForObject("""
-                SELECT check_clause
-                FROM information_schema.check_constraints
-                WHERE constraint_schema = DATABASE()
-                  AND constraint_name = 'chk_agent_session_context_pending_input'
-                """, String.class);
-
-        assertThat(formStatusCheck).contains("CANCELLED");
-        assertThat(pendingInputCheck)
-                .contains("snapshot_creation_task_id", "snapshot_revision", "CANCELLED");
-    }
-
-    @Test
-    void generationMappersAreRegistered() {
-        assertThat(generationSessionMapper).isNotNull();
-        assertThat(conversationMessageMapper).isNotNull();
-        assertThat(creationTaskMapper).isNotNull();
-        assertThat(creationTaskInputAssetMapper).isNotNull();
-        assertThat(generationTaskMapper).isNotNull();
-        assertThat(imageAssetMapper).isNotNull();
-        assertThat(outboxEventMapper).isNotNull();
-        assertThat(userGenerationDailyUsageMapper).isNotNull();
-        assertThat(userConsentMapper).isNotNull();
-        assertThat(agentSessionContextMapper).isNotNull();
+    void flywayCreatesCurrentSchema() {
+        var tables = jdbcTemplate.queryForList("SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()", String.class);
+        assertThat(tables).contains("users", "auth_sessions", "generation_sessions", "executions", "image_assets", "image_publications", "outbox_events");
+        assertThat(tables).doesNotContain("conversation_messages", "creation_tasks", "generation_tasks", "creation_forms", "agent_session_contexts");
+        assertThat(jdbcTemplate.queryForList("SELECT version FROM flyway_schema_history WHERE success = 1", String.class)).containsExactly("1");
     }
 
     @Test

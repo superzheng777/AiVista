@@ -1,9 +1,3 @@
-export type GenerationFailureCode =
-  | "QUEUE_DELIVERY_FAILED" | "QUEUE_TIMEOUT" | "QUEUE_CONSUMPTION_FAILED"
-  | "PROVIDER_CALL_OUTCOME_UNKNOWN" | "PROVIDER_CONNECTION_FAILED" | "PROVIDER_RATE_LIMITED"
-  | "PROVIDER_SERVICE_UNAVAILABLE" | "PROVIDER_QUOTA_UNAVAILABLE" | "PROVIDER_CONTENT_REJECTED"
-  | "PROVIDER_CONFIGURATION_ERROR" | "IMAGE_TRANSFER_PARTIAL_FAILURE" | "IMAGE_TRANSFER_FAILED";
-
 /** 百炼已明确返回的 HTTP/业务错误。原始文案只用于服务端日志。 */
 export class BailianProviderError extends Error {
   constructor(
@@ -14,22 +8,10 @@ export class BailianProviderError extends Error {
   ) { super(message); this.name = "BailianProviderError"; }
 }
 
-/** HTTP 传输失败；只有 requestDefinitelyUnsent=true 时才允许重试。 */
+/** HTTP 请求或响应读取失败；生成调用不会自动重试。 */
 export class BailianTransportError extends Error {
-  constructor(readonly cause: unknown, readonly requestDefinitelyUnsent: boolean) {
+  constructor(cause: unknown) {
     super("Bailian transport failed", { cause });
     this.name = "BailianTransportError";
   }
-}
-
-export function providerFailureCode(error: BailianProviderError): GenerationFailureCode {
-  if (error.providerCode === "DataInspectionFailed") return "PROVIDER_CONTENT_REJECTED";
-  if (error.providerCode === "Throttling" || error.providerCode === "Throttling.RateQuota"
-    || error.providerCode === "Throttling.BurstRate") return "PROVIDER_RATE_LIMITED";
-  if (error.providerCode === "Throttling.AllocationQuota" || error.providerCode === "CommodityNotPurchased") {
-    return "PROVIDER_QUOTA_UNAVAILABLE";
-  }
-  if (error.httpStatus >= 500) return "PROVIDER_SERVICE_UNAVAILABLE";
-  if ([400, 401, 403, 404].includes(error.httpStatus)) return "PROVIDER_CONFIGURATION_ERROR";
-  return "PROVIDER_CALL_OUTCOME_UNKNOWN";
 }

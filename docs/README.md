@@ -10,7 +10,7 @@
 | Java Core | [后端项目开发文档](java/后端项目开发文档.md) | 业务规则、数据库、对外 API 与权威状态 |
 | TypeScript AI Runtime | [AI Runtime](worker/AI-Runtime.md) | Worker、Pi Runtime、Tool 与外部 I/O |
 | Agent 跨服务链路 | [Agent 模式](architecture/Agent模式.md) | Java、TS、Pi 与浏览器的协作边界 |
-| 普通生成 Worker 通信 | [Generation Worker v1](architecture/generation-worker-v1.md) | Java–TS 命令、完成提交与重投规则 |
+| 创作会话通信 | [创作通信协议](architecture/creation-protocol.md) | 统一 REST/SSE、四区展示内容项、内部 HTTP 与 MQ 重投规则 |
 
 前端的模块文档和页面视觉规范分别位于 frontend/modules 与 frontend/design；Java 模块文档位于 java/modules。跨服务文档只描述协作关系，具体业务规则或线协议应链接到其权威文档，不在多处复制。
 

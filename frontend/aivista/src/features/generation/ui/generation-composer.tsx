@@ -39,6 +39,7 @@ import { useAuthDialog } from "@/features/auth/model/auth-dialog-provider";
 import { useSession } from "@/features/auth/model/session-provider";
 import { useGenerationEventStream } from "@/features/generation/model/generation-event-stream-provider";
 import { getApiErrorCode } from "@/shared/api/api-response";
+import { insertCreatedTurn } from "@/features/generation/model/session-events";
 import {
   getUserAgreementConsent,
   userAgreementQueryKeys,
@@ -311,9 +312,8 @@ function feedbackFromCreateError(error: unknown): SubmissionFeedback {
   const code = getApiErrorCode(error);
   if (code === 40902 || code === 40903)
     return { message: "生成规则已更新，请重新确认后再提交。", retryable: false, requiresConsent: true };
-  if (code === 40905) return { message: "未完成的生成任务已达上限，请等待其中的任务完成后再试。", retryable: true };
   if (code === 40908) return { message: "当前会话仍在创作中，请等待完成或先停止 Agent。", retryable: false };
-  if (code === 42901) return { message: "今日生成图片额度已用尽，请明日再试。", retryable: false };
+  if (code === 40911) return { message: "当前会话已达到30轮创作上限，请开启新会话。", retryable: false };
   if (code === 42900) return { message: "请求过于频繁，请稍后重试。", retryable: true };
   if (code === 50000) return { message: "系统繁忙，请稍后重试。", retryable: true };
   return { message: "创建任务时发生网络或服务异常，请重试。", retryable: true };
@@ -380,10 +380,8 @@ export function GenerationComposer({
     onSuccess: (task) => {
       setSubmitFeedback(null);
       setReferenceImages([]);
-      void Promise.all([
-        queryClient.invalidateQueries({ queryKey: generationQueryKeys.sessions() }),
-        queryClient.invalidateQueries({ queryKey: generationQueryKeys.turns(task.sessionId) }),
-      ]);
+      insertCreatedTurn(queryClient, task);
+      void queryClient.invalidateQueries({ queryKey: generationQueryKeys.sessions() });
       router.push(`/generate?sessionId=${encodeURIComponent(task.sessionId)}`);
     },
     onError: (error) => {

@@ -10,9 +10,7 @@ export class DatabaseService implements OnModuleDestroy {
   readonly db: Kysely<DatabaseSchema>;
 
   constructor(config: ConfigService<Environment, true>) {
-    this.db = new Kysely<DatabaseSchema>({
-      dialect: new MysqlDialect({
-        pool: createPool({
+    const pool = createPool({
           host: config.get("AIVISTA_DB_HOST", { infer: true }) ?? "127.0.0.1",
           port: config.get("AIVISTA_DB_PORT", { infer: true }),
           database: config.get("AIVISTA_DB_NAME", { infer: true }) ?? "aivista",
@@ -22,9 +20,9 @@ export class DatabaseService implements OnModuleDestroy {
           supportBigNumbers: true,
           bigNumberStrings: true,
           timezone: "Z",
-        }),
-      }),
     });
+    pool.on("connection", (connection) => { connection.query("SET time_zone = '+00:00'"); });
+    this.db = new Kysely<DatabaseSchema>({ dialect: new MysqlDialect({ pool }) });
   }
 
   async onModuleDestroy(): Promise<void> {

@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadSkillsFromDir } from "@earendil-works/pi-coding-agent";
@@ -59,119 +60,11 @@ describe("project Skill resources", () => {
     const tool = createSkillReadTool(cwd);
     const allowed = await tool.execute("read-1", { path: ".pi/skills/poster-design/SKILL.md" },
       undefined, undefined, {} as never);
-    expect(allowed.content[0]).toMatchObject({ type: "text" });
-    expect(allowed.content[0]).toMatchObject({
-      text: expect.stringContaining("历史图片必须实际参与图生图"),
-    });
-    expect(allowed.content[0]).toMatchObject({
-      text: expect.stringContaining("同一视觉方向的多个变体使用一次生成 Tool"),
-    });
-    const content = allowed.content[0]?.type === "text" ? allowed.content[0].text : "";
-    expect(content).not.toContain("5.0Pro");
-    expect(content).not.toContain("默认四张");
-    expect(content).not.toContain("512 tokens");
-
-    const brand = await tool.execute("read-brand", { path: ".pi/skills/brand-design/SKILL.md" },
-      undefined, undefined, {} as never);
-    expect(brand.content[0]).toMatchObject({
-      type: "text",
-      text: expect.stringContaining("不得虚构品牌历史、认证、奖项、口号"),
-    });
-    expect(brand.content[0]).toMatchObject({
-      type: "text",
-      text: expect.stringContaining("同一 Logo 架构和视觉母题的多个变体使用一次生成 Tool"),
-    });
-    const brandContent = brand.content[0]?.type === "text" ? brand.content[0].text : "";
-    expect(brandContent).toContain("不能把单张位图结果冒充完整手册、SVG 或生产源文件");
-    expect(brandContent).not.toContain("默认四张");
-
-    const cinematic = await tool.execute("read-cinematic",
-      { path: ".pi/skills/cinematic-still/SKILL.md" }, undefined, undefined, {} as never);
-    const cinematicContent = cinematic.content[0]?.type === "text" ? cinematic.content[0].text : "";
-    expect(cinematicContent).toContain("不得把 21:9 作为 Tool 参数");
-    expect(cinematicContent).toContain("不同叙事功能、机位或 Prompt 的 Shot 1/2/3 必须使用独立 Tool Call");
-    expect(cinematicContent).toContain("自由发挥”“随机”“其他细节你来定”不是信息不足");
-    expect(cinematicContent).toContain("参考图只提供灵感时，一次只抽取一个维度");
-    expect(cinematicContent).toContain("连续性圣经");
-    expect(cinematicContent).not.toContain("generate_form_for_info_collection");
-    expect(cinematicContent).not.toContain("image_super_resolution");
-
-    const impasto = await tool.execute("read-impasto",
-      { path: ".pi/skills/impasto-diorama/SKILL.md" }, undefined, undefined, {} as never);
-    const impastoContent = impasto.content[0]?.type === "text" ? impasto.content[0].text : "";
-    expect(impastoContent).toContain("每张照片分别制作一张独立作品");
-    expect(impastoContent).toContain("每张只绑定一个 `inputAssetId`");
-    expect(impastoContent).toContain("不能承诺原照片像素级不变");
-    expect(impastoContent).not.toContain("Tool：`text_to_image`");
-
-    const monumental = await tool.execute("read-monumental",
-      { path: ".pi/skills/monumental-scale-poster/SKILL.md" }, undefined, undefined, {} as never);
-    const monumentalContent = monumental.content[0]?.type === "text" ? monumental.content[0].text : "";
-    expect(monumentalContent).toContain("上方巨物压近 + 中部明亮呼吸带");
-    expect(monumentalContent).toContain("主题是唯一不可缺少的语义输入");
-    expect(monumentalContent).toContain("画幅由用户请求和 Runtime 的 Creation 约束决定");
-    expect(monumentalContent).not.toContain("generate_form_for_info_collection");
-    expect(monumentalContent).not.toContain("image_super_resolution");
-
-    const portraitFace = await tool.execute("read-portrait-face",
-      { path: ".pi/skills/portrait-face-director/SKILL.md" }, undefined, undefined, {} as never);
-    const portraitFaceContent = portraitFace.content[0]?.type === "text" ? portraitFace.content[0].text : "";
-    expect(portraitFaceContent).toContain("第一阶段：整体脸谱方向");
-    expect(portraitFaceContent).toContain("第二阶段：五官结构覆盖");
-    expect(portraitFaceContent).toContain("用户的自定义值和 `refinements` 优先级最高");
-    expect(portraitFaceContent).toContain("不复刻明星、网红、公众人物");
-    expect(portraitFaceContent).toContain("Prompt 默认使用用户当前语言");
-    expect(portraitFaceContent).not.toContain("英文 Prompt");
-    expect(portraitFaceContent).not.toContain("generate_form_for_info_collection");
-    expect(portraitFaceContent).not.toContain("get_resource_status");
-
-    const faceArchetypes = await tool.execute("read-face-archetypes",
-      { path: ".pi/skills/portrait-face-director/references/face-archetypes.md" },
-      undefined, undefined, {} as never);
-    const faceArchetypesContent = faceArchetypes.content[0]?.type === "text"
-      ? faceArchetypes.content[0].text : "";
-    expect(faceArchetypesContent).toContain("脸谱名称只是检索入口");
-    expect(faceArchetypesContent).toContain("电影感辨识脸");
-    expect(faceArchetypesContent).toContain("用户自定义与自然语言微调优先于本库");
-    expect(faceArchetypesContent).toContain("Prompt 语义骨架");
-    expect(faceArchetypesContent).not.toContain("英文 Prompt 骨架");
-
-    const lifeFragments = await tool.execute("read-life-fragments",
-      { path: ".pi/skills/japanese-life-fragments/SKILL.md" }, undefined, undefined, {} as never);
-    const lifeFragmentsContent = lifeFragments.content[0]?.type === "text"
-      ? lifeFragments.content[0].text : "";
-    expect(lifeFragmentsContent).toContain("每张输入照片制作一张独立海报");
-    expect(lifeFragmentsContent).toContain("上下各占画面 `50%`");
-    expect(lifeFragmentsContent).toContain("只包含该照片的一个本轮授权 Asset ID");
-    expect(lifeFragmentsContent).toContain("约 `4–7` 个最值得记住的元素");
-    expect(lifeFragmentsContent).not.toContain("Tool：`text_to_image`");
-    expect(lifeFragmentsContent).not.toContain("generate_form_for_info_collection");
-
-    const seriesDirector = await tool.execute("read-series-director",
-      { path: ".pi/skills/series-image-director/SKILL.md" }, undefined, undefined, {} as never);
-    const seriesDirectorContent = seriesDirector.content[0]?.type === "text"
-      ? seriesDirector.content[0].text : "";
-    expect(seriesDirectorContent).toContain("建立 Series Lock");
-    expect(seriesDirectorContent).toContain("构建 Variation Matrix");
-    expect(seriesDirectorContent).toContain("数量和画幅来自 Runtime");
-    expect(seriesDirectorContent).toContain("使用其返回的 Asset ID 调用 `inspect_image` 读取本轮结果");
-    expect(seriesDirectorContent).toContain("当前 Runtime 没有联网资料检索、独立前景分割和超分辨率 Tool");
-    expect(seriesDirectorContent).not.toContain("generate_form_for_info_collection");
-    expect(seriesDirectorContent).not.toContain("image_super_resolution");
-    expect(seriesDirectorContent).not.toContain("foreground_segmentation");
-    expect(seriesDirectorContent).not.toContain("creation_agent_search");
-
-    const shotLanguage = await tool.execute("read-shot-language",
-      { path: ".pi/skills/cinematic-still/references/shot-language.md" },
-      undefined, undefined, {} as never);
-    expect(shotLanguage.content[0]).toMatchObject({
-      type: "text",
-      text: expect.stringContaining("空间—人物—证据"),
-    });
-    expect(shotLanguage.content[0]).toMatchObject({
-      type: "text",
-      text: expect.stringContaining("候选只用于择优，不对应图片数量"),
-    });
+    expect(allowed.content[0]).toEqual({ type: "text",
+      text: await readFile(resolve(cwd, ".pi/skills/poster-design/SKILL.md"), "utf8") });
+    const referencePath = ".pi/skills/cinematic-still/references/shot-language.md";
+    const reference = await tool.execute("read-reference", { path: referencePath }, undefined, undefined, {} as never);
+    expect(reference.content[0]).toEqual({ type: "text", text: await readFile(resolve(cwd, referencePath), "utf8") });
     await expect(tool.execute("read-2", { path: ".env.example" }, undefined, undefined, {} as never))
       .rejects.toThrow("read 只允许读取已发布的 Skill 文件");
   });

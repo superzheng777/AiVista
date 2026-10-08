@@ -5,7 +5,8 @@ import { type Dispatch, type SetStateAction, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 
-import type { AgentInputForm, AgentInputFormField, CreationForm } from "@/entities/generation/model/generation";
+import type { AgentInputForm, AgentInputFormField } from "@/entities/generation/model/generation";
+import type { SessionFormItem } from "@/entities/generation/model/session";
 import { agentInputValuesSchema } from "@/features/generation/model/agent-input-form";
 import { cn } from "@/shared/lib/cn";
 
@@ -17,7 +18,7 @@ export function AgentInputFormCard({
   onResolve,
   onCancel,
 }: {
-  value: CreationForm;
+  value: SessionFormItem;
   enabled: boolean;
   submitting: boolean;
   cancelling: boolean;
@@ -25,23 +26,23 @@ export function AgentInputFormCard({
   onCancel: () => void;
 }) {
   const form = useForm<{ values: string[] }>({
-    resolver: zodResolver(agentInputValuesSchema(value.form)),
-    defaultValues: { values: value.form.fields.map((field) => field.value) },
+    resolver: zodResolver(agentInputValuesSchema(value)),
+    defaultValues: { values: value.fields.map((field) => field.value) },
     mode: "onChange",
   });
   const values = useWatch({ control: form.control, name: "values" });
-  const [customFieldIds, setCustomFieldIds] = useState<Set<string>>(() => initialCustomFieldIds(value.form));
-  const missingRequired = value.form.fields.some((field, index) => field.required && !(values[index] ?? "").trim());
+  const [customFieldIds, setCustomFieldIds] = useState<Set<string>>(() => initialCustomFieldIds(value));
+  const missingRequired = value.fields.some((field, index) => field.required && !(values[index] ?? "").trim());
   if (value.status !== "PENDING") {
     return (
-      <section
+      <details
         className="mt-3 rounded-[8px] border border-[var(--border)] bg-[var(--surface-soft)] px-4 py-3"
         aria-label="已处理的需求确认表单"
       >
-        <div className="flex items-center gap-2 text-sm font-semibold">
+        <summary className="flex cursor-pointer items-center gap-2 text-sm font-semibold">
           <ClipboardList className="size-4 text-[var(--accent)]" />
-          {value.form.title}
-        </div>
+          {value.title} · {value.status === "SUBMITTED" ? "已填写" : value.status === "SKIPPED" ? "已跳过" : "已取消"}
+        </summary>
         {value.status === "CANCELLED" ? (
           <p className="mt-2 text-xs leading-5 text-[var(--text-secondary)]">本次创作已取消，此表单无需继续填写。</p>
         ) : value.status === "SKIPPED" ? (
@@ -50,7 +51,7 @@ export function AgentInputFormCard({
           </p>
         ) : (
           <dl className="mt-2 space-y-1 text-xs leading-5 text-[var(--text-secondary)]">
-            {value.form.fields.map((field) => {
+            {value.fields.map((field) => {
               if (!field.value.trim()) return null;
               return (
                 <div key={field.id} className="flex gap-1">
@@ -61,15 +62,16 @@ export function AgentInputFormCard({
             })}
           </dl>
         )}
-      </section>
+      </details>
     );
   }
   return (
     <form
       onSubmit={form.handleSubmit(({ values }) =>
         onResolve("SUBMIT", {
-          ...value.form,
-          fields: value.form.fields.map((field, index) => ({ ...field, value: values[index] ?? "" })),
+          schemaVersion: value.schemaVersion,
+          title: value.title,
+          fields: value.fields.map((field, index) => ({ ...field, value: values[index] ?? "" })),
         }),
       )}
       className="mt-3 rounded-[8px] border border-[var(--border-strong)] bg-[var(--surface-bg)] p-4"
@@ -77,10 +79,10 @@ export function AgentInputFormCard({
     >
       <div className="flex items-center gap-2 text-sm font-semibold">
         <ClipboardList className="size-4 text-[var(--accent)]" />
-        {value.form.title}
+        {value.title}
       </div>
       <div className="mt-4 space-y-5">
-        {value.form.fields.map((field, index) => (
+        {value.fields.map((field, index) => (
           <fieldset key={field.id} disabled={!enabled || submitting || cancelling}>
             <legend className="mb-2 text-xs font-medium text-[var(--text-secondary)]">
               {field.label}
@@ -88,6 +90,7 @@ export function AgentInputFormCard({
             </legend>
             {field.type === "TEXT" ? (
               <input
+                aria-label={field.label}
                 {...form.register(`values.${index}`)}
                 maxLength={300}
                 placeholder={field.placeholder}
