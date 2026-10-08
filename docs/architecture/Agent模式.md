@@ -7,7 +7,7 @@
 | 部分 | 权威数据与职责 |
 | --- | --- |
 | Java | 登录鉴权、会话归属与提交图片授权、浏览器 REST/SSE、上传、资产查询与管理、社区和搜索 |
-| TS | 创建会话与执行记录、MQ 消费、Pi 运行、额度预占、模型请求、图片转存、资产登记和生成结果结算 |
+| TS | 创建会话与执行记录、Node 本地创作调度、Pi 运行、图片 MQ 派发和消费、额度预占、模型请求、图片转存、资产登记和生成结果结算 |
 | MySQL | `generation_sessions` 会话索引；`executions` 执行状态；资产、额度、用户与社区业务表 |
 | Pi JSONL | 用户消息、助手消息、工具调用与结果、表单回答、压缩记录，以及产品创作分轮标记 |
 | OSS | 私有原图与生成图片的展示派生图；会话只保存不含签名的原图 URL 和 assetId |
@@ -21,17 +21,18 @@
 1. 浏览器向 Java `POST /api/creations` 提交 NORMAL/AGENT、可选 sessionId、输入和设置。
 2. Java 校验 JWT、用户协议、已有会话归属和本次选图权限，将授权后的原图引用传给内部 TS HTTP。
 3. TS 锁定用户与会话，验证没有活动执行且创作数小于 30，建立执行记录并追加 `aivista.creation_started`。会话首次提交时创建。
-4. TS 扫描未投递的 QUEUED 创作，通过 publisher confirm 向 `aivista.creation.execute.v1` 持久化队列投递 `{executionId,expectedRevision}`，确认后写入 dispatched_at。
-5. 消费者用 `WHERE status='QUEUED' AND revision=?` 原子更新为 RUNNING；只有更新成功者执行。重复或旧版本消息直接结束。
-6. 两种模式都打开同一会话的 SessionManager；NORMAL 运行固定生图流程，AGENT 创建 AgentSession，注入 Skill、工具和约束，执行模型循环。
-7. 生图前在 TS 事务内检查额度与用户并发并预占；转存完成后在另一事务内登记资产、退还未交付额度、写入子执行终态。所有 SQL 使用同一 Kysely transaction。
-8. TS 写入 Pi 结果条目、收口创作状态，并将展示事件交给 Java 用户级 SSE。
+4. 事务提交后唤醒 Node 本地创作调度器，HTTP 返回 202。调度器启动及周期扫描 QUEUED 创作补漏，用状态和 revision 原子领取；同一会话串行，不同会话可异步执行。
+5. 两种模式都打开同一会话的 SessionManager；NORMAL 运行固定生图流程，AGENT 创建 AgentSession，注入 Skill、工具和约束，执行模型循环。创作不投递 MQ。
+6. NORMAL 流程和 Agent 生图工具共用图片任务入口：按 `(parent_id,tool_call_id)` 幂等创建 GENERATION 子执行，随后异步等待数据库结果。
+7. 图片派发器扫描未投递的 QUEUED 子执行，通过 publisher confirm 向 `aivista.generation.execute.v1` 投递 `{generationId,expectedRevision}`，确认后写入 dispatched_at。消费者原子领取，在事务内检查额度与用户已预占任务上限并预占，再经过限速调用图片模型。
+8. 图片模型响应先持久化，再转存图片；TS 在同一个 Kysely 事务内登记资产、退还未交付额度并写入子执行终态，结果可靠保存后 ACK 并通知等待者。
+9. 等待者读取图片终态，将工具结果交回普通流程或 Pi；TS 写入 Pi 结果条目、继续 Agent 或收口创作状态，并将展示事件交给 Java 用户级 SSE。
 
 生成链路不需要跨 Java 提交结果。社区审核、搜索索引和通知仍使用 Java Outbox；它们的可靠待办职责不由创作执行表替代。
 
 ## 历史与模型上下文
 
-历史接口返回整个会话，最多 30 轮。TS 遍历原生当前分支，按 creation_started 分轮，把有效条目投影为 `turns[].items[]`：text、tool、form、generation；SQL 只补充执行状态、revision、错误和完成时间。text 用 phase 区分过程与最终回复；tool 仅展示名称、执行状态和可选技能名，Skill 读取也使用 tool。TS 在生成展示数据时移除工具参数、完整路径和返回正文，历史接口与实时事件均不传递这些详情；原生 Pi 会话仍保留完整工具记录供模型使用。压缩摘要、模型设置、隐藏 thinking 和图片二进制不进入展示。
+历史接口返回整个会话，最多 30 轮。TS 遍历原生当前分支，按 creation_started 分轮，把有效条目投影为 `turns[].items[]`：text、tool、form、generation；SQL 补充创作状态、revision、错误和完成时间，并按 toolCallId 合入图片任务状态及已结算资产，避免图片已完成但 Pi 尚未记录工具结果时丢失图片卡片。text 用 phase 区分过程与最终回复；tool 仅展示名称、执行状态和可选技能名，Skill 读取也使用 tool。TS 在生成展示数据时移除工具参数、完整路径和返回正文，历史接口与实时事件均不传递这些详情；原生 Pi 会话仍保留完整工具记录供模型使用。压缩摘要、模型设置、隐藏 thinking 和图片二进制不进入展示。
 
 普通和 Agent 生图共用原生 `message` 记录：用户输入、`assistant/toolCall`、`toolResult`。普通模式由程序构造调用，标记 provider 为 `aivista`、model 为 `programmatic-generation`、用量为零，不启动 LLM；Agent 模式由 Pi 自动保存模型调用和工具返回。每次调用只保存一份工具结果，不额外写生成完成的自定义消息。
 
@@ -47,9 +48,13 @@ JSONL 在运行中按条目追加，助手流式 token 在前端实时显示，�
 
 回答以 `custom_message` 追加，customType 为 `aivista.form_answer`，content 为结构化 JSON 字符串，包含 creationId、toolCallId、action、title 和 fields 的 id/label/value。原工具结果不修改。Pi 将自定义消息转换为用户消息输入模型，前端投影则将回答合入原表单卡片；已填写、跳过、取消记录可折叠查看，不另造用户创作轮次。
 
-接受回答后同一个执行转为 QUEUED 并增加 revision，重新派发；不增加创作计数。相同回答重复 PUT 返回既有结果，冲突回答或旧 revision 返回冲突。达到第 30 轮后仍可提交该轮表单，新创作必须另开会话。
+接受回答后同一个执行转为 QUEUED 并增加 revision，唤醒本地创作调度器；不投递 MQ，不增加创作计数。相同回答重复 PUT 返回既有结果，冲突回答或旧 revision 返回冲突。达到第 30 轮后仍可提交该轮表单，新创作必须另开会话。
 
 ## 图片
+
+图片队列只有一个异步消费者，`prefetch=200` 限制等待限速、模型调用、转存和结算中的未确认任务总数。请求在真正发出前平滑限速，默认每秒最多 2 次；没有额外的模型在途请求限制。限速按 API 调用次数计算，一次调用生成多张图片仍算一次。未 ACK 消息达到 200 后 RabbitMQ 暂停派发，单条结果结算并 ACK 后释放名额。等待图片结果的 Agent 不占图片消费者之外的创作消费名额。
+
+等待结果以数据库为准，进程内通知用于及时唤醒，每两秒检查数据库兜底避免漏通知。创建及等待图片任务期间暂停 Agent 推理预算；模型请求发出前默认十分钟排队超时，实际发出后使用 Provider HTTP 超时。单实例之外的全局速率协调不在当前范围，不能直接增加消费者复制这套限速器。
 
 本次选图由 Java 授权；TS 后续只从可信会话记录取图片引用。会话保存原图 URL，不保存预签名、AccessKey 或 Base64。提交给视觉模型前，Harness 将这些引用临时转换为 OpenAI 兼容请求的 image_url；图生图工具同样在请求前签名。inspect_image 读取会话中已有的可信引用，避免任意 URL 签名。
 
@@ -63,8 +68,10 @@ SSE 早于 POST 响应时短暂缓冲；迟到的历史响应不能覆盖较新 
 
 ## 故障与边界
 
-没有明确交付的结果按失败处理，未交付数量不扣额度。数据库结算具有幂等性，不自动重试不明确的付费模型调用。用户停止创作会停止 Pi 推理，已经进入模型服务的生图可以完成并进入资产库。
+没有明确交付的结果按失败处理，未交付数量不扣额度。数据库结算具有幂等性。尚未发出模型请求的图片任务可取消并退款；用户停止创作会停止 Pi 推理，已经发出的生图继续收尾、结算并进入资产库。消费重复消息只读取终态，不再次调用模型。已经持久化的模型响应可以继续转存和结算；请求可能已发出但结果未知时记录明确错误，不自动重放付费请求。
 
-单实例 TS 串行保护同一会话，恢复等待前一次执行退出。进程突然终止、磁盘损坏、SQL 与文件之间的异常中断采用人工核对并收口，不实现分布式租约、自动模型重跑或跨存储事务。新部署必须同时保留数据库与会话目录；重新建库时使用独立 OSS 前缀。
+单实例 TS 串行保护同一会话，恢复等待前一次执行退出。重启时补启动 QUEUED 创作，RUNNING 创作（普通和 Agent）统一以 `CREATION_INTERRUPTED` 失败收口，不承诺从内存中的 Promise 无感续跑；WAITING_INPUT 表单保留，用户回答后继续。磁盘损坏、SQL 与 JSONL 之间的异常中断仍需要人工核对，不实现分布式租约、自动模型重跑或跨存储事务。新部署必须同时保留数据库与会话目录；数据库通过 V1 基础表和 V2 增量迁移演进，不修改已经应用的 V1；确需重新建库时使用独立 OSS 前缀。
+
+V2 增加 `provider_started_at` 和 `provider_response_json`。前者是限速前持久化的调用意图，不证明请求已经发到供应商；同进程用 `local.started` 确认实际发出，仍在限速等待的请求可取消或排队超时。进程退出丢失该内存信息后，只有调用意图、没有响应的任务按结果未知收口，即使实际尚未发出也不冒险重放。父创作因进程中断失败不会撤销已经接受的图片任务，图片继续执行或按自己的恢复状态收口。
 
 接口和事件字段见 [创作通信协议](creation-protocol.md)，运行与验证见 [AI Runtime](../worker/AI-Runtime.md)。

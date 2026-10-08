@@ -35,6 +35,8 @@ export function loadJavaLocalEnvironment(path: string | undefined, processEnviro
   set("AIVISTA_RABBITMQ_PASSWORD", value("spring.rabbitmq.password"));
   set("AIVISTA_RABBITMQ_VHOST", value("spring.rabbitmq.virtual-host"));
   set("AIVISTA_GENERATION_QUEUE_ENABLED", booleanString(value("app.generation.queue.enabled")));
+  set("AIVISTA_GENERATION_PREFETCH", value("app.generation.queue.prefetch"));
+  set("AIVISTA_GENERATION_QUEUE_TIMEOUT_MS", value("app.generation.queue.timeout-ms"));
   set("AIVISTA_BAILIAN_ENDPOINT", value("app.generation.bailian.endpoint"));
   set("AIVISTA_BAILIAN_API_KEY", value("app.generation.bailian.api-key"));
   set("AIVISTA_BAILIAN_READ_TIMEOUT_MS", durationMs(value("app.generation.bailian.read-timeout")));
@@ -44,12 +46,10 @@ export function loadJavaLocalEnvironment(path: string | undefined, processEnviro
   set("AIVISTA_AGENT_BAILIAN_API_KEY", value("app.agent.model.api-key"));
   set("AIVISTA_AGENT_THINKING_ENABLED", booleanString(value("app.agent.model.thinking-enabled")));
   set("AIVISTA_AGENT_MAX_TURNS", value("app.agent.max-turns"));
-  set("AIVISTA_AGENT_MAX_CONCURRENT", value("app.agent.max-concurrent"));
   set("AIVISTA_AGENT_LOOP_TIMEOUT_MS", durationMs(value("app.agent.loop-timeout")));
   set("AIVISTA_GENERATION_MODEL", value("app.generation.task.model"));
   set("AIVISTA_GENERATION_DAILY_IMAGE_QUOTA", value("app.generation.task.daily-image-quota"));
   set("AIVISTA_GENERATION_MAX_ACTIVE_PER_USER", value("app.generation.task.max-active-tasks-per-user"));
-  set("AIVISTA_GENERATION_MAX_CONCURRENT_CALLS", value("app.generation.bailian.max-concurrent-calls"));
   set("AIVISTA_GENERATION_RATE_LIMIT_PER_SECOND", value("app.generation.bailian.rate-limit-per-second"));
   set("AIVISTA_OSS_ENDPOINT", value("app.generation.oss.endpoint"));
   set("AIVISTA_OSS_BUCKET", value("app.generation.oss.bucket"));

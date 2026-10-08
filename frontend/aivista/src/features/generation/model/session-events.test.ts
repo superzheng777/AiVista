@@ -6,6 +6,38 @@ import { hydrateSession, insertCreatedTurn, receiveCreationEvent } from "./sessi
 import { sessionFixture } from "./session-events.test-fixture";
 
 describe("session snapshots and SSE", () => {
+  it("keeps sent image work live after cancelling the parent and accepts its later assets", () => {
+    const client = new QueryClient();
+    client.setQueryData(generationQueryKeys.session("1"), sessionFixture());
+    const image = {
+      id: "image-1",
+      kind: "generation" as const,
+      generationId: "3",
+      status: "RUNNING" as const,
+      assets: [],
+    };
+    receiveCreationEvent(client, { type: "creation.item.upserted", sessionId: "1", creationId: "2", item: image });
+    receiveCreationEvent(client, {
+      type: "creation.updated",
+      sessionId: "1",
+      creationId: "2",
+      status: "CANCELLED",
+      revision: 2,
+    });
+    let value = client.getQueryData<SessionDetail>(generationQueryKeys.session("1"))!;
+    expect(value.turns[0]?.items[0]).toMatchObject({ status: "RUNNING" });
+    const completed = {
+      ...image,
+      status: "SUCCEEDED" as const,
+      assets: [{ assetId: "4", url: "https://example.test/image.png", expiresAt: null }],
+    };
+    receiveCreationEvent(client, { type: "creation.item.upserted", sessionId: "1", creationId: "2", item: completed });
+    value = client.getQueryData<SessionDetail>(generationQueryKeys.session("1"))!;
+    expect(value.turns[0]?.status).toBe("CANCELLED");
+    expect(value.turns[0]?.items[0]).toEqual(completed);
+    client.clear();
+  });
+
   it("promotes the final reply without duplicating it or regressing completed tools on a stale snapshot", () => {
     const client = new QueryClient();
     client.setQueryData(generationQueryKeys.session("1"), sessionFixture());

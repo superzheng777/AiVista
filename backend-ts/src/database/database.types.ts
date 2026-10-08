@@ -1,4 +1,4 @@
-/** Tables accessed through Kysely; execution SQL remains in ExecutionRepository. */
+/** Shared table types for runtime repositories and image execution services. */
 export interface DatabaseSchema { executions: GenerationExecution }
 /** Provider input selected from a GENERATION execution. */
 export interface GenerationExecution {

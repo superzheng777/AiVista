@@ -18,7 +18,6 @@ app:
       api-key: agent-secret
       thinking-enabled: false
     max-turns: 20
-    max-concurrent: 4
   publication:
     moderation:
       endpoint: green.example
@@ -28,20 +27,13 @@ app:
   generation:
     queue:
       enabled: true
-      exchange: custom.exchange
-      agent-name: agent.creation.execute
-      agent-routing-key: agent.execute
-      dead-letter-exchange: custom.dead-letter
-      generation-name: generation.task.execute
-      generation-routing-key: generation.execute
-      generation-consumer-concurrency: 7
-      dispatcher-batch-size: 20
-      queue-timeout: 3m
-      queue-timeout-fixed-delay: 30s
+      prefetch: 200
+      timeout-ms: 600000
     bailian:
       endpoint: bailian.example
       api-key: bailian-secret
       read-timeout: 330s
+      rate-limit-per-second: 2
     oss:
       endpoint: oss.example
       bucket: images

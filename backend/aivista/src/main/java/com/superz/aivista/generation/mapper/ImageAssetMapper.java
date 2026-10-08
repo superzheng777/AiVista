@@ -40,27 +40,6 @@ public interface ImageAssetMapper extends BaseMapper<ImageAsset> {
     List<ImageAsset> selectByAssetIds(@Param("assetIds") List<Long> assetIds);
 
     @Select("""
-            <script>
-            SELECT * FROM image_assets WHERE id IN
-            <foreach collection="assetIds" item="assetId" open="(" separator="," close=")">#{assetId}</foreach>
-            ORDER BY id ASC FOR UPDATE
-            </script>
-            """)
-    List<ImageAsset> selectByIdsForUpdate(@Param("assetIds") List<Long> assetIds);
-
-    @Select("SELECT * FROM image_assets WHERE origin_task_id = #{taskId} ORDER BY source_index ASC")
-    List<ImageAsset> selectByOriginTaskId(@Param("taskId") long taskId);
-
-    @Select("""
-            <script>
-            SELECT * FROM image_assets WHERE origin_task_id IN
-            <foreach collection="taskIds" item="taskId" open="(" separator="," close=")">#{taskId}</foreach>
-            ORDER BY origin_task_id ASC, source_index ASC
-            </script>
-            """)
-    List<ImageAsset> selectByOriginTaskIds(@Param("taskIds") List<Long> taskIds);
-
-    @Select("""
             SELECT a.*, p.review_status AS publication_review_status, p.publication_version,
                    p.review_attempt_count AS publication_review_attempt_count, p.review_started_at AS publication_review_started_at,
                    p.title AS publication_title, p.description AS publication_description, p.public_at, p.like_count,
@@ -83,18 +62,6 @@ public interface ImageAssetMapper extends BaseMapper<ImageAsset> {
             WHERE a.id = #{assetId} AND a.user_id = #{userId} AND a.deleted_at IS NULL
             """)
     ImageAsset selectVisibleDetailByUserIdAndId(@Param("userId") long userId, @Param("assetId") long assetId);
-
-    @Select("""
-            <script>
-            SELECT a.* FROM image_assets a LEFT JOIN image_publications p ON p.asset_id = a.id
-            WHERE a.id IN <foreach collection="assetIds" item="assetId" open="(" separator="," close=")">#{assetId}</foreach>
-              AND (a.expires_at IS NULL OR a.expires_at > CURRENT_TIMESTAMP(3))
-              AND ((a.user_id = #{userId} AND a.deleted_at IS NULL)
-                   OR (p.public_at IS NOT NULL AND p.review_status = 'APPROVED'))
-            FOR UPDATE
-            </script>
-            """)
-    List<ImageAsset> selectUsableInputsForUpdate(@Param("userId") long userId, @Param("assetIds") List<Long> assetIds);
 
     @Select("""
             SELECT a.*, p.review_status AS publication_review_status, p.publication_version,

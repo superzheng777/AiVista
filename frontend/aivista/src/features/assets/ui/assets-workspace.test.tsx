@@ -30,10 +30,16 @@ vi.mock("@/features/publication/ui/publication-form-dialog", () => ({
   PublicationFormDialog: () => null,
 }));
 vi.mock("@/entities/generation/ui/image-detail-shell", () => ({
-  ImageDetailShell: ({ image, actions }: { image: GenerationAsset; actions?: ReactNode }) => (
+  ImageDetailShell: ({
+    image,
+    headerActions,
+  }: {
+    image: GenerationAsset;
+    headerActions?: (onCopy: () => Promise<void>) => ReactNode;
+  }) => (
     <div>
       <span>{image.favorited ? "详情已收藏" : "详情未收藏"}</span>
-      {actions}
+      {headerActions?.(vi.fn())}
     </div>
   ),
 }));

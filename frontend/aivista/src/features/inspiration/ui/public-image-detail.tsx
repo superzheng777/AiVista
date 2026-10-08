@@ -109,7 +109,7 @@ export function PublicImageDetail({
       refreshImage={refreshImage}
       onClose={onClose}
       navigation={navigation}
-      showTimeInInfo={false}
+      showGenerationTime={false}
       author={
         <PublicDetailHeader
           image={image}

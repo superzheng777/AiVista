@@ -36,7 +36,6 @@ app:
       api-key: ${AIVISTA_AGENT_BAILIAN_API_KEY:}
       thinking-enabled: ${AIVISTA_AGENT_THINKING_ENABLED:false}
     max-turns: ${AIVISTA_AGENT_MAX_TURNS:20}
-    max-concurrent: ${AIVISTA_AGENT_MAX_CONCURRENT:4}
     loop-timeout: 20m
   meilisearch:
     enabled: ${MEILISEARCH_ENABLED:false}
@@ -99,14 +98,15 @@ app:
       dispatcher-batch-size: 100
       processing-lease: 30s
     queue:
-      # TS publishes and consumes unified creation commands; Java only shares configuration.
+      # TS publishes and consumes image tasks; Agent loops run directly in Node.
       enabled: ${AIVISTA_GENERATION_QUEUE_ENABLED:true}
+      prefetch: ${AIVISTA_GENERATION_PREFETCH:200}
+      timeout-ms: ${AIVISTA_GENERATION_QUEUE_TIMEOUT_MS:600000}
     bailian:
       endpoint: ${AIVISTA_BAILIAN_ENDPOINT:}
       api-key: ${AIVISTA_BAILIAN_API_KEY:}
       read-timeout: 330s
-      max-concurrent-calls: 25
-      rate-limit-per-second: 2
+      rate-limit-per-second: ${AIVISTA_GENERATION_RATE_LIMIT_PER_SECOND:2}
     image-transfer:
       source-read-timeout: 30s
     oss:

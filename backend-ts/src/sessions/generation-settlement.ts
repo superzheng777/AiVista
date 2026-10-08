@@ -17,6 +17,27 @@ export class GenerationSettlement {
   constructor(private readonly db: Kysely<DatabaseSchema>, private readonly limits: { daily: number; concurrent: number },
       private readonly unsigned: (key: string) => string) {}
 
+  /** Only the caller that has prevented a local pending call may cancel its intent marker. */
+  async cancel(generationId: string, allowPreparedCall = false, failureCode?: string): Promise<boolean> {
+    return this.db.transaction().execute(async (transaction) => {
+      const task = (await sql<GenerationRow & { provider_started_at: Date | null }>`SELECT * FROM executions
+        WHERE id = ${generationId} AND kind = 'GENERATION' FOR UPDATE`.execute(transaction)).rows[0];
+      if (!task || task.settled_at || !["QUEUED", "RUNNING"].includes(task.status)
+          || task.provider_started_at && !allowPreparedCall) return false;
+      if (task.quota_reserved_at) {
+        const refund = await sql`UPDATE user_generation_daily_usage
+          SET requested_image_count = requested_image_count - ${task.requested_image_count}
+          WHERE user_id = ${task.user_id} AND usage_date = ${usageDate(task.created_at)}
+            AND requested_image_count >= ${task.requested_image_count}`.execute(transaction);
+        if (refund.numAffectedRows !== 1n) throw new Error("Generation quota reservation is missing");
+      }
+      await sql`UPDATE executions SET status = ${failureCode ? "FAILED" : "CANCELLED"}, revision = revision + 1,
+        failure_code = ${failureCode ?? "USER_CANCELLED"}, completed_at = UTC_TIMESTAMP(3), settled_at = UTC_TIMESTAMP(3),
+        quota_refunded_at = ${task.quota_reserved_at ? new Date() : null} WHERE id = ${generationId}`.execute(transaction);
+      return true;
+    });
+  }
+
   async reserve(generationId: string): Promise<void> {
     await this.db.transaction().execute(async (transaction) => {
       const task = (await sql<GenerationRow>`SELECT * FROM executions WHERE id = ${generationId}

@@ -1,7 +1,7 @@
 "use client";
 /* eslint-disable @next/next/no-img-element */
 
-import { ArrowLeft, ChevronDown, ChevronUp, Clipboard, Download } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronUp, Download } from "lucide-react";
 import { useRef, useState } from "react";
 import type { ReactNode } from "react";
 
@@ -13,12 +13,9 @@ type ImageDetailShellProps = {
   onClose: () => void;
   actions?: ReactNode;
   author?: ReactNode;
-  allowCopy?: boolean;
+  headerActions?: (onCopy: () => Promise<void>) => ReactNode;
   onDownload?: () => void | Promise<void>;
-  downloadDisabled?: boolean;
-  showTimeInInfo?: boolean;
-  timeLabel?: string;
-  timeValue?: string | null;
+  showGenerationTime?: boolean;
   refreshImage?: (imageId: string) => Promise<GenerationAsset>;
   navigation?: ImageDetailNavigation;
 };
@@ -44,12 +41,9 @@ function ImageDetailShellContent({
   onClose,
   actions,
   author,
-  allowCopy = false,
+  headerActions,
   onDownload,
-  downloadDisabled = false,
-  showTimeInInfo = true,
-  timeLabel = "生成时间",
-  timeValue = image.createdAt,
+  showGenerationTime = true,
   refreshImage,
   navigation,
 }: ImageDetailShellProps) {
@@ -57,7 +51,7 @@ function ImageDetailShellContent({
   const [copyFailed, setCopyFailed] = useState(false);
   const [downloadFailed, setDownloadFailed] = useState(false);
   const imageRetryUsedRef = useRef(false);
-  const showAsideHeader = Boolean(onDownload) || allowCopy;
+  const showAsideHeader = Boolean(onDownload || headerActions);
 
   async function refreshedImage(): Promise<GenerationAsset> {
     if (!refreshImage) throw new Error("Image refresh is unavailable");
@@ -176,30 +170,18 @@ function ImageDetailShellContent({
       </div>
       <aside className="image-detail-scroll min-h-0 overflow-y-auto border-t border-border bg-card md:border-l md:border-t-0">
         {showAsideHeader ? (
-          <div className="sticky top-0 z-10 flex items-center justify-end border-b border-border bg-card/95 px-5 py-4 backdrop-blur">
-            <div className="flex gap-1">
-              {onDownload ? (
-                <button
-                  type="button"
-                  disabled={downloadDisabled}
-                  onClick={() => void download()}
-                  className="inline-flex h-9 items-center gap-1.5 rounded-[7px] border border-[var(--border)] px-3 text-sm font-medium text-[var(--primary)] transition hover:bg-[var(--surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <Download className="size-4" />
-                  下载
-                </button>
-              ) : null}
-              {allowCopy ? (
-                <button
-                  type="button"
-                  onClick={() => void copy()}
-                  className="grid size-9 place-items-center rounded-[7px] text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
-                  aria-label="复制图片"
-                >
-                  <Clipboard className="size-4" />
-                </button>
-              ) : null}
-            </div>
+          <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-border bg-card/95 px-5 py-4 backdrop-blur">
+            {onDownload ? (
+              <button
+                type="button"
+                onClick={() => void download()}
+                className="inline-flex h-9 items-center gap-1.5 rounded-[7px] pr-3 text-sm font-medium text-[var(--primary)] transition hover:bg-[var(--surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+              >
+                <Download className="size-4" />
+                下载
+              </button>
+            ) : null}
+            {headerActions ? <div className="ml-auto flex items-center gap-1">{headerActions(copy)}</div> : null}
           </div>
         ) : null}
         <div className="space-y-6 p-5">
@@ -215,38 +197,32 @@ function ImageDetailShellContent({
           ) : null}
           {author}
           {actions}
-          <section>
-            <h2 className="text-sm font-semibold">作品信息</h2>
-            <dl className="mt-3 space-y-3 text-sm">
-              <div>
-                <dt className="text-xs text-muted-foreground">标题</dt>
-                <dd className="mt-1 break-words font-medium">{image.title ?? "未命名作品"}</dd>
-              </div>
-              <div>
-                <dt className="text-xs text-muted-foreground">描述</dt>
-                <dd className="mt-1 whitespace-pre-wrap break-words leading-6">{image.description ?? "—"}</dd>
-              </div>
-              {showTimeInInfo ? (
+          {image.publicationReviewStatus === "APPROVED" ? (
+            <section>
+              <dl className="space-y-3 text-base">
                 <div>
-                  <dt className="text-xs text-muted-foreground">{timeLabel}</dt>
-                  <dd className="mt-1 font-medium">{timeValue ? createdAtText(timeValue) : "—"}</dd>
+                  <dt className="text-sm text-muted-foreground">标题</dt>
+                  <dd className="mt-1 break-words font-medium">{image.title ?? "未命名作品"}</dd>
                 </div>
-              ) : null}
-            </dl>
-          </section>
-          <section className="border-t border-border pt-6">
-            <h2 className="text-sm font-semibold">提示词</h2>
-            <div className="mt-3 space-y-4">
+                <div>
+                  <dt className="text-sm text-muted-foreground">描述</dt>
+                  <dd className="mt-1 whitespace-pre-wrap break-words leading-6">{image.description ?? "—"}</dd>
+                </div>
+              </dl>
+            </section>
+          ) : null}
+          <section className="border-t border-border pt-6 first:border-t-0 first:pt-0">
+            <div className="space-y-4">
               <div>
-                <h3 className="text-xs font-medium text-muted-foreground">正向提示词</h3>
-                <p className="mt-2 whitespace-pre-wrap break-words rounded-xl bg-muted/60 p-3 text-sm leading-6">
+                <h2 className="text-sm font-medium text-muted-foreground">正向提示词</h2>
+                <p className="mt-2 whitespace-pre-wrap break-words rounded-xl bg-muted/60 py-3 pr-3 text-left text-sm leading-6">
                   {image.finalPrompt}
                 </p>
               </div>
               {image.finalNegativePrompt ? (
                 <div>
-                  <h3 className="text-xs font-medium text-muted-foreground">负向提示词</h3>
-                  <p className="mt-2 whitespace-pre-wrap break-words rounded-xl bg-muted/60 p-3 text-sm leading-6">
+                  <h2 className="text-sm font-medium text-muted-foreground">负向提示词</h2>
+                  <p className="mt-2 whitespace-pre-wrap break-words rounded-xl bg-muted/60 py-3 pr-3 text-left text-sm leading-6">
                     {image.finalNegativePrompt}
                   </p>
                 </div>
@@ -254,8 +230,7 @@ function ImageDetailShellContent({
             </div>
           </section>
           <section className="border-t border-border pt-6">
-            <h2 className="text-sm font-semibold">本次生成</h2>
-            <dl className="mt-3 grid grid-cols-2 gap-4 text-sm">
+            <dl className="grid grid-cols-2 gap-4 text-sm">
               <div>
                 <dt className="text-xs text-muted-foreground">尺寸</dt>
                 <dd className="mt-1 font-medium">
@@ -266,6 +241,12 @@ function ImageDetailShellContent({
                 <dt className="text-xs text-muted-foreground">生成数量</dt>
                 <dd className="mt-1 font-medium">{image.requestedImageCount} 张</dd>
               </div>
+              {showGenerationTime ? (
+                <div className="col-span-2">
+                  <dt className="text-xs text-muted-foreground">生成时间</dt>
+                  <dd className="mt-1 font-medium">{image.createdAt ? createdAtText(image.createdAt) : "—"}</dd>
+                </div>
+              ) : null}
             </dl>
           </section>
         </div>

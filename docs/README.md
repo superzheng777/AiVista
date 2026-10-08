@@ -8,9 +8,9 @@
 | 前端 | [前端项目开发文档](frontend/前端项目开发文档.md) | 页面交互、客户端状态、视觉与接口消费 |
 | 资源列表缓存 | [资源列表缓存模块](frontend/modules/资源列表缓存模块.md) | 各列表策略、局部更新、事件失效、URL 复用和测试边界 |
 | Java Core | [后端项目开发文档](java/后端项目开发文档.md) | 业务规则、数据库、对外 API 与权威状态 |
-| TypeScript AI Runtime | [AI Runtime](worker/AI-Runtime.md) | Worker、Pi Runtime、Tool 与外部 I/O |
+| TypeScript AI Runtime | [AI Runtime](worker/AI-Runtime.md) | Node 本地创作调度、Pi Runtime、图片 MQ、限速与执行结算 |
 | Agent 跨服务链路 | [Agent 模式](architecture/Agent模式.md) | Java、TS、Pi 与浏览器的协作边界 |
-| 创作会话通信 | [创作通信协议](architecture/creation-protocol.md) | 统一 REST/SSE、四区展示内容项、内部 HTTP 与 MQ 重投规则 |
+| 创作会话通信 | [创作通信协议](architecture/creation-protocol.md) | 统一 REST/SSE、四区展示内容项、内部 HTTP 与图片 MQ 重投规则 |
 
 前端的模块文档和页面视觉规范分别位于 frontend/modules 与 frontend/design；Java 模块文档位于 java/modules。跨服务文档只描述协作关系，具体业务规则或线协议应链接到其权威文档，不在多处复制。
 

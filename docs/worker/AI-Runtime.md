@@ -2,13 +2,15 @@
 
 ## 运行职责
 
-`backend-ts` 使用 Nest application context，提供仅供 Java 访问的内部 HTTP，发布并消费创作 MQ 命令，管理原生 Pi 会话，调用百炼和 OSS，并直接在 MySQL 事务内登记生成资产、结算额度与终态。浏览器仍只访问 Java。
+`backend-ts` 使用 Nest application context，提供仅供 Java 访问的内部 HTTP，在 Node 内直接异步调度创作，管理原生 Pi 会话；仅图片任务经 RabbitMQ 削峰。图片执行器调用百炼和 OSS，并直接在 MySQL 事务内登记生成资产、结算额度与终态。浏览器仍只访问 Java。
 
 代码入口是 `src/worker.ts` 和 `generation-worker.module.ts`。`sessions/` 集中实现会话存储、执行状态、投影、图片请求适配和内部 API；`agent/` 保留 Pi Harness、模型绑定、表单协议与工具；`generation/` 负责图像模型、限流和转存。社区业务仍由 Java 实现。
 
+`CreationDispatcherService` 在创建、表单回答及周期扫描时本地调度；`GenerationTaskService` 统一图片创建、等待和执行；`GenerationQueueService` 负责图片可靠发布与消费；`GenerationRateLimiterService` 只约束请求启动时刻。
+
 ## 本地启动
 
-要求 Node.js 22+、pnpm、MySQL 8.4、RabbitMQ，以及百炼和 OSS 配置。
+要求 Node.js 22.19+、pnpm、MySQL 8.4、RabbitMQ，以及百炼和 OSS 配置。
 
 ```powershell
 cd backend-ts
@@ -20,7 +22,9 @@ pnpm build
 pnpm worker
 ```
 
-配置桥读取 Java 本地 YAML 与同目录 application.yaml，不复制密钥；TS 环境变量优先。若 Java 本地 YAML 已填写固定 worker-api.token，TS 应直接复用该值，不要另设不同的 AIVISTA_GENERATION_WORKER_TOKEN；使用环境变量方式时，两端都应通过同一占位符读取同一个值。两端使用同一个 `aivista` 数据库，Java 通过唯一的 `V1__initialize_schema.sql` 初始化空库。旧版本测试数据需要重置时，先停止服务并清理项目队列、搜索文档、会话文件和 OSS 图片，再清空原库、通过 V1 重建；不能在旧迁移历史上直接运行新的 V1。
+配置桥读取 Java 本地 YAML 与同目录 application.yaml，不复制密钥；TS 环境变量优先。若 Java 本地 YAML 已填写固定 worker-api.token，TS 应直接复用该值，不要另设不同的 AIVISTA_GENERATION_WORKER_TOKEN；使用环境变量方式时，两端都应通过同一占位符读取同一个值。两端使用同一个 `aivista` 数据库，Java 通过 Flyway 在空库依次执行 V1 基础表和 V2 图片任务增量迁移；已有 V1 库原地升级，不改写 V1 或删除会话、资产。确需重置开发数据时，应先停止服务，再同步清理数据库、会话目录、项目队列、搜索文档和 OSS 图片，避免 ID 重用。
+
+升级顺序：先停止 TS，确认旧进程已退出，再由 Java/Flyway 应用 `V2__persist_generation_provider_handoff.sql`，最后启动新 TS。迁移为既存 RUNNING 图片执行回填保守的调用意图标记，恢复时按结果未知收口，避免将可能已付费的请求重新发送；尚未执行的 QUEUED 记录由新调度链路接管。不要在旧 TS 仍可能调用模型时运行迁移或并行启动新消费者。
 
 ## 主要配置
 
@@ -31,17 +35,17 @@ pnpm worker
 | AIVISTA_GENERATION_WORKER_TOKEN | 双向内部 HTTP 共享令牌，必须非空 |
 | AIVISTA_SESSION_DIRECTORY | backend-ts/var/sessions，持久化 JSONL 根目录 |
 | AIVISTA_DB_* | 与 Java 相同的 aivista 库；连接时显式 SET time_zone='+00:00' |
-| AIVISTA_GENERATION_QUEUE_ENABLED | 是否启动统一创作派发与消费者 |
-| AIVISTA_AGENT_ENABLED | 是否接收 Agent 创作，必须同时启用队列 |
+| AIVISTA_GENERATION_QUEUE_ENABLED | 是否启动图片任务派发与消费者；独立 TS 配置默认 false，复用 Java 基础配置时默认 true |
+| AIVISTA_GENERATION_PREFETCH | 图片消费者最多持有的未确认任务数，默认 200 |
+| AIVISTA_GENERATION_QUEUE_TIMEOUT_MS | 图片模型请求发出前的排队最长时间，默认 600000ms |
+| AIVISTA_AGENT_ENABLED | 是否接收 Agent 创作，默认 false；启用时必须同时开启图片队列 |
 | AIVISTA_AGENT_MODEL | qwen3.8-flash |
 | AIVISTA_AGENT_MAX_TURNS | 单次 Pi Loop 上限 20，与每会话 30 次用户创作不同 |
-| AIVISTA_AGENT_MAX_CONCURRENT | 统一创作消费者 prefetch，默认 4 |
-| AIVISTA_AGENT_LOOP_TIMEOUT_MS | 单次 Agent 执行最长 20 分钟 |
+| AIVISTA_AGENT_LOOP_TIMEOUT_MS | 每次执行/表单恢复后的 Agent 推理预算，默认 20 分钟；创建和等待图片任务期间暂停计时 |
 | AIVISTA_GENERATION_MODEL | bailian/qwen-image-2.0 |
 | AIVISTA_GENERATION_DAILY_IMAGE_QUOTA | 每用户每业务日 12 张 |
 | AIVISTA_GENERATION_MAX_ACTIVE_PER_USER | 同时预占但未结算的生成执行上限 4 |
-| AIVISTA_GENERATION_MAX_CONCURRENT_CALLS | 图像 Provider 并发上限 25 |
-| AIVISTA_GENERATION_RATE_LIMIT_PER_SECOND | 图像 Provider 每秒调用上限 2 |
+| AIVISTA_GENERATION_RATE_LIMIT_PER_SECOND | 所有图片模型请求合计每秒启动上限，默认 2 |
 | AIVISTA_OSS_OBJECT_PREFIX | 默认 users；清空数据库并重用数字 ID 前应同步清理旧图片 |
 | AIVISTA_OSS_ORIGINAL_SIGNED_URL_TTL_SECONDS | 模型读取原图的临时 URL，默认 600 秒 |
 | AIVISTA_LANGFUSE_ENABLED | 默认关闭；开启需配置 Langfuse 公钥、私钥和地址 |
@@ -60,7 +64,7 @@ Harness 使用固定项目根目录，加载 `.pi/SYSTEM.md` 与显式 Skill 目
 | text_to_image | 基于提示词执行图片生成 |
 | image_to_image | 使用可信会话中的图片生成 |
 
-CreationRuntimeService 在领取执行后按本轮 mode 分流。NORMAL 使用 runNormalGeneration 写入原生调用与结果；AGENT 进入 runAgentPrompt，恢复上下文并执行 Pi Loop。两条路径共用生图、转存和结算逻辑，公共执行函数不写会话结果。工具返回的 content 用于模型，details 用于历史投影，REST 与 SSE 复用同一内容项结构。
+CreationRuntimeService 由本地调度器领取执行后按本轮 mode 分流。NORMAL 使用 runNormalGeneration 写入原生调用与结果；AGENT 进入 runAgentPrompt，恢复上下文并执行 Pi Loop。两条路径共用图片任务创建和等待结果入口，模型调用、转存及结算由独立图片消费者完成。工具返回的 content 用于模型，details 用于历史投影，REST 与 SSE 复用同一内容项结构。
 
 生成工具受画幅、总数量和图片引用集合约束。输出提示词、真实生图执行和图片结果关联；失败工具结果供模型理解，但不自动重复不确定的付费生成。原生压缩保持默认语义，不要求按创作轮次切分。
 
@@ -68,17 +72,23 @@ CreationRuntimeService 在领取执行后按本轮 mode 分流。NORMAL 使用 r
 
 ## 展示投影
 
-session-projector.ts 读取 SessionManager.getBranch() 的完整分支，按产品创作标记分轮；SQL 补状态，压缩只影响模型上下文。message-items.ts 统一转换原生 assistant/toolResult 与实时事件，避免历史和 SSE 使用两套分类。
+session-projector.ts 读取 SessionManager.getBranch() 的完整分支，按产品创作标记分轮；SQL 补创作状态，并按 toolCallId 合入图片执行状态与结算资产，压缩只影响模型上下文。图片已结算但 Pi 尚未写入结果时仍能恢复图片卡片。message-items.ts 统一转换原生 assistant/toolResult 与实时事件，避免历史和 SSE 使用两套分类。
 
 text.phase=process 保留各次模型调用的公开文字；成功创作末条 stop 回复且无 toolCall 时为 final。tool 展示项仅包含标识、名称、状态和可选技能名，通过 toolCallId 关联；调用参数、完整路径和返回正文仅保留在原生 Pi 历史，不进入 REST/SSE 展示数据。表单与生成图片从工具结果提取所需结构化字段，有自己的卡片 ID，不与工具项冲突。模型 thinking、工具图片字节及系统消息不输出。前端四区布局保留，整个过程和已处理表单可折叠，工具条目不可展开；字段见[创作通信协议](../architecture/creation-protocol.md)。
 
 ## 可靠性
 
-`ExecutionRepository.claim` 通过 QUEUED+revision 原子领取；同一个创作的恢复执行等待先前运行退出。`GenerationSettlement` 用一个 SQL 事务登记结果、退款和子执行终态，重复结果返回既有资产。额度按执行创建时的北京时间业务日记录，跨日完成不会误扣新一天。
+创作本地调度器在创建、表单回答后唤醒，并启动及周期扫描 QUEUED 创作；通过状态和 revision 原子领取。同一个创作的恢复执行等待先前运行退出，不同会话异步执行，不再受整轮创作的四个消费名额限制。
 
-实时事件按内容项合并，经单条有序 HTTP 发送链转发给 Java；失败事件不影响生成，客户端重连通过完整历史恢复。社区 Outbox 不参与逐 token 事件。
+图片任务以 `(parent_id,tool_call_id)` 幂等创建，发布确认后更新派发标记。队列 `aivista.generation.execute.v1` 仅传 generationId、expectedRevision。单个异步消费者 `prefetch=200`，等待限速、模型调用、转存及结算合计不超过 200 条未确认消息。限速器在请求真正发出前平滑放行，默认间隔至少约 500ms，进程卡顿后不补发积攒名额；进程启动先冷却一秒，不存在额外的模型并发 gate。限速器按单实例设计，多消费者部署必须重新协调共享速率。图片请求发出前使用独立排队超时，发出后使用 Provider HTTP 超时；排队超时不会重新调用模型。
 
-进程崩溃后的 RUNNING 执行由管理员核对并标记失败、结算未交付额度，不自动重复模型请求。会话目录必须使用持久卷；多实例共享目录与跨节点执行不在当前范围。
+图片消费者在发模型请求前检查额度和每用户已预占未结算任务数，然后预占；尚未消费的排队记录不占预占额度。模型响应先保存，再转存及结算；`GenerationSettlement` 用一个 SQL 事务登记结果、退款和子执行终态，重复结果返回既有资产。图片任务终态可靠保存后 ACK 对应消息，释放一个名额；其他异步任务在此期间继续运行。额度按图片执行创建时的北京时间业务日记录，跨日完成不会误扣新一天。等待者使用数据库终态，内存通知与每两秒检查保证结果先完成或通知遗漏时也能结束等待。
+
+同次创作的实时过程事件按内容项合并，经有序 HTTP 发送链转发给 Java；图片任务独立发送状态和结果事件。两条链之间不保证全局顺序，前端按稳定条目 ID 和状态合并，客户端重连通过完整历史恢复。事件发送失败不影响生成，社区 Outbox 不参与逐 token 事件。
+
+未发出模型请求的图片任务可以取消并退款；已经发出的请求不因 Agent 取消而撤销，继续保存结果和结算。重启时补启动 QUEUED 创作，RUNNING 创作（普通和 Agent）统一以 `CREATION_INTERRUPTED` 失败收口；WAITING_INPUT 表单保留，用户回答后继续。图片已有持久化模型响应时继续转存和结算；请求可能发出但结果未知时明确失败，不自动重放付费调用。JSONL 与 SQL 不构成同一个事务，文件损坏或跨存储异常仍需要人工核对；会话目录必须使用持久卷，多实例共享目录与跨节点执行不在当前范围。
+
+迁移 `V2__persist_generation_provider_handoff.sql` 增加 `provider_started_at` 和 `provider_response_json`。调用意图在进入限速等待前写入；实际发请求时同步设置进程内 `local.started`，不在速率放行后等待 SQL，从而避免数据库延迟导致请求挤在一起发出。同进程仍能取消尚未发出的任务；重启后没有这份内存证据，仅有意图且没有响应时保守归为 `GENERATION_OUTCOME_UNKNOWN`。父创作以 `CREATION_INTERRUPTED` 收口不会将已接受图片自动取消。
 
 ## 验证
 
@@ -88,6 +98,6 @@ text.phase=process 保留各次模型调用的公开文字；成功创作末条 
 - `pnpm test:agent-smoke` 必须显式设置 RUN_AGENT_SMOKE=true 才调用真实模型。日常自动回归不启用。
 - 本地端到端验证使用专用测试账号，连接已配置的数据库、OSS 和远程基础服务，不额外创建持久化测试库或修改 OSS 前缀；限制生图次数。30 轮边界使用构造计数或 JSONL，不连续调用模型 30 次。
 
-当前通过 82 项单元测试、5 项独立临时库集成测试、typecheck 与 build。默认单元命令跳过的 5 项数据库测试已经单独启用并通过。真实联调已用专用账号完成一次普通生成和一次 Agent 读取海报 Skill、提交表单、生成并检查图片、输出最终回复；各生成一张图片。恢复服务后从同一 JSONL 读取历史并通过桌面/手机浏览器验证四区、折叠、图片加载与刷新一致性。跳过、取消和失败场景采用自动化构造，不额外调用真实生图。
+本次队列验收覆盖超过四个创作并发启动、统一图片限速、未 ACK 上限、重复投递、排队取消、响应复用、结算幂等、表单恢复及历史/SSE 图片状态。真实供应商调用只能证明实际调用链路，不替代故障和速率边界的自动化验证；测试结果以当前命令输出为准，不沿用旧链路的通过数量。
 
 协议见 [创作通信协议](../architecture/creation-protocol.md)，产品边界见 [Agent 与普通创作架构](../architecture/Agent模式.md)。

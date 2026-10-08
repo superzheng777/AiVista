@@ -61,7 +61,7 @@ export function applyCreationEvent(session: SessionDetail, event: CreationEvent)
               ? turn.items.map((item) => {
                   if (item.kind === "form" && item.status === "PENDING")
                     return { ...item, status: "CANCELLED" as const };
-                  if ((item.kind === "tool" || item.kind === "generation") && item.status === "RUNNING")
+                  if (item.kind === "tool" && item.status === "RUNNING")
                     return { ...item, status: event.status as "CANCELLED" | "FAILED" };
                   return item;
                 })

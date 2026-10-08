@@ -33,7 +33,7 @@ AiVista 面向希望用 AI 把视觉想法做成作品的个人创作者。我�
 - 从公开灵感、关键词搜索和创作者主页进入文生图或图生图，再将结果沉淀为个人资产并发布到社区。
 - 同时提供直接生成与 Agent 模式。Agent 可以结合对话上下文和八个内置 Skill 工作；信息不足时生成可恢复的确认表单，用户提交或跳过后继续，也可以取消整次创作。
 - 支持个人资产、收藏、关注、点赞、通知和创作者主页等社区能力。
-- 创作由 TS 扫描执行记录并通过 RabbitMQ 投递，资产与额度在同一事务结算；社区待办沿用 Java Outbox，各链路按至少一次传递设计幂等收敛。
+- 创作由 TS 在 Node 内异步调度，只有图片生成进入 RabbitMQ 削峰；资产与额度在同一事务结算，社区待办沿用 Java Outbox。
 - 原始图片存放在私有 OSS，按使用场景生成缩略图、展示图和原图访问地址。
 
 ## 产品展示
@@ -89,7 +89,7 @@ AiVista Agent 按任务需要加载对应 Skill。Skill 定义需求收集、创
 
 ## 系统架构
 
-生成请求由 Java Core 完成鉴权和输入图片授权，再通过内部 HTTP 交给 TS AI Runtime。TS 创建执行记录、发布并消费 MQ 命令，调用模型并转存图片，在同一 MySQL 事务中登记生成资产、结算额度和生图终态。普通生成和 Agent 创作共享一份原生 Pi 会话文件。
+生成请求由 Java Core 完成鉴权和输入图片授权，再通过内部 HTTP 交给 TS AI Runtime。TS 持久化创作后，在 Node 内直接异步执行普通流程或 Pi Agent；普通生成和 Agent 生图工具统一创建图片任务，通过 RabbitMQ 削峰，再调用图片模型、转存和结算。每个会话共享一份原生 Pi JSONL 文件。
 
 ```mermaid
 flowchart LR
@@ -97,24 +97,28 @@ flowchart LR
     core --> business[("MySQL<br/>执行、资产与社区数据")]
     core --> search[("Meilisearch")]
     core -->|"鉴权后的内部 HTTP"| runtime["TypeScript AI Runtime<br/>NestJS + Pi Agent"]
-    runtime -->|"创作命令"| rabbit["RabbitMQ<br/>Quorum Queue"]
-    rabbit --> runtime
+    runtime -->|"图片任务"| rabbit["RabbitMQ<br/>Quorum Queue"]
+    rabbit -->|"单消费者 · prefetch 200"| images["TS 图片执行器"]
+    images -->|"图片结果"| runtime
     runtime -->|"执行与结算事务"| business
     runtime --> sessions[("Pi JSONL<br/>完整会话记录")]
-    runtime -->|"模型调用"| bailian["阿里云百炼"]
-    runtime -->|"私有对象"| oss["阿里云 OSS"]
+    runtime -->|"Agent 文本与视觉推理"| bailian["阿里云百炼"]
+    images -->|"图片请求 · 最多 2 次/秒"| bailian
+    images -->|"资产、额度与终态事务"| business
+    images -->|"私有对象"| oss["阿里云 OSS"]
     runtime -. "HTTP 实时事件" .-> core
     core -. "SSE" .-> browser
 ```
 
-Java 与 TS 连接同一个 MySQL 库；生成结算由 TS 负责，资产管理和社区操作由 Java 负责。会话内容保存在持久化的 Pi JSONL 中，SQL 保存会话索引和执行状态。浏览器直接把 SSE 事件合入当前会话缓存，断线后通过 REST 历史恢复。
+Java 与 TS 连接同一个 MySQL 库；生成结算由 TS 负责，资产管理和社区操作由 Java 负责。图中的 Runtime 和图片执行器运行在同一个 TS 进程。会话内容保存在持久化的 Pi JSONL 中，SQL 保存会话索引、执行状态和图片结果。浏览器直接把 SSE 事件合入当前会话缓存，断线后通过 REST 历史恢复。
 
 ## 关键工程取舍
 
-- **可靠投递：** TS 扫描尚未派发的 QUEUED 执行记录，将命令发送至 RabbitMQ quorum queue，收到确认后记录派发时间。
-- **消费与结算幂等：** 消费者通过状态和 revision 原子领取任务，结算通过执行行锁和结算标记避免重复登记资产、重复退款。模型调用不自动重试。
+- **创作本地调度：** 创作持久化或表单回答后唤醒 Node 调度器，启动与周期扫描补启动 QUEUED 创作，同一会话保持串行。
+- **图片削峰：** TS 扫描尚未派发的 QUEUED 图片任务，向 RabbitMQ quorum queue 发布，确认后记录派发时间。单消费者 `prefetch=200` 覆盖等待限速、模型调用、转存和结算；请求启动最多每秒 2 次，没有额外的模型并发门槛。
+- **消费与结算幂等：** 图片任务通过状态和 revision 原子领取，结果可靠落库后逐条 ACK；异步等待期间仍可处理其他消息。已持久化的模型响应用于重试转存，结果不确定的付费调用不自动重放。
 - **实时与历史共用协议：** TS 经内部 HTTP 将过程事件交给 Java，再由 SSE 更新浏览器的 turns/items；历史加载返回相同结构。
-- **受控的 Agent 执行：** 工具白名单、可信会话图片、轮数上限和取消信号限制执行范围。需要用户确认时保存原生表单记录并进入 WAITING_INPUT；回答追加到同一会话后恢复原创作，不占用等待中的 Agent 执行线程。
+- **受控的 Agent 执行：** 工具白名单、可信会话图片、轮数上限和取消信号限制执行范围。需要用户确认时保存原生表单记录并进入 WAITING_INPUT，本次 Pi 执行随即结束；回答追加到同一会话后恢复原创作。
 - **可选运行追踪：** Langfuse 与 OpenTelemetry 默认关闭。观测失败不会改变业务状态，记录内容会省略图片二进制、模型思考内容和签名信息。
 - **私有图片访问：** OSS 保存私有源文件和派生变体，浏览器只获得与当前用途匹配的短期签名 URL。
 
@@ -150,13 +154,14 @@ cd AiVista
 
 ### 1. 启动 Java Core
 
-复制[本地配置模板](backend/aivista/src/main/resources/application-local.example.yaml)，填写数据库、RabbitMQ、Meilisearch、百炼、OSS 和 JWT 配置。将下方令牌占位符替换为仅在本机使用的随机值，不要向 Git 提交真实凭证。首次启动时，Flyway 通过唯一的 V1__initialize_schema.sql 初始化空库；原有多版本迁移历史不能直接套用新 V1。
+复制[本地配置模板](backend/aivista/src/main/resources/application-local.example.yaml)，填写数据库、RabbitMQ、Meilisearch、百炼、OSS 和 JWT 配置。将下方令牌占位符替换为仅在本机使用的随机值，不要向 Git 提交真实凭证。Flyway 在空库依次执行 V1 基础表和后续增量迁移；已有 V1 数据库直接应用 V2 图片任务迁移，不改写 V1 或清空业务数据。
+
+已有环境升级须先停止 TS，再启动 Java 执行迁移，最后启动新 TS。V2 对既存运行中图片任务保守标记，避免恢复时再次调用模型；详细步骤见 [AI Runtime](docs/worker/AI-Runtime.md)。
 
 ```powershell
 cd backend/aivista
 Copy-Item .\src\main\resources\application-local.example.yaml .\src\main\resources\application-local.yaml
 $env:AIVISTA_GENERATION_WORKER_TOKEN = '<local-shared-worker-token>'
-$env:APP_AGENT_ENABLED = 'true'
 .\mvnw.cmd spring-boot:run "-Dspring-boot.run.profiles=local"
 ```
 
@@ -176,7 +181,7 @@ pnpm build
 pnpm worker
 ```
 
-Worker 复用 Java 本地配置，但不向浏览器提供 API。Java 与 Worker 必须使用相同的内部令牌。上述命令适用于 YAML 通过环境变量占位符取值；若本地 YAML 已固定填写 worker-api.token，应由 Worker 直接读取，不另设不同的 AIVISTA_GENERATION_WORKER_TOKEN。启用 Agent 模式时，Java 终端设置 `APP_AGENT_ENABLED=true`，TS Worker 终端设置 `AIVISTA_AGENT_ENABLED=true`，同时由 Worker 通过 `AIVISTA_JAVA_LOCAL_YAML` 读取同一份 Java 本地配置。可选环境变量见 [`.env.example`](backend-ts/.env.example)，完整说明见 [AI Runtime 文档](docs/worker/AI-Runtime.md)。
+Worker 复用 Java 本地配置，但不向浏览器提供 API。Java 与 Worker 必须使用相同的内部令牌。上述命令适用于 YAML 通过环境变量占位符取值；若本地 YAML 已固定填写 worker-api.token，应由 Worker 直接读取，不另设不同的 AIVISTA_GENERATION_WORKER_TOKEN。Agent 接收开关由 TS 控制：在 TS Worker 终端设置 `AIVISTA_AGENT_ENABLED=true`，并通过 `AIVISTA_JAVA_LOCAL_YAML` 读取同一份 Java 本地配置；Java 无需另设 Agent 开关。可选环境变量见 [`.env.example`](backend-ts/.env.example)，完整说明见 [AI Runtime 文档](docs/worker/AI-Runtime.md)。
 
 ### 3. 启动 Web
 
@@ -228,7 +233,7 @@ pnpm build
 - [Java Core 后端项目开发文档](docs/java/后端项目开发文档.md)：领域模块、基础设施和实现索引。
 - [Agent 模式架构](docs/architecture/Agent模式.md)：会话、工具、事件投影、取消和一致性设计。
 - [TypeScript AI Runtime](docs/worker/AI-Runtime.md)：Worker 配置、Pi Runtime、执行流程和质量门。
-- [创作通信协议 协议](docs/architecture/creation-protocol.md)：Java 与 Worker 之间的版本化消息和完成契约。
+- [创作通信协议](docs/architecture/creation-protocol.md)：REST、SSE、内部 HTTP 与图片队列契约。
 
 ## 参与贡献
 

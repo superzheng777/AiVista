@@ -30,7 +30,6 @@ export const environmentSchema = z.object({
   AIVISTA_GENERATION_MODEL: z.string().default("bailian/qwen-image-2.0"),
   AIVISTA_GENERATION_DAILY_IMAGE_QUOTA: z.coerce.number().int().positive().default(12),
   AIVISTA_GENERATION_MAX_ACTIVE_PER_USER: z.coerce.number().int().positive().default(4),
-  AIVISTA_GENERATION_MAX_CONCURRENT_CALLS: z.coerce.number().int().positive().default(25),
   AIVISTA_GENERATION_RATE_LIMIT_PER_SECOND: z.coerce.number().int().positive().default(2),
   AIVISTA_BAILIAN_ENDPOINT: optionalNonEmpty,
   AIVISTA_BAILIAN_API_KEY: optionalNonEmpty,
@@ -41,7 +40,6 @@ export const environmentSchema = z.object({
   AIVISTA_AGENT_BAILIAN_API_KEY: optionalNonEmpty,
   AIVISTA_AGENT_THINKING_ENABLED: z.stringbool().default(false),
   AIVISTA_AGENT_MAX_TURNS: z.coerce.number().int().min(1).max(20).default(20),
-  AIVISTA_AGENT_MAX_CONCURRENT: z.coerce.number().int().positive().default(4),
   AIVISTA_AGENT_LOOP_TIMEOUT_MS: z.coerce.number().int().positive().default(1_200_000),
   AIVISTA_LANGFUSE_ENABLED: z.stringbool().default(false),
   LANGFUSE_PUBLIC_KEY: optionalNonEmpty,
@@ -53,11 +51,13 @@ export const environmentSchema = z.object({
   AIVISTA_RABBITMQ_PASSWORD: optionalNonEmpty,
   AIVISTA_RABBITMQ_VHOST: z.string().min(1).default("/aivista"),
   AIVISTA_GENERATION_QUEUE_ENABLED: z.stringbool().default(false),
+  AIVISTA_GENERATION_PREFETCH: z.coerce.number().int().min(1).max(2000).default(200),
+  AIVISTA_GENERATION_QUEUE_TIMEOUT_MS: z.coerce.number().int().positive().default(600_000),
   AIVISTA_RABBITMQ_CONFIRM_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
 }).superRefine((value, context) => {
   if (value.AIVISTA_AGENT_ENABLED && !value.AIVISTA_GENERATION_QUEUE_ENABLED) {
     context.addIssue({ code: "custom", path: ["AIVISTA_GENERATION_QUEUE_ENABLED"],
-      message: "Agent mode requires the creation queue consumer" });
+      message: "Agent image tools require the image generation queue" });
   }
   if (value.AIVISTA_LANGFUSE_ENABLED && !value.LANGFUSE_PUBLIC_KEY) {
     context.addIssue({ code: "custom", path: ["LANGFUSE_PUBLIC_KEY"],

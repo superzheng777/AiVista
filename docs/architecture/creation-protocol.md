@@ -54,7 +54,7 @@ SessionSummary：sessionId、title、creationCount、lastMessageAt。SessionDeta
 }
 ```
 
-普通与 Agent 的 generation 内容项均由原生 toolResult.details 解析，id 使用对应 toolCallId。SSE 使用同一 id 和字段更新卡片；历史加载不增加第二张结果卡片。
+普通与 Agent 的 generation 内容项由原生 toolResult.details 和 MySQL 图片执行记录共同组装，id 使用对应 toolCallId。数据库中的排队状态、执行状态和已结算资产合入同一条目，即使 Pi 尚未追加工具结果也能展示。SSE 使用同一 id 和字段更新卡片；历史加载不增加第二张结果卡片。
 
 items 的四种类型：
 
@@ -80,7 +80,7 @@ Agent 助手区域固定按四部分排列：可折叠的 AI 思考过程（proc
 
 前端按稳定 ID 修改内存对象，状态忽略旧 revision，文本使用完整内容 upsert。事件可能先于创建响应或历史查询返回，客户端缓冲和合并；断线后 GET 历史恢复，不承诺逐事件补发。
 
-迟到快照不能把 final 文本降回 process、把完成的 tool 改回 RUNNING，或把已处理表单改回 PENDING。取消/失败关闭仍在等待的表单与工具展示。生成图片按 assetId 去重；原生调用、实时结果和刷新后的历史对应同一张图片卡片。
+迟到快照不能把 final 文本降回 process、把完成的 tool 改回 RUNNING，或把已处理表单改回 PENDING。取消/失败关闭仍在等待的表单与工具展示，但不据此改写图片任务状态；图片项以独立任务事件和 SQL 历史为准，父创作终止后仍可显示后续完成的图片。生成图片按 assetId 去重；原生调用、实时结果和刷新后的历史对应同一张图片卡片。
 
 ## 内部 HTTP 与 MQ
 
@@ -88,6 +88,12 @@ Java → TS 使用 X-AiVista-Worker-Token 与 X-AiVista-User-Id；浏览器无�
 
 TS → Java 仅 `POST /api/internal/creation-runtime/events`，请求 `{events:[...]}`，每个事件另含 userId，使用共享服务令牌。Java 为结构化图片补签名后推送给指定用户。
 
-MQ 队列 `aivista.creation.execute.v1` 为 durable quorum，消息 `{executionId,expectedRevision}`；发布确认后记录 dispatched_at。消费者通过状态和 revision CAS 领取。普通与 Agent 同队列，生成工具在本次执行中完成，不经第二条生成队列。
+创作持久化和表单回答后由 TS 本地调度器直接执行，启动及周期扫描 QUEUED 创作兜底，不发送创作 MQ。Java 受理仍依赖 TS 内部 HTTP 在线。
+
+MQ 仅承载图片生成：`aivista.generation.execute.v1` 为 durable quorum，消息为 `{generationId,expectedRevision}`，ID 为十进制字符串。TS 扫描尚未派发的 QUEUED GENERATION 记录，收到发布确认后写 dispatched_at。完整模型参数和授权图片引用保存在 MySQL，不放入消息。
+
+每个部署只运行一个异步图片消费者，`AIVISTA_GENERATION_PREFETCH=200`；普通生成与 Agent 生图工具共用此队列。图片任务通过状态和 revision CAS 领取，模型请求实际发出前平滑限速，默认最多 2 次/秒，不设置第二层模型并发数。等待限速、模型执行、转存及结算全部占用这 200 个未 ACK 名额。消费者不等待上一张图片完成才启动下一次请求；每条图片结果可靠保存后单独 ACK。
+
+重复或过期消息不重复调用模型；已保存的模型响应可用于继续转存和结算。模型请求可能已发出但结果不确定时，写入明确失败原因并收口，不因消息重投而重新付费调用。未发出请求的任务取消后不调用模型，已发出的任务继续保存结果和结算。工具通过数据库终态恢复结果，内存通知和定期查询只负责唤醒。
 
 生成结果、额度和资产由 TS 在同一事务中收口；没有跨服务 completion 请求、Java Agent WebSocket 或 Worker Ledger。

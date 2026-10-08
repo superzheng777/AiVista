@@ -103,7 +103,9 @@ export class ExecutionRepository {
   async claim(id: string, expectedRevision: number): Promise<ExecutionRow | null> {
     const result = await sql`UPDATE executions SET status = 'RUNNING', revision = revision + 1
       WHERE id = ${id} AND status = 'QUEUED' AND revision = ${expectedRevision}`.execute(this.db);
-    return result.numAffectedRows === 1n ? this.get(id) : null;
+    if (result.numAffectedRows !== 1n) return null;
+    const row = await this.get(id);
+    return row.status === "RUNNING" && row.revision === expectedRevision + 1 ? row : null;
   }
 
   async transition(row: ExecutionRow, status: ExecutionStatus, options: {
@@ -113,15 +115,20 @@ export class ExecutionRepository {
     const result = await sql`UPDATE executions SET status = ${status}, revision = revision + 1,
       failure_code = ${options.failureCode ?? null}, pending_tool_call_id = ${options.pendingToolCallId ?? null},
       completed_at = ${terminal ? new Date() : null}
-      , dispatched_at = ${status === "QUEUED" ? null : sql`dispatched_at`}
       WHERE id = ${row.id} AND status = ${row.status} AND revision = ${row.revision}`.execute(this.db);
     return result.numAffectedRows === 1n;
   }
 
   async queued(): Promise<ExecutionRow[]> {
     return (await sql<ExecutionRow>`SELECT * FROM executions WHERE kind = 'CREATION'
-      AND status = 'QUEUED' AND dispatched_at IS NULL ORDER BY id LIMIT 100`
+      AND status = 'QUEUED' ORDER BY id LIMIT 100`
       .execute(this.db)).rows;
+  }
+
+  async recoverInterrupted(): Promise<void> {
+    await sql`UPDATE executions SET status = 'FAILED', revision = revision + 1,
+      failure_code = 'CREATION_INTERRUPTED', completed_at = UTC_TIMESTAMP(3)
+      WHERE kind = 'CREATION' AND status = 'RUNNING'`.execute(this.db);
   }
 
   async locked<T>(id: string, action: (row: ExecutionRow, transaction: Transaction<DatabaseSchema>) => Promise<T>): Promise<T> {

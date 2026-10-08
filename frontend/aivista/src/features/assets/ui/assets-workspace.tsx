@@ -615,17 +615,17 @@ export function AssetDetail({
         navigation={navigation}
         onClose={onClose}
         onDownload={() => downloadOriginalGenerationImage(asset)}
-        allowCopy={asset.publicationReviewStatus === "NONE"}
-        actions={
+        headerActions={(onCopy) => (
           <OwnedImageDetailActions
             image={asset}
             isFavoriteUpdating={isFavoriteUpdating}
             isDeleting={isDeleting}
             onFavorite={onFavorite}
             onPublish={onPublish}
+            onCopy={onCopy}
             onDelete={onDelete}
           />
-        }
+        )}
       />
       {deleteDialog}
       {publishDialog}

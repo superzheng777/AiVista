@@ -17,12 +17,28 @@ describe("generation image transfer", () => {
       "users/7/tasks/301/0/display.webp", "image/resize,l_1600/format,webp/quality,Q_85");
   });
 
-  it("cleans a failed object group and continues with later images", async () => {
+  it("cleans and retries a failed object group without rerunning the image model", async () => {
     const oss = ossMock(); oss.processObjectSave.mockRejectedValueOnce(new Error("variant failed"));
     const service = createService(oss); vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => new Response(new Uint8Array([1]))));
     const images = await service.transfer(task(), ["https://provider.example/0.png", "https://provider.example/1.png"]);
-    expect(images).toEqual([{ sourceIndex: 1, objectKey: "users/7/tasks/301/1", fileSize: 1n, width: 2048, height: 2048 }]);
+    expect(images).toEqual([
+      { sourceIndex: 0, objectKey: "users/7/tasks/301/0", fileSize: 1n, width: 2048, height: 2048 },
+      { sourceIndex: 1, objectKey: "users/7/tasks/301/1", fileSize: 1n, width: 2048, height: 2048 },
+    ]);
     expect(oss.delete).toHaveBeenCalledTimes(3);
+    expect(oss.put).toHaveBeenCalledTimes(3);
+  });
+
+  it("bounds transfer retries and preserves later successful images", async () => {
+    const oss = ossMock();
+    oss.processObjectSave.mockRejectedValueOnce(new Error("variant failed"))
+      .mockRejectedValueOnce(new Error("variant failed")).mockRejectedValueOnce(new Error("variant failed"));
+    const service = createService(oss);
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => new Response(new Uint8Array([1]))));
+    expect(await service.transfer(task(), ["https://provider.example/0.png", "https://provider.example/1.png"]))
+      .toEqual([{ sourceIndex: 1, objectKey: "users/7/tasks/301/1", fileSize: 1n, width: 2048, height: 2048 }]);
+    expect(oss.delete).toHaveBeenCalledTimes(9);
+    expect(oss.put).toHaveBeenCalledTimes(4);
   });
 
   it("rejects non-HTTPS source URLs per the Java boundary", async () => {

@@ -28,6 +28,25 @@ const form: FormItem = { id: "call-1", toolCallId: "call-1", kind: "form", statu
   fields: [{ id: "address", type: "TEXT", required: true, label: "地址", value: "" }] };
 
 describe("Native session storage and projection", () => {
+  it("projects durable image outcomes after parent cancellation without a Pi tool result", () => {
+    const store = fixture();
+    const manager = store.create("1", "10");
+    store.start(manager, start);
+    manager.appendMessage(fauxAssistantMessage([
+      fauxToolCall("text_to_image", { prompt: "poster" }, { id: "image-1" }),
+    ], { timestamp: 10, stopReason: "toolUse" }));
+    const snapshot = { ...state, status: "CANCELLED" as const };
+    const pending = { creationId: "20", item: { id: "image-1", kind: "generation" as const,
+      generationId: "21", status: "RUNNING" as const, assets: [] } };
+    expect(projectSession(manager.getBranch(), [snapshot], [pending])[0]?.items)
+      .toContainEqual(pending.item);
+    const done = { ...pending, item: { ...pending.item, status: "SUCCEEDED" as const,
+      assets: [{ assetId: "31", url: "https://oss.example/31.png" }] } };
+    const projected = projectSession(store.open("1", "10").getBranch(), [snapshot], [done])[0]!;
+    expect(projected.status).toBe("CANCELLED");
+    expect(projected.items.filter(item => item.kind === "generation")).toEqual([done.item]);
+  });
+
   it("separates tool narration, submitted forms, final reply and image results after reopening", () => {
     const store = fixture();
     const manager = store.create("1", "10");

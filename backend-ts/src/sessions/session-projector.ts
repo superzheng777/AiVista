@@ -2,11 +2,12 @@ import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { assistantItems, toolResultItems } from "./message-items.js";
 import { creationStartSchema, formAnswerSchema,
-  type CreationItem, type CreationTurn, type ExecutionSnapshot } from "./session-contract.js";
+  type CreationItem, type CreationTurn, type ExecutionSnapshot, type GenerationItem } from "./session-contract.js";
 import { CREATION_STARTED, FORM_ANSWER } from "./session-store.js";
 
 /** Read the native branch, not the compacted model context: summaries do not erase UI history. */
-export function projectSession(entries: SessionEntry[], executions: ExecutionSnapshot[]): CreationTurn[] {
+export function projectSession(entries: SessionEntry[], executions: ExecutionSnapshot[],
+    generations: Array<{ creationId: string; item: GenerationItem }> = []): CreationTurn[] {
   const states = new Map(executions.map((execution) => [execution.creationId, execution]));
   const turns: CreationTurn[] = [];
   const lastAssistants = new Map<string, AssistantMessage>();
@@ -48,6 +49,10 @@ export function projectSession(entries: SessionEntry[], executions: ExecutionSna
     }
   }
   for (const turn of turns) {
+    // SQL is authoritative even if cancellation/crash prevented Pi from saving toolResult.
+    for (const generation of generations) if (generation.creationId === turn.creationId) {
+      upsert(turn.items, generation.item);
+    }
     // Only the last successful assistant message of a completed creation is its final reply.
     // Text preceding a tool call (including a form pause) always remains in the process.
     if (turn.status === "SUCCEEDED" || turn.status === "PARTIALLY_SUCCEEDED") {
@@ -59,7 +64,7 @@ export function projectSession(entries: SessionEntry[], executions: ExecutionSna
     if (turn.status === "CANCELLED" || turn.status === "FAILED") {
       for (const item of turn.items) {
         if (item.kind === "form" && item.status === "PENDING") item.status = "CANCELLED";
-        if ((item.kind === "tool" || item.kind === "generation") && item.status === "RUNNING") item.status = turn.status;
+        if (item.kind === "tool" && item.status === "RUNNING") item.status = turn.status;
       }
     }
   }

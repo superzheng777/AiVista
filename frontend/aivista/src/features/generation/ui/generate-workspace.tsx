@@ -324,25 +324,25 @@ function ConversationPanel({ sessionId }: { sessionId: string }) {
             next: () => void openImage(imageIds[detailIndex + 1]!),
           }}
           onClose={() => setDetail(null)}
-          allowCopy={detail.publicationReviewStatus === "NONE"}
           refreshImage={async (id) => {
             const value = await getGenerationAsset(id);
             setDetail(value);
             return value;
           }}
           onDownload={() => downloadOriginalGenerationImage(detail)}
-          actions={
+          headerActions={(onCopy) => (
             <OwnedImageDetailActions
               image={detail}
               isFavoriteUpdating={favorite.isPending}
               isDeleting={remove.isPending}
               onFavorite={() => favorite.mutate(detail)}
               onPublish={() => requestPublish(detail)}
+              onCopy={onCopy}
               onDelete={() => {
                 if (window.confirm("确定删除这张图片？此操作无法撤销。")) remove.mutate(detail.id);
               }}
             />
-          }
+          )}
         />
         {publication ? (
           <PublicationFormDialog

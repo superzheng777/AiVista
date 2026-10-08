@@ -72,7 +72,7 @@ describe("ImageDetailShell navigation", () => {
     expect(container.firstElementChild).toHaveClass("h-dvh", "max-h-full", "overflow-hidden");
     expect(container.querySelector("aside")).toHaveClass("min-h-0", "overflow-y-auto");
     expect(screen.getByText(longPrompt)).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "本次生成" })).toBeInTheDocument();
+    expect(screen.getByText("生成时间")).toBeInTheDocument();
   });
 
   it("stacks the image and details on narrow viewports", () => {
@@ -112,7 +112,7 @@ describe("ImageDetailShell navigation", () => {
   });
 
   it("can move download and time metadata into a public-detail toolbar", () => {
-    const { container } = render(<ImageDetailShell image={image} onClose={vi.fn()} showTimeInInfo={false} />);
+    const { container } = render(<ImageDetailShell image={image} onClose={vi.fn()} showGenerationTime={false} />);
 
     expect(screen.queryByRole("button", { name: "下载" })).not.toBeInTheDocument();
     expect(screen.queryByText("生成时间")).not.toBeInTheDocument();

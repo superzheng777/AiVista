@@ -3,6 +3,7 @@ import { ConfigService } from "@nestjs/config";
 import OSS from "ali-oss";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import { setTimeout as delay } from "node:timers/promises";
 import type { Selectable } from "kysely";
 import type { Environment } from "../config/environment.js";
 import type { GenerationExecution } from "../database/database.types.js";
@@ -30,8 +31,13 @@ export class GenerationImageTransferService {
   async transfer(task: Selectable<GenerationExecution>, urls: string[]): Promise<TransferredImage[]> {
     const images: TransferredImage[] = [];
     for (let index = 0; index < urls.length; index++) {
-      try { images.push(await this.transferOne(task, index, urls[index]!)); }
-      catch (error) { this.logger.warn(`Generation image transfer failed for task ${task.id} source index ${index}: ${errorName(error)}`); }
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try { images.push(await this.transferOne(task, index, urls[index]!)); break; }
+        catch (error) {
+          this.logger.warn(`Generation image transfer failed for task ${task.id} source index ${index}, attempt ${attempt + 1}: ${errorName(error)}`);
+          if (attempt < 2) await delay(250 * (attempt + 1));
+        }
+      }
     }
     return images;
   }
