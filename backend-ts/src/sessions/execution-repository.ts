@@ -42,17 +42,18 @@ export class ExecutionRepository {
 
   async create(userId: string, request: CreateCreation, assets: AssetReference[]): Promise<ExecutionRow> {
     return this.db.transaction().execute(async (transaction) => {
-      // Serialize creation limits, concurrent submissions, and new-session creation for this user.
-      await this.lockUser(userId, transaction);
       let sessionId = request.sessionId;
       let isNew = false;
       if (!sessionId) {
+        const user = await sql`SELECT id FROM users WHERE id = ${userId}`.execute(transaction);
+        if (!user.rows.length) throw new ExecutionConflict("NOT_FOUND");
         const inserted = await sql`INSERT INTO generation_sessions
           (user_id, title, creation_count, last_message_at) VALUES
           (${userId}, ${Array.from(request.input.prompt).slice(0, 40).join("")}, 0, UTC_TIMESTAMP(3))`.execute(transaction);
         sessionId = inserted.insertId!.toString();
         isNew = true;
       }
+      // Existing sessions are locked before the first snapshot read of active executions.
       const session = await this.ownedSession(userId, sessionId, transaction, true);
       if (session.creation_count >= CREATION_LIMIT) throw new ExecutionConflict("SESSION_CREATION_LIMIT");
       const active = await sql`SELECT id FROM executions WHERE session_id = ${sessionId}
@@ -89,8 +90,6 @@ export class ExecutionRepository {
 
   async deleteSession(userId: string, sessionId: string): Promise<void> {
     await this.db.transaction().execute(async (transaction) => {
-      // Match create/rename's user -> session order, including FK/index locks during updates.
-      await this.lockUser(userId, transaction);
       const session = (await sql<SessionRow>`SELECT * FROM generation_sessions
         WHERE id = ${sessionId} AND user_id = ${userId} FOR UPDATE`.execute(transaction)).rows[0];
       if (!session) throw new ExecutionConflict("NOT_FOUND");
@@ -106,15 +105,9 @@ export class ExecutionRepository {
 
   async renameSession(userId: string, sessionId: string, title: string): Promise<void> {
     await this.db.transaction().execute(async (transaction) => {
-      await this.lockUser(userId, transaction);
       await this.ownedSession(userId, sessionId, transaction, true);
       await sql`UPDATE generation_sessions SET title = ${title} WHERE id = ${sessionId}`.execute(transaction);
     });
-  }
-
-  private async lockUser(userId: string, transaction: Transaction<DatabaseSchema>): Promise<void> {
-    const user = await sql`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`.execute(transaction);
-    if (!user.rows.length) throw new ExecutionConflict("NOT_FOUND");
   }
 
   async get(id: string, db: Kysely<DatabaseSchema> = this.db): Promise<ExecutionRow> {

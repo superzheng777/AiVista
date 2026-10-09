@@ -7,6 +7,8 @@ import com.superz.aivista.user.dto.PublicUserProfileResponse;
 import com.superz.aivista.user.dto.UserProfileResponse;
 import com.superz.aivista.user.entity.User;
 import com.superz.aivista.user.mapper.UserMapper;
+import com.superz.aivista.user.mapper.UserStatsMapper;
+import com.superz.aivista.user.entity.UserStats;
 import com.superz.aivista.user.mapper.UserFollowMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -15,10 +17,12 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class UserProfileService {
     private final UserMapper userMapper;
+    private final UserStatsMapper userStatsMapper;
     private final UserFollowMapper userFollowMapper;
 
-    public UserProfileService(UserMapper userMapper, UserFollowMapper userFollowMapper) {
+    public UserProfileService(UserMapper userMapper, UserFollowMapper userFollowMapper, UserStatsMapper userStatsMapper) {
         this.userMapper = userMapper;
+        this.userStatsMapper = userStatsMapper;
         this.userFollowMapper = userFollowMapper;
     }
 
@@ -29,10 +33,12 @@ public class UserProfileService {
     public PublicUserProfileResponse getPublicProfile(long userId, Long viewerUserId) {
         User user = userMapper.selectPublicById(userId);
         if (user == null) throw new BusinessException(ErrorCode.NOT_FOUND);
+        UserStats stats = userStatsMapper.selectOneById(userId);
+        if (stats == null) throw new IllegalStateException("Missing user statistics");
         boolean viewerFollowing = viewerUserId != null && userFollowMapper.selectFollowerUserId(viewerUserId, userId) != null;
         boolean viewerFollowedByAuthor = viewerUserId != null
                 && userFollowMapper.selectFollowerUserId(userId, viewerUserId) != null;
-        return PublicUserProfileResponse.from(user, viewerFollowing, viewerFollowedByAuthor);
+        return PublicUserProfileResponse.from(user, stats, viewerFollowing, viewerFollowedByAuthor);
     }
 
     @Transactional

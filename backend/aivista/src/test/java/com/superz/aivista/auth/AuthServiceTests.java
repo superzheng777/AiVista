@@ -24,6 +24,7 @@ import com.superz.aivista.common.exception.ErrorCode;
 import com.superz.aivista.generation.service.GenerationConsentService;
 import com.superz.aivista.user.entity.User;
 import com.superz.aivista.user.mapper.UserMapper;
+import com.superz.aivista.user.mapper.UserStatsMapper;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -35,6 +36,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 class AuthServiceTests {
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-07-20T00:00:00Z"), ZoneOffset.UTC);
 
+    private final UserStatsMapper stats = mock(UserStatsMapper.class);
     private final UserMapper userMapper = mock(UserMapper.class);
     private final AuthSessionMapper authSessionMapper = mock(AuthSessionMapper.class);
     private final PasswordEncoder passwordEncoder = mock(PasswordEncoder.class);
@@ -43,6 +45,7 @@ class AuthServiceTests {
     private final GenerationConsentService consentService = mock(GenerationConsentService.class);
     private final AuthService authService = new AuthService(
             userMapper,
+            stats,
             authSessionMapper,
             passwordEncoder,
             jwtService,
@@ -82,12 +85,14 @@ class AuthServiceTests {
         }).when(userMapper).insertSelective(any(User.class));
         when(userMapper.selectOneById(7L)).thenAnswer(invocation -> inserted.get());
 
+        when(stats.initialize(7L)).thenReturn(1);
         var response = authService.register(new RegisterRequest("  Alice_2026  ", "Aivista2026", "  Alice  ", "v1"));
 
         assertThat(response.id()).isEqualTo("7");
         assertThat(response.loginName()).isEqualTo("Alice_2026");
         assertThat(response.nickname()).isEqualTo("Alice");
         assertThat(inserted.get().getPasswordHash()).isEqualTo("encoded-password");
+        verify(stats).initialize(7L);
         verify(consentService).confirmCurrentConsent(7L, "v1");
     }
 

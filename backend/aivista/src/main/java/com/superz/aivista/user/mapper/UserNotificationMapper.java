@@ -10,15 +10,11 @@ import org.apache.ibatis.annotations.Options;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
-/** Official notification persistence. */
+/** Notification history and recipient-scoped state. */
 public interface UserNotificationMapper extends BaseMapper<UserNotification> {
-    @Insert("INSERT INTO user_notifications (recipient_user_id, category, event_type, actor_user_id, title, content, metadata_json, created_at) VALUES (#{recipientUserId}, #{category}, #{eventType}, #{actorUserId}, #{title}, #{content}, #{metadataJson}, #{createdAt})")
+    @Insert("INSERT INTO user_notifications (recipient_user_id, category, event_type, actor_user_id, asset_id, publication_version, dedup_key, created_at) VALUES (#{recipientUserId}, #{category}, #{eventType}, #{actorUserId}, #{assetId}, #{publicationVersion}, #{dedupKey}, #{createdAt})")
     @Options(useGeneratedKeys = true, keyProperty = "id")
     int insertInteraction(UserNotification notification);
-
-    @Insert("INSERT IGNORE INTO user_notifications (recipient_user_id, category, event_type, actor_user_id, asset_id, publication_version, title, content, metadata_json, created_at) VALUES (#{recipientUserId}, #{category}, #{eventType}, #{actorUserId}, #{assetId}, #{publicationVersion}, #{title}, #{content}, #{metadataJson}, #{createdAt})")
-    @Options(useGeneratedKeys = true, keyProperty = "id")
-    int insertImageLikeInteractionIfAbsent(UserNotification notification);
 
     @Select("""
             <script>

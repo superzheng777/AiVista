@@ -119,6 +119,39 @@ describe.skipIf(!enabled)("Unified execution SQL integration", () => {
       .rejects.toMatchObject({ code: "SESSION_CREATION_LIMIT" });
   });
 
+  it("rejects a missing user before creating a new session", async () => {
+    await expect(repository.create("999999", request, [])).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it.each(["new", "continue", "rename", "delete"])(
+    "does not require an exclusive user lock for session operation %s", async operation => {
+      const first = await repository.create(userId, request, []);
+      await repository.transition(first, "FAILED");
+      await db.connection().execute(async connectionDb => {
+        const previous = (await sql<{ timeout: number }>`SELECT @@session.innodb_lock_wait_timeout AS timeout`
+          .execute(connectionDb)).rows[0]!.timeout;
+        await sql`SET SESSION innodb_lock_wait_timeout = 2`.execute(connectionDb);
+        try {
+          const isolated = new ExecutionRepository(connectionDb, new SessionStore(root, process.cwd()));
+          await db.transaction().execute(async holder => {
+            // A FK check in another transaction can hold this compatible shared user lock.
+            await sql`SELECT id FROM users WHERE id = ${userId} FOR SHARE`.execute(holder);
+            if (operation === "new") await isolated.create(userId, request, []);
+            else if (operation === "continue") await isolated.create(userId, { ...request, sessionId: first.session_id }, []);
+            else if (operation === "rename") {
+              await isolated.renameSession(userId, first.session_id, "renamed");
+              expect((await isolated.ownedSession(userId, first.session_id)).title).toBe("renamed");
+            } else {
+              await isolated.deleteSession(userId, first.session_id);
+              await expect(isolated.ownedSession(userId, first.session_id)).rejects.toMatchObject({ code: "NOT_FOUND" });
+            }
+          });
+        } finally {
+          await sql`SET SESSION innodb_lock_wait_timeout = ${Number(previous)}`.execute(connectionDb);
+        }
+      });
+    });
+
   it("denies cross-user access and serializes active submissions in the same session", async () => {
     const first = await repository.create(userId, request, []);
     await expect(repository.ownedSession("999", first.session_id)).rejects.toMatchObject({ code: "NOT_FOUND" });

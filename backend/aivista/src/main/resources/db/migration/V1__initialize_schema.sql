@@ -9,13 +9,19 @@ CREATE TABLE `users` (
   `bio` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '用户个人简介',
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '最后更新时间',
-  `received_like_count` bigint unsigned NOT NULL DEFAULT '0',
   `likes_public` tinyint(1) NOT NULL DEFAULT '0',
-  `follower_count` bigint unsigned NOT NULL DEFAULT '0',
-  `following_count` bigint unsigned NOT NULL DEFAULT '0',
   PRIMARY KEY (`id`) COMMENT '用户主键索引',
   UNIQUE KEY `uk_users_login_name` (`login_name`) COMMENT '登录账号唯一索引，基于大小写不敏感排序规则生效'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='AiVista普通用户基础信息表';
+
+CREATE TABLE `user_stats` (
+  `user_id` bigint unsigned NOT NULL,
+  `following_count` bigint unsigned NOT NULL DEFAULT '0',
+  `follower_count` bigint unsigned NOT NULL DEFAULT '0',
+  `received_like_count` bigint unsigned NOT NULL DEFAULT '0',
+  PRIMARY KEY (`user_id`),
+  CONSTRAINT `fk_user_stats_user_id` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户同步互动统计';
 
 CREATE TABLE `auth_sessions` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT '认证会话唯一ID',
@@ -174,14 +180,15 @@ CREATE TABLE `user_notifications` (
   `actor_user_id` bigint unsigned DEFAULT NULL,
   `asset_id` bigint unsigned DEFAULT NULL,
   `publication_version` bigint unsigned DEFAULT NULL,
-  `title` varchar(200) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `content` varchar(500) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `dedup_key` varchar(160) CHARACTER SET ascii COLLATE ascii_bin DEFAULT NULL,
+  `title` varchar(200) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `content` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `metadata_json` json DEFAULT NULL,
   `read_at` datetime(3) DEFAULT NULL,
   `created_at` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   `deleted_at` datetime(3) DEFAULT NULL,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uq_interaction_image_like_notification` (`recipient_user_id`,`actor_user_id`,`asset_id`,`publication_version`,`event_type`),
+  UNIQUE KEY `uq_notifications_recipient_dedup` (`recipient_user_id`,`dedup_key`),
   KEY `idx_notifications_recipient_list` (`recipient_user_id`,`category`,`deleted_at`,`created_at` DESC,`id` DESC),
   KEY `idx_notifications_recipient_unread` (`recipient_user_id`,`category`,`deleted_at`,`read_at`),
   KEY `idx_notifications_actor_user_id` (`actor_user_id`),

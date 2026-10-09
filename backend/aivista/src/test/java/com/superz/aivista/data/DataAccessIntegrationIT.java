@@ -4,48 +4,18 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.superz.aivista.auth.entity.AuthSession;
 import com.superz.aivista.auth.mapper.AuthSessionMapper;
-import com.superz.aivista.generation.mapper.ImageAssetMapper;
 import com.superz.aivista.generation.mapper.OutboxEventMapper;
 import com.superz.aivista.generation.entity.OutboxEvent;
-import com.superz.aivista.generation.mapper.UserConsentMapper;
 import com.superz.aivista.user.entity.User;
 import com.superz.aivista.user.mapper.UserMapper;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.mysql.MySQLContainer;
 
-@SpringBootTest
-@Testcontainers(disabledWithoutDocker = true)
-class DataAccessIntegrationIT {
-
-    @Container
-    static final MySQLContainer MYSQL = new MySQLContainer("mysql:8.4")
-            .withDatabaseName("aivista")
-            .withUsername("aivista")
-            .withPassword("aivista");
-
-    @DynamicPropertySource
-    static void databaseProperties(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", () -> MYSQL.getJdbcUrl()
-                + "&connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true");
-        registry.add("spring.datasource.username", MYSQL::getUsername);
-        registry.add("spring.datasource.password", MYSQL::getPassword);
-        registry.add("app.auth.jwt.secret", () -> "test-only-jwt-secret-with-32-bytes-minimum");
-    }
-
-    @Autowired
-    private JdbcTemplate jdbcTemplate;
+class DataAccessIntegrationIT extends LocalMysqlIntegrationTest {
 
     @Autowired
     private UserMapper userMapper;
@@ -54,27 +24,14 @@ class DataAccessIntegrationIT {
     private AuthSessionMapper authSessionMapper;
 
     @Autowired
-    private ImageAssetMapper imageAssetMapper;
-
-    @Autowired
     private OutboxEventMapper outboxEventMapper;
-
-    @Autowired
-    private UserConsentMapper userConsentMapper;
-
-    @BeforeEach
-    void cleanDatabase() {
-        jdbcTemplate.update("DELETE FROM outbox_events");
-        jdbcTemplate.update("DELETE FROM auth_sessions");
-        jdbcTemplate.update("DELETE FROM users");
-    }
 
     @Test
     void flywayCreatesCurrentSchema() {
         var tables = jdbcTemplate.queryForList("SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()", String.class);
-        assertThat(tables).contains("users", "auth_sessions", "generation_sessions", "executions", "image_assets", "image_publications", "outbox_events");
+        assertThat(tables).contains("users", "user_stats", "auth_sessions", "generation_sessions", "executions", "image_assets", "image_publications", "outbox_events");
         assertThat(tables).doesNotContain("conversation_messages", "creation_tasks", "generation_tasks", "creation_forms", "agent_session_contexts");
-        assertThat(jdbcTemplate.queryForList("SELECT version FROM flyway_schema_history WHERE success = 1", String.class)).containsExactly("1");
+        assertThat(jdbcTemplate.queryForList("SELECT version FROM flyway_schema_history WHERE success = 1", String.class)).containsExactly("1", "2", "3");
     }
 
     @Test

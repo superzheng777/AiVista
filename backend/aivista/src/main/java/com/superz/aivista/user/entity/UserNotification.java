@@ -8,7 +8,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-/** Official notification associated with a user's generated image. */
+/** Official and interaction notification history. */
 @Getter
 @Setter
 @NoArgsConstructor
@@ -22,6 +22,7 @@ public class UserNotification {
     private Long actorUserId;
     private Long assetId;
     private Long publicationVersion;
+    private String dedupKey;
     private String title;
     private String content;
     private String metadataJson;

@@ -154,7 +154,7 @@ cd AiVista
 
 ### 1. 启动 Java Core
 
-复制[本地配置模板](backend/aivista/src/main/resources/application-local.example.yaml)，填写数据库、RabbitMQ、Meilisearch、百炼、OSS 和 JWT 配置。将下方令牌占位符替换为仅在本机使用的随机值，不要向 Git 提交真实凭证。Flyway 在空库依次执行 V1 基础表和后续增量迁移；已有数据库应用尚未执行的 V2 图片任务、V3 会话逻辑删除迁移，不改写已应用迁移或清空业务数据。
+复制[本地配置模板](backend/aivista/src/main/resources/application-local.example.yaml)，填写数据库、RabbitMQ、Meilisearch、百炼、OSS 和 JWT 配置。将下方令牌占位符替换为仅在本机使用的随机值，不要向 Git 提交真实凭证。Flyway 在空库依次执行 V1 基础表、V2 图片任务和 V3 会话逻辑删除迁移。本轮用户统计与通知改造按已确认的开发数据重置方案更新了 V1；旧开发库必须先重置后初始化，不能仅执行后续迁移或用 repair 忽略校验差异。需要保留数据的其他环境应另行提供增量迁移，详见[用户统计与通知去重模块](docs/java/modules/用户统计与通知去重模块.md)。
 
 已有环境升级须先停止 TS，再启动 Java 执行迁移，最后启动新 TS。V2 对既存运行中图片任务保守标记，避免恢复时再次调用模型；详细步骤见 [AI Runtime](docs/worker/AI-Runtime.md)。
 
@@ -204,7 +204,10 @@ Java Core：
 ```powershell
 cd backend/aivista
 .\mvnw.cmd test
+.\mvnw.cmd test-compile failsafe:integration-test failsafe:verify
 ```
+
+Java 集成测试读取 `application-local.yaml`，自动创建并删除独立的本地 MySQL 临时库，需要 CREATE/DROP DATABASE 权限；不会重置项目库，无需 Docker。
 
 AI Runtime：
 

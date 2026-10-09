@@ -10,32 +10,37 @@ import com.superz.aivista.generation.model.OutboxEventType;
 import com.superz.aivista.generation.model.OutboxStatus;
 import com.superz.aivista.publication.dto.PublicationRequestResponse;
 import com.superz.aivista.publication.mapper.ImageAssetLikeMapper;
-import com.superz.aivista.user.mapper.UserMapper;
+import com.superz.aivista.user.mapper.UserStatsMapper;
+import com.superz.aivista.common.transaction.RetryingTransaction;
 import java.time.Clock;
 import java.time.Instant;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import com.superz.aivista.search.service.SearchIndexOutboxEvent;
 
 @Service
 public class PublicationService {
     private final ImageAssetMapper imageMapper;
-    private final UserMapper userMapper;
+    private final UserStatsMapper stats;
     private final ImageAssetLikeMapper likeMapper;
     private final OutboxEventMapper outboxEventMapper;
     private final Clock clock;
+    private final RetryingTransaction transactions;
 
-    public PublicationService(ImageAssetMapper imageMapper, UserMapper userMapper,
-            ImageAssetLikeMapper likeMapper, OutboxEventMapper outboxEventMapper, Clock clock) {
+    public PublicationService(ImageAssetMapper imageMapper, UserStatsMapper stats,
+            ImageAssetLikeMapper likeMapper, OutboxEventMapper outboxEventMapper, Clock clock, RetryingTransaction transactions) {
         this.imageMapper = imageMapper;
-        this.userMapper = userMapper;
+        this.stats = stats;
         this.likeMapper = likeMapper;
         this.outboxEventMapper = outboxEventMapper;
         this.clock = clock;
+        this.transactions = transactions;
     }
 
-    @Transactional
     public PublicationRequestResponse request(long userId, long imageId, String title, String description) {
+        return transactions.execute(() -> requestInTransaction(userId, imageId, title, description));
+    }
+
+    private PublicationRequestResponse requestInTransaction(long userId, long imageId, String title, String description) {
         String normalizedTitle = title.trim();
         String normalizedDescription = description.trim();
         // The owned asset lookup validates access and serializes publication changes.
@@ -52,7 +57,7 @@ public class PublicationService {
         }
         Instant now = clock.instant();
         long nextVersion = image.getPublicationVersion() == null ? 1L : image.getPublicationVersion() + 1;
-        if (imageMapper.markPublicationPending(imageId, normalizedTitle, normalizedDescription, now) != 1) {
+        if (imageMapper.markPublicationPending(imageId, normalizedTitle, normalizedDescription, now) < 1) {
             throw new IllegalStateException("Cannot persist publication request");
         }
         OutboxEvent event = new OutboxEvent();
@@ -70,8 +75,11 @@ public class PublicationService {
         return new PublicationRequestResponse(String.valueOf(imageId), "PENDING");
     }
 
-    @Transactional
     public void withdraw(long userId, long imageId) {
+        transactions.run(() -> withdrawInTransaction(userId, imageId));
+    }
+
+    private void withdrawInTransaction(long userId, long imageId) {
         ImageAsset image = imageMapper.selectOwnedByIdForUpdate(imageId, userId);
         if (image == null) {
             throw new BusinessException(ErrorCode.GENERATION_RESOURCE_NOT_FOUND);
@@ -81,7 +89,7 @@ public class PublicationService {
         if (wasPublic) {
             int deleted = likeMapper.deleteByAssetAndVersion(imageId, image.getPublicationVersion());
             if (deleted != likeCount
-                    || userMapper.changeReceivedLikeCount(image.getUserId(), -deleted) != 1) {
+                    || (deleted > 0 && stats.changeReceivedLikeCount(image.getUserId(), -deleted) != 1)) {
                 throw new IllegalStateException("Publication like counters are inconsistent");
             }
         }

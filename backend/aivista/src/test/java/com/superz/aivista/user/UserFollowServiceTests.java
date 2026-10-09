@@ -1,5 +1,9 @@
 package com.superz.aivista.user;
 
+import com.superz.aivista.user.service.InteractionNotificationWriter;
+
+import com.superz.aivista.common.transaction.TestTransactions;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -14,6 +18,7 @@ import com.superz.aivista.generation.mapper.OutboxEventMapper;
 import com.superz.aivista.user.entity.UserNotification;
 import com.superz.aivista.user.mapper.UserFollowMapper;
 import com.superz.aivista.user.mapper.UserMapper;
+import com.superz.aivista.user.mapper.UserStatsMapper;
 import com.superz.aivista.user.mapper.UserNotificationMapper;
 import com.superz.aivista.user.service.FollowRateLimiter;
 import com.superz.aivista.user.service.UserFollowService;
@@ -24,6 +29,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class UserFollowServiceTests {
+    private final UserStatsMapper stats = mock(UserStatsMapper.class);
     private static final Instant NOW = Instant.parse("2026-08-11T12:00:00Z");
 
     @Test
@@ -32,8 +38,8 @@ class UserFollowServiceTests {
         UserFollowMapper follows = mock(UserFollowMapper.class);
         UserNotificationMapper notifications = mock(UserNotificationMapper.class);
         when(follows.insertIfAbsent(1L, 2L, NOW)).thenReturn(1);
-        when(users.changeFollowingCount(1L, 1)).thenReturn(1);
-        when(users.changeFollowerCount(2L, 1)).thenReturn(1);
+        when(stats.changeFollowingCount(1L, 1)).thenReturn(1);
+        when(stats.changeFollowerCount(2L, 1)).thenReturn(1);
         when(notifications.insertInteraction(any())).thenAnswer(invocation -> {
             invocation.getArgument(0, UserNotification.class).setId(9L);
             return 1;
@@ -41,8 +47,8 @@ class UserFollowServiceTests {
 
         service(users, follows, notifications).follow(1L, 2L);
 
-        verify(users).changeFollowingCount(1L, 1);
-        verify(users).changeFollowerCount(2L, 1);
+        verify(stats).changeFollowingCount(1L, 1);
+        verify(stats).changeFollowerCount(2L, 1);
         verify(notifications).insertInteraction(any());
     }
 
@@ -53,7 +59,7 @@ class UserFollowServiceTests {
 
         service(users, mock(UserFollowMapper.class), notifications).follow(1L, 2L);
 
-        verify(users, never()).changeFollowingCount(1L, 1);
+        verify(stats, never()).changeFollowingCount(1L, 1);
         verify(notifications, never()).insertInteraction(any());
     }
 
@@ -62,14 +68,14 @@ class UserFollowServiceTests {
         UserMapper users = users();
         UserFollowMapper follows = mock(UserFollowMapper.class);
         when(follows.delete(1L, 2L)).thenReturn(1);
-        when(users.changeFollowingCount(1L, -1)).thenReturn(1);
-        when(users.changeFollowerCount(2L, -1)).thenReturn(1);
+        when(stats.changeFollowingCount(1L, -1)).thenReturn(1);
+        when(stats.changeFollowerCount(2L, -1)).thenReturn(1);
         UserNotificationMapper notifications = mock(UserNotificationMapper.class);
 
         service(users, follows, notifications).unfollow(1L, 2L);
 
         verify(notifications, never()).insertInteraction(any());
-        verify(users).changeFollowingCount(1L, -1);
+        verify(stats).changeFollowingCount(1L, -1);
     }
 
     @Test
@@ -79,18 +85,34 @@ class UserFollowServiceTests {
         assertThatThrownBy(() -> service(users, mock(UserFollowMapper.class), mock(UserNotificationMapper.class)).follow(1L, 1L))
                 .isInstanceOfSatisfying(BusinessException.class,
                         exception -> assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.VALIDATION_ERROR));
-        verify(users, never()).selectIdsForUpdate(any());
+        verify(users, never()).selectExistingIds(any());
+    }
+
+    @Test
+    void descendingFollowDirectionStillUpdatesSmallerUserFirst() {
+        UserMapper users = mock(UserMapper.class);
+        UserFollowMapper follows = mock(UserFollowMapper.class);
+        when(users.selectExistingIds(List.of(2L, 1L))).thenReturn(List.of(1L, 2L));
+        when(follows.delete(2L, 1L)).thenReturn(1);
+        when(stats.changeFollowerCount(1L, -1)).thenReturn(1);
+        when(stats.changeFollowingCount(2L, -1)).thenReturn(1);
+
+        service(users, follows, mock(UserNotificationMapper.class)).unfollow(2L, 1L);
+
+        var order = org.mockito.Mockito.inOrder(stats);
+        order.verify(stats).changeFollowerCount(1L, -1);
+        order.verify(stats).changeFollowingCount(2L, -1);
     }
 
     private static UserMapper users() {
         UserMapper users = mock(UserMapper.class);
-        when(users.selectIdsForUpdate(List.of(1L, 2L))).thenReturn(List.of(1L, 2L));
+        when(users.selectExistingIds(List.of(1L, 2L))).thenReturn(List.of(1L, 2L));
         return users;
     }
 
-    private static UserFollowService service(UserMapper users, UserFollowMapper follows,
+    private UserFollowService service(UserMapper users, UserFollowMapper follows,
             UserNotificationMapper notifications) {
-        return new UserFollowService(users, follows, notifications, mock(OutboxEventMapper.class),
-                new FollowRateLimiter(), Clock.fixed(NOW, ZoneOffset.UTC));
+        return new UserFollowService(users, stats, follows, new InteractionNotificationWriter(notifications, mock(OutboxEventMapper.class), Clock.fixed(NOW, ZoneOffset.UTC)),
+                new FollowRateLimiter(), Clock.fixed(NOW, ZoneOffset.UTC), TestTransactions.immediate());
     }
 }

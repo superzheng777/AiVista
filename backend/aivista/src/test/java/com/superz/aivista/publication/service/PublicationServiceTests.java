@@ -1,5 +1,7 @@
 package com.superz.aivista.publication.service;
 
+import com.superz.aivista.common.transaction.TestTransactions;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -16,7 +18,7 @@ import com.superz.aivista.generation.entity.ImageAsset;
 import com.superz.aivista.generation.mapper.ImageAssetMapper;
 import com.superz.aivista.generation.mapper.OutboxEventMapper;
 import com.superz.aivista.publication.mapper.ImageAssetLikeMapper;
-import com.superz.aivista.user.mapper.UserMapper;
+import com.superz.aivista.user.mapper.UserStatsMapper;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -29,14 +31,14 @@ class PublicationServiceTests {
     private static final Instant NOW = Instant.parse("2026-08-09T12:00:00Z");
 
     private final ImageAssetMapper images = mock(ImageAssetMapper.class);
-    private final UserMapper users = mock(UserMapper.class);
+    private final UserStatsMapper users = mock(UserStatsMapper.class);
     private final ImageAssetLikeMapper likes = mock(ImageAssetLikeMapper.class);
     private final OutboxEventMapper outbox = mock(OutboxEventMapper.class);
     private PublicationService service;
 
     @BeforeEach
     void setUp() {
-        service = new PublicationService(images, users, likes, outbox, Clock.fixed(NOW, ZoneOffset.UTC));
+        service = new PublicationService(images, users, likes, outbox, Clock.fixed(NOW, ZoneOffset.UTC), TestTransactions.immediate());
     }
 
     @Test
@@ -103,6 +105,34 @@ class PublicationServiceTests {
     }
 
     @Test
+    void withdrawWithoutLikesDoesNotTouchAuthorStatistics() {
+        ImageAsset image = imageWithStatus("APPROVED");
+        image.setPublicAt(NOW);
+        image.setLikeCount(0L);
+        when(images.selectOwnedByIdForUpdate(IMAGE_ID, USER_ID)).thenReturn(image);
+
+        service.withdraw(USER_ID, IMAGE_ID);
+
+        verify(likes).deleteByAssetAndVersion(IMAGE_ID, 0L);
+        verifyNoInteractions(users);
+        verify(images).withdrawPublication(IMAGE_ID);
+        verify(outbox).insertSelective(any());
+    }
+
+    @Test
+    void withdrawStillRejectsMismatchedCountsWhenNoLikesWereDeleted() {
+        ImageAsset image = imageWithStatus("APPROVED");
+        image.setPublicAt(NOW);
+        image.setLikeCount(1L);
+        when(images.selectOwnedByIdForUpdate(IMAGE_ID, USER_ID)).thenReturn(image);
+
+        assertThatThrownBy(() -> service.withdraw(USER_ID, IMAGE_ID)).isInstanceOf(IllegalStateException.class);
+
+        verifyNoInteractions(users, outbox);
+        verify(images, never()).withdrawPublication(IMAGE_ID);
+    }
+
+    @Test
     void withdrawStopsWhenReceivedCountCannotBeUpdated() {
         ImageAsset image = imageWithStatus("APPROVED");
         image.setPublicAt(NOW);
@@ -115,6 +145,14 @@ class PublicationServiceTests {
 
         verify(images, never()).withdrawPublication(IMAGE_ID);
         verifyNoInteractions(outbox);
+    }
+
+    @Test
+    void republishesWhenMysqlUpsertReportsTwoAffectedRows() {
+        when(images.selectVisibleOwnedByIdForUpdate(IMAGE_ID, USER_ID)).thenReturn(imageWithStatus("NONE"));
+        when(images.markPublicationPending(IMAGE_ID, "title", "description", NOW)).thenReturn(2);
+        assertThat(service.request(USER_ID, IMAGE_ID, "title", "description").status()).isEqualTo("PENDING");
+        verify(outbox).insertSelective(any());
     }
 
     private static ImageAsset imageWithStatus(String status) {

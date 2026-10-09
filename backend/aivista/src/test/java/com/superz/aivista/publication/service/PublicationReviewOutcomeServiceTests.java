@@ -1,5 +1,7 @@
 package com.superz.aivista.publication.service;
 
+import com.superz.aivista.common.transaction.TestTransactions;
+
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -28,11 +30,14 @@ class PublicationReviewOutcomeServiceTests {
         ImageAsset image = new ImageAsset();
         image.setId(42L);
         image.setUserId(5L);
+        image.setPublicationVersion(7L);
+        image.setPublicationReviewStatus("PENDING");
+        when(images.selectByAssetIdForUpdate(42L)).thenReturn(image);
         when(images.approvePublication(42L, 7L, Instant.parse("2026-08-09T12:00:00Z"))).thenReturn(1);
 
         new PublicationReviewOutcomeService(images, outbox, notifications,
                 Clock.fixed(Instant.parse("2026-08-09T12:00:00Z"), ZoneOffset.UTC),
-                new com.fasterxml.jackson.databind.ObjectMapper()).approve(image, 7L);
+                new com.fasterxml.jackson.databind.ObjectMapper(), TestTransactions.immediate()).approve(image, 7L);
 
         ArgumentCaptor<UserNotification> notification = ArgumentCaptor.forClass(UserNotification.class);
         ArgumentCaptor<OutboxEvent> event = ArgumentCaptor.forClass(OutboxEvent.class);
@@ -54,11 +59,14 @@ class PublicationReviewOutcomeServiceTests {
         ImageAsset image = new ImageAsset();
         image.setId(42L);
         image.setUserId(5L);
+        image.setPublicationVersion(7L);
+        image.setPublicationReviewStatus("PENDING");
+        when(images.selectByAssetIdForUpdate(42L)).thenReturn(image);
         Instant now = Instant.parse("2026-08-09T12:00:00Z");
         when(images.rejectPublication(42L, 7L)).thenReturn(1);
 
         new PublicationReviewOutcomeService(images, outbox, notifications, Clock.fixed(now, ZoneOffset.UTC),
-                new com.fasterxml.jackson.databind.ObjectMapper()).reject(image, 7L, List.of(
+                new com.fasterxml.jackson.databind.ObjectMapper(), TestTransactions.immediate()).reject(image, 7L, List.of(
                         new PublicationViolation("title", "CONTENT_POLICY"),
                         new PublicationViolation("description", "SENSITIVE_INFO")));
 

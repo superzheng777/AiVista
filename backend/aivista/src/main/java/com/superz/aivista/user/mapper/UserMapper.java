@@ -22,13 +22,13 @@ public interface UserMapper extends BaseMapper<User> {
             <script>
             SELECT id FROM users WHERE id IN
             <foreach collection="userIds" item="userId" open="(" separator="," close=")">#{userId}</foreach>
-            ORDER BY id FOR UPDATE
+            ORDER BY id
             </script>
             """)
-    List<Long> selectIdsForUpdate(@Param("userIds") List<Long> userIds);
+    List<Long> selectExistingIds(@Param("userIds") List<Long> userIds);
 
     @Select("""
-            SELECT id, nickname, avatar_url, bio, follower_count, following_count, received_like_count, likes_public
+            SELECT id, nickname, avatar_url, bio, likes_public
             FROM users WHERE id = #{userId}
             """)
     User selectPublicById(@Param("userId") long userId);
@@ -42,15 +42,6 @@ public interface UserMapper extends BaseMapper<User> {
             </script>
             """)
     List<User> selectPublicByIds(@Param("userIds") List<Long> userIds);
-
-    @Update("UPDATE users SET follower_count = follower_count + #{delta} WHERE id = #{userId} AND follower_count + #{delta} >= 0")
-    int changeFollowerCount(@Param("userId") long userId, @Param("delta") int delta);
-
-    @Update("UPDATE users SET following_count = following_count + #{delta} WHERE id = #{userId} AND following_count + #{delta} >= 0")
-    int changeFollowingCount(@Param("userId") long userId, @Param("delta") int delta);
-
-    @Update("UPDATE users SET received_like_count = received_like_count + #{delta} WHERE id = #{userId} AND received_like_count + #{delta} >= 0")
-    int changeReceivedLikeCount(@Param("userId") long userId, @Param("delta") int delta);
 
     @Select("SELECT likes_public FROM users WHERE id = #{userId}")
     Boolean selectLikesPublicById(@Param("userId") long userId);

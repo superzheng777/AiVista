@@ -14,12 +14,15 @@ import com.superz.aivista.user.dto.PublicUserProfileResponse;
 import com.superz.aivista.user.entity.User;
 import com.superz.aivista.user.mapper.UserFollowMapper;
 import com.superz.aivista.user.mapper.UserMapper;
+import com.superz.aivista.user.mapper.UserStatsMapper;
+import com.superz.aivista.user.entity.UserStats;
 import com.superz.aivista.user.service.UserProfileService;
 import org.junit.jupiter.api.Test;
 
 class UserProfileServiceTests {
+    private final UserStatsMapper statsMapper = mock(UserStatsMapper.class);
     private final UserMapper userMapper = mock(UserMapper.class);
-    private final UserProfileService service = new UserProfileService(userMapper, mock(UserFollowMapper.class));
+    private final UserProfileService service = new UserProfileService(userMapper, mock(UserFollowMapper.class), statsMapper);
 
     @Test
     void rejectsNewNonEmptyAvatarUrlUntilMediaOwnershipExists() {
@@ -36,14 +39,16 @@ class UserProfileServiceTests {
     void returnsBothFollowDirectionsForPublicProfile() {
         UserFollowMapper follows = mock(UserFollowMapper.class);
         User user = user();
-        user.setFollowerCount(7L);
-        user.setFollowingCount(3L);
-        user.setReceivedLikeCount(11L);
+        UserStats stats = new UserStats();
+        stats.setFollowerCount(7L);
+        stats.setFollowingCount(3L);
+        stats.setReceivedLikeCount(11L);
+        when(statsMapper.selectOneById(1L)).thenReturn(stats);
         when(userMapper.selectPublicById(1L)).thenReturn(user);
         when(follows.selectFollowerUserId(2L, 1L)).thenReturn(2L);
         when(follows.selectFollowerUserId(1L, 2L)).thenReturn(1L);
 
-        PublicUserProfileResponse response = new UserProfileService(userMapper, follows).getPublicProfile(1L, 2L);
+        PublicUserProfileResponse response = new UserProfileService(userMapper, follows, statsMapper).getPublicProfile(1L, 2L);
 
         assertThat(response.viewerFollowing()).isTrue();
         assertThat(response.viewerFollowedByAuthor()).isTrue();

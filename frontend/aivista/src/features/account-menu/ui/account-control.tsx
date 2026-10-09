@@ -87,7 +87,7 @@ export function AccountControl({ compact = false }: AccountControlProps) {
         type="button"
         onClick={openAuthDialog}
         className={cn(
-          "flex items-center justify-center rounded-xl bg-primary font-medium text-primary-foreground transition hover:bg-primary/80",
+          "flex items-center justify-center rounded-[6px] bg-transparent font-medium text-[var(--accent)] transition hover:bg-[var(--accent-soft)] hover:text-[var(--accent-hover)]",
           compact ? "size-10" : "h-10 gap-1.5 px-3 text-xs",
         )}
       >

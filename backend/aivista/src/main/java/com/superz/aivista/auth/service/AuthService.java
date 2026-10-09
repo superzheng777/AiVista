@@ -16,6 +16,7 @@ import com.superz.aivista.generation.service.GenerationConsentService;
 import com.superz.aivista.user.dto.UserProfileResponse;
 import com.superz.aivista.user.entity.User;
 import com.superz.aivista.user.mapper.UserMapper;
+import com.superz.aivista.user.mapper.UserStatsMapper;
 import com.superz.aivista.user.service.UserInputRules;
 import java.time.Clock;
 import java.time.Duration;
@@ -32,6 +33,7 @@ public class AuthService {
     private static final String CLIENT_TYPE_WEB = "WEB";
 
     private final UserMapper userMapper;
+    private final UserStatsMapper userStatsMapper;
     private final AuthSessionMapper authSessionMapper;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
@@ -42,6 +44,7 @@ public class AuthService {
 
     public AuthService(
             UserMapper userMapper,
+            UserStatsMapper userStatsMapper,
             AuthSessionMapper authSessionMapper,
             PasswordEncoder passwordEncoder,
             JwtService jwtService,
@@ -50,6 +53,7 @@ public class AuthService {
             GenerationConsentService consentService,
             Clock clock) {
         this.userMapper = userMapper;
+        this.userStatsMapper = userStatsMapper;
         this.authSessionMapper = authSessionMapper;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
@@ -78,6 +82,9 @@ public class AuthService {
             throw new BusinessException(ErrorCode.LOGIN_NAME_EXISTS);
         }
 
+        if (userStatsMapper.initialize(user.getId()) != 1) {
+            throw new IllegalStateException("Cannot initialize user statistics");
+        }
         consentService.confirmCurrentConsent(user.getId(), request.agreementPolicyVersion());
 
         return UserProfileResponse.from(userMapper.selectOneById(user.getId()));

@@ -13,7 +13,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import com.superz.aivista.common.transaction.RetryingTransaction;
 
 /** Atomically records a final publication decision, notification, and SSE event. */
 @Service
@@ -23,29 +23,28 @@ public class PublicationReviewOutcomeService {
     private final UserNotificationMapper notifications;
     private final Clock clock;
     private final ObjectMapper objectMapper;
+    private final RetryingTransaction transactions;
 
     public PublicationReviewOutcomeService(ImageAssetMapper images, OutboxEventMapper outbox,
-            UserNotificationMapper notifications, Clock clock, ObjectMapper objectMapper) {
+            UserNotificationMapper notifications, Clock clock, ObjectMapper objectMapper, RetryingTransaction transactions) {
         this.images = images;
         this.outbox = outbox;
         this.notifications = notifications;
         this.clock = clock;
         this.objectMapper = objectMapper;
+        this.transactions = transactions;
     }
 
-    @Transactional
     public void approve(ImageAsset image, long version) {
         complete(image, version, "APPROVED", "图片发布成功", "你的图片已发布到灵感页。", null,
                 () -> images.approvePublication(image.getId(), version, clock.instant()));
     }
 
-    @Transactional
     public void reject(ImageAsset image, long version, List<PublicationViolation> violations) {
         complete(image, version, "REJECTED", "图片发布未通过", rejectionContent(violations), metadataJson(violations),
                 () -> images.rejectPublication(image.getId(), version));
     }
 
-    @Transactional
     public void fail(ImageAsset image, long version) {
         complete(image, version, "FAILED", "图片发布失败", "发布审核服务暂不可用，请稍后重新发布。", null,
                 () -> images.failPublication(image.getId(), version));
@@ -53,15 +52,26 @@ public class PublicationReviewOutcomeService {
 
     private void complete(ImageAsset image, long version, String status, String title, String content,
             String metadataJson, Completion completion) {
+        transactions.run(() -> completeInTransaction(image, version, status, title, content, metadataJson, completion));
+    }
+
+    private void completeInTransaction(ImageAsset image, long version, String status, String title, String content,
+            String metadataJson, Completion completion) {
+        ImageAsset current = images.selectByAssetIdForUpdate(image.getId());
+        if (current == null || current.getPublicationVersion() == null
+                || current.getPublicationVersion() != version
+                || !"PENDING".equals(current.getPublicationReviewStatus())) return;
         if (completion.apply() != 1) {
             return;
         }
         Instant now = clock.instant();
         UserNotification notification = new UserNotification();
-        notification.setRecipientUserId(image.getUserId());
+        notification.setRecipientUserId(current.getUserId());
         notification.setCategory("OFFICIAL");
         notification.setEventType("PUBLICATION_" + status);
         notification.setAssetId(image.getId());
+        notification.setPublicationVersion(version);
+        notification.setDedupKey("publication:" + image.getId() + ':' + version + ':' + status);
         notification.setTitle(title);
         notification.setContent(content);
         notification.setMetadataJson(metadataJson);
