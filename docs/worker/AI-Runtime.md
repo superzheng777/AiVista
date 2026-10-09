@@ -22,7 +22,7 @@ pnpm build
 pnpm worker
 ```
 
-配置桥读取 Java 本地 YAML 与同目录 application.yaml，不复制密钥；TS 环境变量优先。若 Java 本地 YAML 已填写固定 worker-api.token，TS 应直接复用该值，不要另设不同的 AIVISTA_GENERATION_WORKER_TOKEN；使用环境变量方式时，两端都应通过同一占位符读取同一个值。两端使用同一个 `aivista` 数据库，Java 通过 Flyway 在空库依次执行 V1 基础表、V2 图片任务和 V3 会话逻辑删除增量迁移；已有数据库原地升级，不改写已应用迁移或删除会话、资产。确需重置开发数据时，应先停止服务，再同步清理数据库、会话目录、项目队列、搜索文档和 OSS 图片，避免 ID 重用。
+配置桥读取 Java 本地 YAML 与同目录 application.yaml，不复制密钥；TS 环境变量优先。若 Java 本地 YAML 已填写固定 worker-api.token，TS 应直接复用该值，不要另设不同的 AIVISTA_GENERATION_WORKER_TOKEN；使用环境变量方式时，两端都应通过同一占位符读取同一个值。两端使用同一个 `aivista` 数据库，Java 通过 Flyway 在空库依次执行 V1 基础表、V2 图片任务和 V3 会话逻辑删除增量迁移；本轮统计与通知改造按已确认的开发数据重置方案修改了 V1，旧开发库须先重置后初始化，不能仅追加 V2/V3 或用 repair 跳过校验；要保留数据的环境需另写增量迁移，详见[用户统计与通知去重模块](../java/modules/用户统计与通知去重模块.md)。确需重置开发数据时，应先停止服务，再同步清理数据库、会话目录、项目队列、搜索文档和 OSS 图片，避免 ID 重用。
 
 升级顺序：先停止 TS，确认旧进程已退出，再由 Java/Flyway 应用尚未执行的迁移，最后启动新 TS。V2 为既存 RUNNING 图片执行回填保守的调用意图标记，恢复时按结果未知收口，避免将可能已付费的请求重新发送；尚未执行的 QUEUED 记录由新调度链路接管。V3 增加 `generation_sessions.deleted_at` 和可见会话列表索引，新 TS 必须在 V3 完成后启动。不要在旧 TS 仍可能调用模型时运行迁移或并行启动新消费者。
 
@@ -79,6 +79,8 @@ CreationRuntimeService 由本地调度器领取执行后按本轮 mode 分流。
 session-projector.ts 读取 SessionManager.getBranch() 的完整分支，按产品创作标记分轮；SQL 补创作状态，并按 toolCallId 合入图片执行状态与结算资产，压缩只影响模型上下文。图片已结算但 Pi 尚未写入结果时仍能恢复图片卡片。message-items.ts 统一转换原生 assistant/toolResult 与实时事件，避免历史和 SSE 使用两套分类。
 
 text.phase=process 保留各次模型调用的公开文字；成功创作末条 stop 回复且无 toolCall 时为 final。tool 展示项仅包含标识、名称、状态和可选技能名，通过 toolCallId 关联；调用参数、完整路径和返回正文仅保留在原生 Pi 历史，不进入 REST/SSE 展示数据。表单与生成图片从工具结果提取所需结构化字段，有自己的卡片 ID，不与工具项冲突。模型 thinking、工具图片字节及系统消息不输出。前端四区布局保留，整个过程和已处理表单可折叠，工具条目不可展开；字段见[创作通信协议](../architecture/creation-protocol.md)。
+
+百炼模型的思考开关由 `AIVISTA_AGENT_THINKING_ENABLED` 控制，默认 false；配置桥可读取 Java YAML 的 `app.agent.model.thinking-enabled`。`agent-runtime.ts` 在 `before_provider_request` 的图片适配之后，针对 `aivista-bailian` 显式写入 `enable_thinking`，不只修改 Pi 的本地 reasoning 配置。关闭思考不禁止模型输出公开 text，前端仍显示公开过程与最终回复；原生 thinking 无论开关如何都不进入展示 DTO。
 
 ## 可靠性
 

@@ -22,7 +22,7 @@
 
 1. 浏览器向 Java `POST /api/creations` 提交 NORMAL/AGENT、可选 sessionId、输入和设置。
 2. Java 校验 JWT、用户协议、已有会话归属和本次选图权限，将授权后的原图引用传给内部 TS HTTP。
-3. TS 锁定用户与会话，验证没有活动执行且创作数小于 30，建立执行记录并追加 `aivista.creation_started`。会话首次提交时创建。
+3. TS 对已有会话先加行锁，再验证归属、未删除、没有活动执行且创作数小于 30，建立执行记录并追加 `aivista.creation_started`。首次提交时先普通查询确认用户存在，再创建并锁定会话；不预先取得用户排他锁。
 4. 事务提交后唤醒 Node 本地创作调度器，HTTP 返回 202。调度器启动及周期扫描 QUEUED 创作补漏，用状态和 revision 原子领取；同一会话串行，不同会话可异步执行。
 5. 两种模式都打开同一会话的 SessionManager；NORMAL 运行固定生图流程，AGENT 创建 AgentSession，注入 Skill、工具和约束，执行模型循环。创作不投递 MQ。
 6. NORMAL 流程和 Agent 生图工具共用图片任务入口：按 `(parent_id,tool_call_id)` 幂等创建 GENERATION 子执行，随后异步等待数据库结果。

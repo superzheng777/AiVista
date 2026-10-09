@@ -31,21 +31,21 @@ class GenerationImageLikeServiceTests {
     void firstLikeCreatesRelationAndIncrementsBothCounters() {
         ImageAssetMapper images = mock(ImageAssetMapper.class);
         ImageAssetLikeMapper likes = mock(ImageAssetLikeMapper.class);
-        UserStatsMapper users = mock(UserStatsMapper.class);
+        UserStatsMapper stats = mock(UserStatsMapper.class);
         UserNotificationMapper notifications = mock(UserNotificationMapper.class);
         when(images.selectByAssetIdForUpdate(42L)).thenReturn(publicImage());
         when(likes.insertIfAbsent(7L, 42L, 3L, NOW)).thenReturn(1);
         when(images.changeLikeCount(42L, 1)).thenReturn(1);
-        when(users.changeReceivedLikeCount(8L, 1)).thenReturn(1);
+        when(stats.changeReceivedLikeCount(8L, 1)).thenReturn(1);
         when(notifications.insertInteraction(org.mockito.ArgumentMatchers.any())).thenAnswer(invocation -> {
             invocation.getArgument(0, com.superz.aivista.user.entity.UserNotification.class).setId(9L);
             return 1;
         });
 
-        service(images, likes, users, notifications).like(7L, 42L, 3L);
+        service(images, likes, stats, notifications).like(7L, 42L, 3L);
 
         verify(images).changeLikeCount(42L, 1);
-        verify(users).changeReceivedLikeCount(8L, 1);
+        verify(stats).changeReceivedLikeCount(8L, 1);
         verify(notifications).insertInteraction(org.mockito.ArgumentMatchers.any());
     }
 
@@ -53,26 +53,26 @@ class GenerationImageLikeServiceTests {
     void repeatedLikeDoesNotChangeCounters() {
         ImageAssetMapper images = mock(ImageAssetMapper.class);
         ImageAssetLikeMapper likes = mock(ImageAssetLikeMapper.class);
-        UserStatsMapper users = mock(UserStatsMapper.class);
+        UserStatsMapper stats = mock(UserStatsMapper.class);
         when(images.selectByAssetIdForUpdate(42L)).thenReturn(publicImage());
 
-        service(images, likes, users).like(7L, 42L, 3L);
+        service(images, likes, stats).like(7L, 42L, 3L);
 
         verify(images, never()).changeLikeCount(42L, 1);
-        verify(users, never()).changeReceivedLikeCount(8L, 1);
+        verify(stats, never()).changeReceivedLikeCount(8L, 1);
     }
 
     @Test
     void failedReceivedCountUpdateStopsBeforeNotificationAndOutbox() {
         ImageAssetMapper images = mock(ImageAssetMapper.class);
         ImageAssetLikeMapper likes = mock(ImageAssetLikeMapper.class);
-        UserStatsMapper users = mock(UserStatsMapper.class);
+        UserStatsMapper stats = mock(UserStatsMapper.class);
         UserNotificationMapper notifications = mock(UserNotificationMapper.class);
         OutboxEventMapper outbox = mock(OutboxEventMapper.class);
         when(images.selectByAssetIdForUpdate(42L)).thenReturn(publicImage());
         when(likes.insertIfAbsent(7L, 42L, 3L, NOW)).thenReturn(1);
         when(images.changeLikeCount(42L, 1)).thenReturn(1);
-        var service = new GenerationImageLikeService(images, likes, users, new InteractionNotificationWriter(notifications, outbox, Clock.fixed(NOW, ZoneOffset.UTC)), outbox,
+        var service = new GenerationImageLikeService(images, likes, stats, new InteractionNotificationWriter(notifications, outbox, Clock.fixed(NOW, ZoneOffset.UTC)), outbox,
                 new LikeRateLimiter(), Clock.fixed(NOW, ZoneOffset.UTC), TestTransactions.immediate());
 
         assertThatThrownBy(() -> service.like(7L, 42L, 3L))
@@ -86,60 +86,63 @@ class GenerationImageLikeServiceTests {
     void unlikeRemovesRelationAndDecrementsBothCounters() {
         ImageAssetMapper images = mock(ImageAssetMapper.class);
         ImageAssetLikeMapper likes = mock(ImageAssetLikeMapper.class);
-        UserStatsMapper users = mock(UserStatsMapper.class);
+        UserStatsMapper stats = mock(UserStatsMapper.class);
         when(images.selectByAssetIdForUpdate(42L)).thenReturn(publicImage());
         when(likes.deleteByUserAssetAndVersion(7L, 42L, 3L)).thenReturn(1);
         when(images.changeLikeCount(42L, -1)).thenReturn(1);
-        when(users.changeReceivedLikeCount(8L, -1)).thenReturn(1);
+        when(stats.changeReceivedLikeCount(8L, -1)).thenReturn(1);
 
-        service(images, likes, users).unlike(7L, 42L, 3L);
+        service(images, likes, stats).unlike(7L, 42L, 3L);
 
         verify(images).changeLikeCount(42L, -1);
-        verify(users).changeReceivedLikeCount(8L, -1);
+        verify(stats).changeReceivedLikeCount(8L, -1);
     }
 
     @Test
     void rejectsWithdrawnOrStalePublicationVersionBeforeChangingRelation() {
         ImageAssetMapper images = mock(ImageAssetMapper.class);
         ImageAssetLikeMapper likes = mock(ImageAssetLikeMapper.class);
-        UserStatsMapper users = mock(UserStatsMapper.class);
+        UserStatsMapper stats = mock(UserStatsMapper.class);
         ImageAsset image = publicImage();
         image.setPublicAt(null);
         when(images.selectByAssetIdForUpdate(42L)).thenReturn(image);
 
-        assertThatThrownBy(() -> service(images, likes, users).like(7L, 42L, 3L))
+        assertThatThrownBy(() -> service(images, likes, stats).like(7L, 42L, 3L))
                 .isInstanceOfSatisfying(BusinessException.class,
                         exception -> assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.GENERATION_RESOURCE_NOT_FOUND));
         verify(likes, never()).insertIfAbsent(7L, 42L, 3L, NOW);
     }
 
     private static GenerationImageLikeService service(ImageAssetMapper images, ImageAssetLikeMapper likes,
-            UserStatsMapper users) {
-        return service(images, likes, users, mock(UserNotificationMapper.class));
+            UserStatsMapper stats) {
+        return service(images, likes, stats, mock(UserNotificationMapper.class));
     }
 
     @Test
     void selfLikeDoesNotCreateInteractionNotification() {
         ImageAssetMapper images = mock(ImageAssetMapper.class);
         ImageAssetLikeMapper likes = mock(ImageAssetLikeMapper.class);
-        UserStatsMapper users = mock(UserStatsMapper.class);
+        UserStatsMapper stats = mock(UserStatsMapper.class);
         UserNotificationMapper notifications = mock(UserNotificationMapper.class);
         ImageAsset image = publicImage();
         image.setUserId(7L);
         when(images.selectByAssetIdForUpdate(42L)).thenReturn(image);
         when(likes.insertIfAbsent(7L, 42L, 3L, NOW)).thenReturn(1);
         when(images.changeLikeCount(42L, 1)).thenReturn(1);
-        when(users.changeReceivedLikeCount(7L, 1)).thenReturn(1);
+        when(stats.changeReceivedLikeCount(7L, 1)).thenReturn(1);
 
-        service(images, likes, users, notifications).like(7L, 42L, 3L);
+        service(images, likes, stats, notifications).like(7L, 42L, 3L);
 
         verify(notifications, never()).insertInteraction(org.mockito.ArgumentMatchers.any());
     }
 
     private static GenerationImageLikeService service(ImageAssetMapper images, ImageAssetLikeMapper likes,
-            UserStatsMapper users, UserNotificationMapper notifications) {
-        return new GenerationImageLikeService(images, likes, users, new InteractionNotificationWriter(notifications, mock(OutboxEventMapper.class), Clock.fixed(NOW, ZoneOffset.UTC)), mock(OutboxEventMapper.class), new LikeRateLimiter(),
-                Clock.fixed(NOW, ZoneOffset.UTC), TestTransactions.immediate());
+            UserStatsMapper stats, UserNotificationMapper notifications) {
+        OutboxEventMapper outbox = mock(OutboxEventMapper.class);
+        Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
+        return new GenerationImageLikeService(images, likes, stats,
+                new InteractionNotificationWriter(notifications, outbox, clock), outbox, new LikeRateLimiter(),
+                clock, TestTransactions.immediate());
     }
 
     private static ImageAsset publicImage() {

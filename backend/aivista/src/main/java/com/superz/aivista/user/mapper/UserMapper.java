@@ -22,7 +22,6 @@ public interface UserMapper extends BaseMapper<User> {
             <script>
             SELECT id FROM users WHERE id IN
             <foreach collection="userIds" item="userId" open="(" separator="," close=")">#{userId}</foreach>
-            ORDER BY id
             </script>
             """)
     List<Long> selectExistingIds(@Param("userIds") List<Long> userIds);

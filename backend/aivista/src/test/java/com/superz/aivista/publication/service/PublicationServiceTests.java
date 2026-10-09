@@ -31,14 +31,14 @@ class PublicationServiceTests {
     private static final Instant NOW = Instant.parse("2026-08-09T12:00:00Z");
 
     private final ImageAssetMapper images = mock(ImageAssetMapper.class);
-    private final UserStatsMapper users = mock(UserStatsMapper.class);
+    private final UserStatsMapper stats = mock(UserStatsMapper.class);
     private final ImageAssetLikeMapper likes = mock(ImageAssetLikeMapper.class);
     private final OutboxEventMapper outbox = mock(OutboxEventMapper.class);
     private PublicationService service;
 
     @BeforeEach
     void setUp() {
-        service = new PublicationService(images, users, likes, outbox, Clock.fixed(NOW, ZoneOffset.UTC), TestTransactions.immediate());
+        service = new PublicationService(images, stats, likes, outbox, Clock.fixed(NOW, ZoneOffset.UTC), TestTransactions.immediate());
     }
 
     @Test
@@ -51,7 +51,7 @@ class PublicationServiceTests {
         assertThat(response).hasToString("PublicationRequestResponse[imageId=42, status=PENDING]");
         verify(images).markPublicationPending(IMAGE_ID, "title", "description", NOW);
         verify(outbox).insertSelective(any());
-        verifyNoInteractions(users);
+        verifyNoInteractions(stats);
     }
 
     @Test
@@ -61,7 +61,7 @@ class PublicationServiceTests {
                         exception -> assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.GENERATION_RESOURCE_NOT_FOUND));
 
         verify(images, never()).markPublicationPending(anyLong(), any(), any(), any());
-        verifyNoInteractions(users, outbox);
+        verifyNoInteractions(stats, outbox);
     }
 
     @Test
@@ -94,12 +94,12 @@ class PublicationServiceTests {
         image.setLikeCount(2L);
         when(images.selectOwnedByIdForUpdate(IMAGE_ID, USER_ID)).thenReturn(image);
         when(likes.deleteByAssetAndVersion(IMAGE_ID, 0L)).thenReturn(2);
-        when(users.changeReceivedLikeCount(USER_ID, -2)).thenReturn(1);
+        when(stats.changeReceivedLikeCount(USER_ID, -2)).thenReturn(1);
 
         service.withdraw(USER_ID, IMAGE_ID);
 
         verify(likes).deleteByAssetAndVersion(IMAGE_ID, 0L);
-        verify(users).changeReceivedLikeCount(USER_ID, -2);
+        verify(stats).changeReceivedLikeCount(USER_ID, -2);
         verify(images).withdrawPublication(IMAGE_ID);
         verify(outbox).insertSelective(any());
     }
@@ -114,7 +114,7 @@ class PublicationServiceTests {
         service.withdraw(USER_ID, IMAGE_ID);
 
         verify(likes).deleteByAssetAndVersion(IMAGE_ID, 0L);
-        verifyNoInteractions(users);
+        verifyNoInteractions(stats);
         verify(images).withdrawPublication(IMAGE_ID);
         verify(outbox).insertSelective(any());
     }
@@ -128,7 +128,7 @@ class PublicationServiceTests {
 
         assertThatThrownBy(() -> service.withdraw(USER_ID, IMAGE_ID)).isInstanceOf(IllegalStateException.class);
 
-        verifyNoInteractions(users, outbox);
+        verifyNoInteractions(stats, outbox);
         verify(images, never()).withdrawPublication(IMAGE_ID);
     }
 

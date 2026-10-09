@@ -64,7 +64,7 @@ public class GenerationImageLikeService {
         }
         outboxEventMapper.insertSelective(SearchIndexOutboxEvent.create(
                 imageId, publicationVersion, clock.instant()));
-        if (liked && userId != image.getUserId()) {
+        if (liked) {
             notifications.liked(userId, image.getUserId(), imageId, publicationVersion);
         }
     }

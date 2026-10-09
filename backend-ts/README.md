@@ -2,7 +2,7 @@
 
 TS 负责原生 Pi JSONL 会话、Node 本地创作调度、图片任务 MQ、模型调用、OSS 转存，以及生成资产、额度和终态的事务结算。Agent 不进入 MQ；普通生成与生图工具共用图片队列，单消费者 `prefetch=200`，图片模型请求最多每秒启动 2 次。Java 是浏览器业务入口，管理认证、资产操作和社区。
 
-Agent 每条模型回复最多调用一个工具，模型请求关闭并行工具调用，运行器会拒绝违规的多工具批次。系统提示要求先判断 Skill 匹配并读取适用内容，再决定是否需要用户确认；没有匹配 Skill 或需求已充分时不强制增加读取或表单。不同会话仍可异步并发运行。
+Agent 每条模型回复最多调用一个工具，模型请求关闭并行工具调用，运行器会拒绝违规的多工具批次。系统提示要求先判断 Skill 匹配并读取适用内容，再决定是否需要用户确认；没有匹配 Skill 或需求已充分时不强制增加读取或表单。不同会话仍可异步并发运行。百炼思考开关由 `AIVISTA_AGENT_THINKING_ENABLED` 控制（默认 false），运行器在请求发送前显式写入 `enable_thinking`；公开过程文字与工具状态仍正常展示。
 
 安装依赖后运行 `pnpm typecheck`、`pnpm test`、`pnpm build`、`pnpm worker`。默认测试不调用真实模型；隔离数据库测试使用 `AIVISTA_NATIVE_SCHEMA_TEST=true pnpm test:schema`（PowerShell 中先设置环境变量）。
 
@@ -10,7 +10,7 @@ Agent 每条模型回复最多调用一个工具，模型请求关闭并行工�
 - [会话架构](../docs/architecture/Agent模式.md)
 - [REST、SSE 与 MQ 协议](../docs/architecture/creation-protocol.md)
 
-`var/sessions` 必须持久化并与 SQL 共同备份，不提交到 Git。两端连接同一个 `aivista` 库，OSS 默认前缀为 `users`。Java 用 Flyway 执行 V1 基础表、V2 图片任务及 V3 会话逻辑删除增量迁移，已有数据库原地升级。确需重置开发数据时同步清理数据库、会话文件、队列、搜索文档和旧 OSS 图片，避免数字 ID 重用造成对象路径冲突。
+`var/sessions` 必须持久化并与 SQL 共同备份，不提交到 Git。两端连接同一个 `aivista` 库，OSS 默认前缀为 `users`。Java 用 Flyway 执行 V1 基础表、V2 图片任务及 V3 会话逻辑删除迁移。本轮用户统计与通知去重改造已更新 V1，旧开发库必须按已确认的数据重置方案重新初始化，不能直接升级或用 repair 绕过校验；需保留旧数据的环境必须另行提供增量迁移，见[用户统计与通知去重模块](../docs/java/modules/用户统计与通知去重模块.md)。确需重置开发数据时同步清理数据库、会话文件、队列、搜索文档和旧 OSS 图片，避免数字 ID 重用造成对象路径冲突。
 
 升级先停止 TS，再由 Java/Flyway 应用尚未执行的迁移，最后启动新 TS。V2 对既存 RUNNING 图片任务保守回填调用意图，恢复时不自动重复模型请求；未执行的 QUEUED 由新链路接管。V3 增加会话 `deleted_at` 及未删除会话列表索引，必须先迁移再运行新 TS。
 
