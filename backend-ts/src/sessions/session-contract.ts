@@ -52,8 +52,8 @@ export type GenerationItem = {
   status: ExecutionStatus; assets: AssetReference[];
 };
 export type CreationItem =
-  | { id: string; kind: "text"; text: string; phase: "process" | "final" }
-  | { id: string; kind: "tool"; toolCallId: string; name: string; skillName?: string;
+  | { id: string; kind: "text"; assistantMessageId?: string; text: string; phase: "process" | "final" }
+  | { id: string; kind: "tool"; assistantMessageId?: string; toolCallId: string; name: string; skillName?: string;
       status: "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELLED" }
   | FormItem | GenerationItem;
 export type CreationTurn = CreationStart & {

@@ -167,15 +167,21 @@ export async function runAgentPrompt(options: RunAgentPromptOptions): Promise<Ag
   });
   let resolveSettled!: () => void;
   const settled = new Promise<void>((resolvePromise) => { resolveSettled = resolvePromise; });
-  const toolSkillNames = new Map<string, string | undefined>();
+  const toolContexts = new Map<string, { skillName?: string | undefined; assistantMessageId?: string | undefined }>();
   const unsubscribe = session.subscribe((event) => {
     if (event.type === "agent_start") emit({ type: "agent_start" });
     if (event.type === "agent_settled") resolveSettled();
     if (event.type === "message_end" && event.message.role === "assistant") {
-      for (const item of assistantItems(event.message)) options.onItem?.(item);
+      for (const item of assistantItems(event.message)) {
+        if (item.kind === "tool") toolContexts.set(item.toolCallId, {
+          skillName: item.skillName, assistantMessageId: item.assistantMessageId,
+        });
+        options.onItem?.(item);
+      }
     }
     if (event.type === "tool_execution_start") {
-      toolSkillNames.set(event.toolCallId, toolSkillName(event.toolName, event.args));
+      toolContexts.set(event.toolCallId, { ...toolContexts.get(event.toolCallId),
+        skillName: toolSkillName(event.toolName, event.args) });
       options.observer?.startTool({ toolCallId: event.toolCallId,
         toolName: event.toolName, args: event.args });
       if (blockedToolCallIds.has(event.toolCallId)) return;
@@ -191,7 +197,8 @@ export async function runAgentPrompt(options: RunAgentPromptOptions): Promise<Ag
       options.observer?.finishTool({ toolCallId: event.toolCallId,
         result: event.result, isError: event.isError });
       for (const item of toolResultItems(event.toolCallId, event.toolName, event.result, event.isError,
-          toolSkillNames.get(event.toolCallId))) options.onItem?.(item);
+          toolContexts.get(event.toolCallId)?.skillName,
+          toolContexts.get(event.toolCallId)?.assistantMessageId)) options.onItem?.(item);
       if (blockedToolCallIds.has(event.toolCallId)) return;
       if (!event.isError && event.toolName === REQUEST_USER_INPUT_TOOL_NAME) {
         inputRequest = inputRequestFromToolResult(event.toolCallId, event.result);
@@ -205,7 +212,8 @@ export async function runAgentPrompt(options: RunAgentPromptOptions): Promise<Ag
       const message = event.message as AssistantMessage;
       const block = message.content[update.contentIndex];
       if (block?.type === "text") options.onItem?.({
-        id: `text:${message.timestamp}:${update.contentIndex}`, kind: "text", text: block.text, phase: "process",
+        id: `text:${message.timestamp}:${update.contentIndex}`, kind: "text",
+        assistantMessageId: `assistant:${message.timestamp}`, text: block.text, phase: "process",
       });
     }
     if (update.type === "text_start") {

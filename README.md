@@ -46,7 +46,7 @@ AiVista 面向希望用 AI 把视觉想法做成作品的个人创作者。我�
 
 ![AiVista AI 新对话创作页面，展示直接生成与 Agent 模式入口](docs/frontend/design/pic/show/new_generation.png)
 
-Agent 回复分为可折叠的 AI 思考过程、可折叠的表单操作记录、最终回复和图片区域；过程包含每次公开文字及工具名称、执行状态。工具条目不可展开，接口不传工具参数和详细结果。可以继续调整作品或进入资产库。
+Agent 回复分为可折叠的 创作过程、可折叠的表单操作记录、最终回复和图片区域；过程包含每次公开文字、工具名称及合并计数，不显示工具行右侧状态。工具条目不可展开，接口不传工具参数和详细结果。可以继续调整作品或进入资产库。
 
 ![AiVista Agent 创作会话，展示 Skill 加载、需求确认、创作过程和海报结果](docs/frontend/design/pic/show/generation.png)
 
@@ -78,12 +78,12 @@ AiVista Agent 先判断任务是否匹配已有 Skill，匹配时先读取，再
 | --- | --- |
 | [`poster-design`](backend-ts/.pi/skills/poster-design/SKILL.md)（海报设计） | 设计活动主视觉、宣传主图等单画布海报，保护既定文案并建立信息层级。 |
 | [`brand-design`](backend-ts/.pi/skills/brand-design/SKILL.md)（品牌设计） | 从品牌、业务和受众信息中提炼定位，形成 Logo 概念与配套视觉方向。 |
-| [`cinematic-still`](backend-ts/.pi/skills/cinematic-still/SKILL.md)（电影感摄影） | 把故事、人物、空间或产品转化为叙事剧照，并约束机位、光线和色彩连续性。 |
+| [`cinematic-still`](backend-ts/.pi/skills/cinematic-still/SKILL.md)（电影感摄影） | 用户明确要求叙事电影剧照或连续镜头时使用，组织机位、光线和连续性。 |
 | [`impasto-diorama`](backend-ts/.pi/skills/impasto-diorama/SKILL.md)（油彩立体厚涂） | 将已授权照片重构为摄影与厚涂结合的立体微景观。 |
-| [`monumental-scale-poster`](backend-ts/.pi/skills/monumental-scale-poster/SKILL.md)（巨物尺度清透海报） | 用巨物尺度、清透留白、反射介质和稀薄文字层构建单画布海报。 |
-| [`portrait-face-director`](backend-ts/.pi/skills/portrait-face-director/SKILL.md)（人像捏脸） | 把脸谱方向和人物气质拆成可见的五官结构，用于人像 Prompt 或图像生成。 |
+| [`monumental-scale-poster`](backend-ts/.pi/skills/monumental-scale-poster/SKILL.md)（巨物尺度清透海报） | 用户明确选择巨物清透风格时使用，不作为普通海报的默认方法。 |
+| [`portrait-face-director`](backend-ts/.pi/skills/portrait-face-director/SKILL.md)（人像捏脸） | 用户要求脸谱或五官设计时使用，按需确认；仅明确要求分阶段捏脸时分两阶段。 |
 | [`japanese-life-fragments`](backend-ts/.pi/skills/japanese-life-fragments/SKILL.md)（日系生活碎片） | 将每张已授权照片分别转译为摄影与亚克力场景图结合的竖版海报。 |
-| [`series-image-director`](backend-ts/.pi/skills/series-image-director/SKILL.md)（系列套图导演） | 建立系列视觉约束和变化矩阵，生成风格统一但内容不重复的套图。 |
+| [`series-image-director`](backend-ts/.pi/skills/series-image-director/SKILL.md)（系列套图导演） | 设计统一母版下具有结构变化的套图，不用于同一提示词的多张随机候选。 |
 
 完整触发条件和工作流见各 Skill 的 `SKILL.md`；运行机制与权限边界见 [Agent 模式设计](docs/architecture/Agent模式.md) 和 [TypeScript AI Runtime 文档](docs/worker/AI-Runtime.md)。
 

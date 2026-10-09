@@ -59,22 +59,22 @@ function fixture(): CreationTurn {
 describe("ConversationTurn regions", () => {
   it("keeps all four regions separate and lets users expand process and submitted form details", () => {
     render(<ConversationTurn turn={fixture()} {...handlers} />);
-    const process = screen.getByLabelText("AI 思考过程");
+    const process = screen.getByLabelText("创作过程");
     expect(process).not.toHaveAttribute("open");
-    fireEvent.click(within(process).getByText("AI 思考过程"));
+    fireEvent.click(within(process).getByText("已完成"));
     expect(process).toHaveAttribute("open");
     expect(within(process).getByText("先确认再生成")).toBeVisible();
     expect(within(process).queryByText("海报已完成")).not.toBeInTheDocument();
     fireEvent.click(within(process).getByText("读取技能：海报设计"));
     expect(within(process).getByText("读取技能：海报设计")).toBeVisible();
-    expect(within(process).getByText("已完成")).toBeVisible();
+    expect(within(process).getByRole("list")).not.toHaveTextContent("已完成");
     expect(process.querySelectorAll("details, button, pre")).toHaveLength(0);
     expect(process.querySelectorAll("summary")).toHaveLength(1);
     expect(within(process).queryByText("工具调用")).not.toBeInTheDocument();
     expect(within(process).queryByText("工具结果")).not.toBeInTheDocument();
     const form = screen.getByLabelText("已处理的需求确认表单");
     expect(form).not.toHaveAttribute("open");
-    fireEvent.click(within(form).getByText(/确认店名 · 已填写/));
+    fireEvent.click(within(form).getByText("确认店名"));
     expect(within(form).getByText("拾光咖啡")).toBeVisible();
     expect(screen.getByLabelText("AI 最终回复")).toHaveTextContent("海报已完成");
     expect(within(screen.getByLabelText("图片展示区域")).getAllByRole("img")).toHaveLength(1);
@@ -110,7 +110,7 @@ describe("ConversationTurn regions", () => {
     turn.mode = "NORMAL";
     turn.items = turn.items.filter((item) => item.kind === "generation");
     render(<ConversationTurn turn={turn} {...handlers} />);
-    expect(screen.queryByLabelText("AI 思考过程")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("创作过程")).not.toBeInTheDocument();
     expect(screen.getByLabelText("图片展示区域")).toBeInTheDocument();
   });
 });

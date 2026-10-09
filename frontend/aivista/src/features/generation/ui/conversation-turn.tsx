@@ -82,7 +82,7 @@ export function ConversationTurn({
             <div className="flex items-center gap-2">
               <span
                 role="status"
-                className="inline-flex items-center gap-1.5 rounded-[5px] bg-[var(--accent-soft)] px-2 py-1 text-xs text-[var(--accent)]"
+                className="inline-flex items-center gap-1.5 px-2 py-1 text-xs text-[var(--accent)]"
               >
                 {active && turn.status !== "WAITING_INPUT" ? <LoaderCircle className="size-3.5 animate-spin" /> : null}
                 {statusText[turn.status]}

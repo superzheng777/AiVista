@@ -4,10 +4,11 @@ export type CreationStatus =
   "QUEUED" | "RUNNING" | "WAITING_INPUT" | "SUCCEEDED" | "PARTIALLY_SUCCEEDED" | "FAILED" | "CANCELLED";
 export type SessionAsset = { assetId: string; url: string | null; expiresAt: string | null };
 export type SessionItem =
-  | { id: string; kind: "text"; text: string; phase: "process" | "final" }
+  | { id: string; kind: "text"; assistantMessageId?: string; text: string; phase: "process" | "final" }
   | {
       id: string;
       kind: "tool";
+      assistantMessageId?: string;
       toolCallId: string;
       name: string;
       skillName?: string;

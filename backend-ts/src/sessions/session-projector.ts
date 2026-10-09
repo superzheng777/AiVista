@@ -43,7 +43,8 @@ export function projectSession(entries: SessionEntry[], executions: ExecutionSna
     } else if (message.role === "toolResult") {
       const call = current.items.find((item) => item.kind === "tool" && item.toolCallId === message.toolCallId);
       for (const item of toolResultItems(message.toolCallId, message.toolName, message, message.isError,
-          call?.kind === "tool" ? call.skillName : undefined)) {
+          call?.kind === "tool" ? call.skillName : undefined,
+          call?.kind === "tool" ? call.assistantMessageId : undefined)) {
         if (current.mode === "AGENT" || item.kind !== "tool") upsert(current.items, item);
       }
     }

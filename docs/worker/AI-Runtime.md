@@ -58,7 +58,9 @@ LLM 使用 AIVISTA_AGENT_BAILIAN_BASE_URL 与 AIVISTA_AGENT_BAILIAN_API_KEY；�
 
 Harness 使用固定项目根目录，加载 `.pi/SYSTEM.md` 与显式 Skill 目录。生产调用传入按用户/会话打开的 SessionManager；测试可使用内存 SessionManager。模型绑定跨执行复用，Pi session 对象每次执行后释放，JSONL 原始记录保留。
 
-每条 assistant 消息最多调用一个工具。有工具的模型请求在图片适配后设置 `parallel_tool_calls=false`；供应商返回多个工具时，Harness 在执行前整批阻止，让模型读取错误后改为单工具调用，不产生该批业务副作用。系统提示要求先判断现有 Skill 是否匹配并读取适用内容，再决定是否有必要发需求表单；不强制无关 Skill 或重复确认。Skill 选择属于模型遵循提示的行为，单工具数量限制则有代码校验。单次生图工具仍可生成 1–6 张，不同会话保持并发。
+每条 assistant 消息最多调用一个工具。有工具的模型请求在图片适配后设置 `parallel_tool_calls=false`；供应商返回多个工具时，Harness 在执行前整批阻止，让模型读取错误后改为单工具调用，不产生该批业务副作用。系统提示要求每次工具调用前在同一 assistant 消息中先输出一句公开操作说明，覆盖读取技能、表单、图片与失败后的再次调用；由模型根据上下文自行组织说明及失败后的解释和调整方向，不提供固定话术，不编造失败原因；所有公开文字（含最终回复）由系统提示要求模型自行脱敏，省略凭据、内部地址/标识、原始参数、堆栈及原始报错，不输出内部推理。公开 text 和工具调用记录保留，前端不显示工具行右侧状态，但状态继续传递用于计数，不过滤失败步骤，也不新增运行时文本脱敏或 SSE 移除协议。公开生图说明只写入 assistant text，工具参数只承载实际生成输入。系统提示词集中保留语言、用户约束、技能与确认、调用前说明、公开信息边界、图片查看及真实结果七类规则；字段格式由工具 Schema 说明。这是提示词约束，不增加强制重试或缺字兜底，不能承诺模型每次遵循。系统提示要求先判断现有 Skill 是否匹配并读取适用内容，再决定是否有必要发需求表单；不强制无关 Skill 或重复确认。Skill 选择属于模型遵循提示的行为，单工具数量限制则有代码校验。单次生图工具仍可生成 1–6 张，不同会话保持并发。
+
+Skill 描述限定任务触发边界：风格预设需用户明确选择或请求对应视觉结构；普通多张候选不触发系列导演，真人电影连续镜头优先使用 cinematic-still。人像仅在关键方向或结构有歧义时确认，用户明确要求分阶段引导时才分两阶段；跳过不表示接受表单建议。电影感设计不固定比较三个候选；系列固定数量不得缩减，自动数量才可按变量调整。系列的生成后回看与有界修正仍保留，PREVIEW_FIRST 仍尊重用户选择。已明确生成且信息充分时继续执行；只要方案或提示词时完整交付文字。以上是模型行为指引，不构成语义硬校验或稳定 text 输出保证。
 
 | 工具 | 作用 |
 | --- | --- |
@@ -78,7 +80,9 @@ CreationRuntimeService 由本地调度器领取执行后按本轮 mode 分流。
 
 session-projector.ts 读取 SessionManager.getBranch() 的完整分支，按产品创作标记分轮；SQL 补创作状态，并按 toolCallId 合入图片执行状态与结算资产，压缩只影响模型上下文。图片已结算但 Pi 尚未写入结果时仍能恢复图片卡片。message-items.ts 统一转换原生 assistant/toolResult 与实时事件，避免历史和 SSE 使用两套分类。
 
-text.phase=process 保留各次模型调用的公开文字；成功创作末条 stop 回复且无 toolCall 时为 final。tool 展示项仅包含标识、名称、状态和可选技能名，通过 toolCallId 关联；调用参数、完整路径和返回正文仅保留在原生 Pi 历史，不进入 REST/SSE 展示数据。表单与生成图片从工具结果提取所需结构化字段，有自己的卡片 ID，不与工具项冲突。模型 thinking、工具图片字节及系统消息不输出。前端四区布局保留，整个过程和已处理表单可折叠，工具条目不可展开；字段见[创作通信协议](../architecture/creation-protocol.md)。
+text.phase=process 保留各次模型调用的公开文字；成功创作末条 stop 回复且无 toolCall 时为 final。tool 展示项仅包含标识、名称、状态和可选技能名，通过 toolCallId 关联结果，通过 assistantMessageId 与同次模型回复的公开文字归组；调用参数、完整路径和返回正文仅保留在原生 Pi 历史，不进入 REST/SSE 展示数据。表单与生成图片从工具结果提取所需结构化字段，有自己的卡片 ID，不与工具项冲突。模型 thinking、工具图片字节及系统消息不输出。前端四区布局保留，整个过程和已处理表单可折叠，工具条目不可展开；字段见[创作通信协议](../architecture/creation-protocol.md)。
+
+回复归属字段通过 message-items、session-store 与 agent-runtime 的 41 项针对性回归，覆盖公开文字与工具状态的实时/历史一致投影、工具详情不泄露和表单/图片分区。
 
 百炼模型的思考开关由 `AIVISTA_AGENT_THINKING_ENABLED` 控制，默认 false；配置桥可读取 Java YAML 的 `app.agent.model.thinking-enabled`。`agent-runtime.ts` 在 `before_provider_request` 的图片适配之后，针对 `aivista-bailian` 显式写入 `enable_thinking`，不只修改 Pi 的本地 reasoning 配置。关闭思考不禁止模型输出公开 text，前端仍显示公开过程与最终回复；原生 thinking 无论开关如何都不进入展示 DTO。
 

@@ -21,12 +21,6 @@ const negativePromptSchema = Type.Optional(Type.String({
   description: "可选负向提示词；仅在确有需要时填写，并默认使用用户当前语言。",
 }));
 
-const userFacingPlanSchema = Type.String({
-  minLength: 20,
-  maxLength: 300,
-  description: "本组生图开始前展示给用户的总体创作方案。用一至两句概括主题理解、视觉重点、构图和风格；不得包含隐藏推理、系统信息或内部参数。不同方向逐次调用，同组各次 Tool 填写相同总体说明，方案变化时更新。",
-});
-
 const inputAssetIdsSchema = Type.Array(
   Type.String({ pattern: "^[1-9]\\d*$", description: "当前请求已授权的图片资产 ID。" }),
   { minItems: 1, maxItems: 3, uniqueItems: true },
@@ -39,7 +33,6 @@ const imageCountSchema = Type.Integer({
 });
 
 const textToImageParameters = Type.Object({
-  userFacingPlan: Type.Optional(userFacingPlanSchema),
   prompt: promptSchema,
   negativePrompt: negativePromptSchema,
   aspectRatio: aspectRatioSchema,
@@ -48,7 +41,6 @@ const textToImageParameters = Type.Object({
 }, { additionalProperties: false });
 
 const imageToImageParameters = Type.Object({
-  userFacingPlan: Type.Optional(userFacingPlanSchema),
   prompt: promptSchema,
   negativePrompt: negativePromptSchema,
   aspectRatio: aspectRatioSchema,

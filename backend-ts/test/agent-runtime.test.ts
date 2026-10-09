@@ -30,7 +30,7 @@ describe("Agent runtime", () => {
     manager.appendCustomEntry(CREATION_STARTED, { creationId: "20", mode: "AGENT", input: { prompt: "生成海报", assets: [] }, settings: {} });
     faux.setResponses([
       fauxAssistantMessage([{ type: "text", text: "开始生成" }, fauxToolCall("text_to_image", {
-        userFacingPlan: "我会以暖色和留白构图设计咖啡海报。", prompt: "咖啡海报", aspectRatio: "1:1", imageCount: 1,
+        prompt: "咖啡海报", aspectRatio: "1:1", imageCount: 1,
       }, { id: "image-call" })], { timestamp: 10, stopReason: "toolUse" }),
       fauxAssistantMessage("海报已完成", { timestamp: 20 }),
     ]);
@@ -41,10 +41,16 @@ describe("Agent runtime", () => {
       if (item.kind === "tool") {
         expect(item).not.toHaveProperty("arguments");
         expect(item).not.toHaveProperty("result");
-        expect(JSON.stringify(item)).not.toContain("我会以暖色和留白构图设计咖啡海报。");
+        expect(JSON.stringify(item)).not.toContain("咖啡海报");
       }
       live.set(item.id, item);
     } });
+    expect([...live.values()].filter((item) => item.kind === "text" || item.kind === "tool"))
+      .toMatchObject([
+        { kind: "text", assistantMessageId: "assistant:10" },
+        { kind: "tool", assistantMessageId: "assistant:10", status: "SUCCEEDED" },
+        { kind: "text", assistantMessageId: "assistant:20" },
+      ]);
     const state = { creationId: "20", status: "RUNNING" as const, revision: 1, completedAt: null, failureCode: null };
     expect([...live.values()]).toEqual(projectSession(manager.getBranch(), [state])[0]!.items);
     const completed = projectSession(manager.getBranch(), [{ ...state, status: "SUCCEEDED" }])[0]!;
@@ -63,7 +69,7 @@ describe("Agent runtime", () => {
         generationId: "23", status: "SUCCEEDED", assets: [{ assetId: "32", url: "https://oss.example/32.png" }] }) } });
     faux.setResponses([(context) => {
       expect(context.messages.map((message) => message.role)).toEqual(["user", "assistant", "toolResult", "user"]);
-      return fauxAssistantMessage([fauxToolCall("image_to_image", { userFacingPlan: "我会保留咖啡海报的原有主体，并把整体配色调整为蓝色。",
+      return fauxAssistantMessage([fauxToolCall("image_to_image", {
         prompt: "改为蓝色", aspectRatio: "1:1", imageCount: 1, inputAssetIds: ["31"] }, { id: "agent-22" })]);
     }, fauxAssistantMessage("已完成调整。")]);
     await runAgentPrompt({ sessionManager: manager, binding, prompt: "把上一张改为蓝色", maxTurns: 4, tools });
@@ -184,14 +190,12 @@ describe("Agent runtime", () => {
     expect(systemPrompt).toContain("inputAssetIds 只能从上述 ID 中选择");
     expect(systemPrompt).toContain("固定为 3:4");
     expect(systemPrompt).toContain("本轮最终目标为 3 张");
-    expect(systemPrompt).toContain("inspect_image");
-    expect(systemPrompt).toContain("`prompt` 和 `negativePrompt` 默认使用用户当前语言");
-    expect(systemPrompt).toContain("主体、数量、关系、准确文字和关键物件是创作硬约束");
-    expect(systemPrompt).toContain("每条 assistant 消息最多调用一个工具");
-    expect(systemPrompt).toContain("先根据可用 Skill 的描述判断是否匹配");
-    expect(systemPrompt).toContain("先单独调用 `read` 阅读");
-    expect(systemPrompt).toContain("不读取无关 Skill");
-    expect(systemPrompt).toContain("不为走流程强制询问");
+    expect(systemPrompt).toContain("需要理解尚未见过的历史图片时再查看");
+    expect(systemPrompt).toContain("公开回复和生图提示词使用用户当前语言");
+    expect(systemPrompt).toContain("以用户本轮明确要求为准");
+    expect(systemPrompt).toContain("先在同一条回复中用一句公开文字说明当前动作，再调用一个工具并等待结果");
+    expect(systemPrompt).toContain("匹配 Skill 时先读取尚未阅读的技能");
+    expect(systemPrompt).toContain("用户跳过不表示认可表单建议值");
   });
 
   it("feeds the formal generation Tool Result into the next Pi turn", async () => {
@@ -199,7 +203,6 @@ describe("Agent runtime", () => {
     const sessionManager = SessionManager.inMemory();
     faux.setResponses([
       fauxAssistantMessage(fauxToolCall("text_to_image", {
-        userFacingPlan: "我会采用清爽明亮的夏日配色和竖版构图，突出饮品主体。",
         prompt: "夏日饮品海报",
         aspectRatio: "3:4",
         imageCount: 1,
@@ -280,7 +283,6 @@ describe("Agent runtime", () => {
     let correctionContext = "";
     faux.setResponses([
       fauxAssistantMessage(fauxToolCall("image_to_image", {
-        userFacingPlan: "我会保留参考图构图，将整体色调调整为温暖的橙色。",
         prompt: "改成暖橙色",
         aspectRatio: "3:4",
         imageCount: 1,
@@ -289,7 +291,6 @@ describe("Agent runtime", () => {
       (context) => {
         correctionContext = JSON.stringify(context.messages);
         return fauxAssistantMessage(fauxToolCall("image_to_image", {
-          userFacingPlan: "我会使用已授权的参考图，继续完成暖橙色方向的调整。",
           prompt: "改成暖橙色",
           aspectRatio: "3:4",
           imageCount: 1,
@@ -360,7 +361,7 @@ describe("Agent runtime", () => {
     const requests: string[] = [];
     const events: AgentRuntimeEvent[] = [];
     const call = (id: string) => fauxToolCall("text_to_image", {
-      userFacingPlan: "我会采用明亮配色与简洁构图，设计一个主题鲜明的海报方向。", prompt: "测试海报", aspectRatio: "1:1", imageCount: 1,
+      prompt: "测试海报", aspectRatio: "1:1", imageCount: 1,
     }, { id });
     faux.setResponses([
       fauxAssistantMessage([call("blocked-1"), call("blocked-2")], { stopReason: "toolUse" }),
@@ -405,7 +406,7 @@ describe("Agent runtime", () => {
           fields: [{ id: "theme", type: "TEXT", label: "主题", required: true, value: "" }],
         }),
         fauxToolCall("text_to_image", {
-          userFacingPlan: "先生成图片。", prompt: "测试", aspectRatio: "1:1", imageCount: 1,
+          prompt: "测试", aspectRatio: "1:1", imageCount: 1,
         }),
       ], { stopReason: "toolUse" }),
       fauxAssistantMessage(fauxToolCall("request_user_input", {

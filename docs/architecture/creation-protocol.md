@@ -65,14 +65,16 @@ SessionSummary：sessionId、title、creationCount、lastMessageAt。SessionDeta
 
 items 的四种类型：
 
-- text：id、kind、text、phase（process/final）。稳定 ID 为 `text:{message.timestamp}:{contentIndex}`，同一文本从过程提升为最终回复时复用 ID。
-- tool：id、kind、toolCallId、name、status（RUNNING/SUCCEEDED/FAILED/CANCELLED），读取 Skill 时额外提供 skillName（仅技能目录名，用于前端中文标题）。ID 为 `tool:{toolCallId}`，与 form/generation 卡片的 ID 分开。所有工具的历史响应和 SSE 均不传 arguments、result、完整文件路径或其他执行详情；原始参数和结果保留在 Pi 会话内供模型使用。工具条目只展示名称和状态，不可展开。
+- text：id、kind、assistantMessageId、text、phase（process/final）。稳定 ID 为 `text:{message.timestamp}:{contentIndex}`，同一文本从过程提升为最终回复时复用 ID。
+- tool：id、kind、assistantMessageId、toolCallId、name、status（RUNNING/SUCCEEDED/FAILED/CANCELLED），读取 Skill 时额外提供 skillName（仅技能目录名，用于前端中文标题）。ID 为 `tool:{toolCallId}`，与 form/generation 卡片的 ID 分开。所有工具的历史响应和 SSE 均不传 arguments、result、完整文件路径或其他执行详情；原始参数和结果保留在 Pi 会话内供模型使用。工具条目只展示图标、名称及合并计数，不显示右侧状态，不可展开；status 仍用于缓存合并和计数。
 - form：id、kind、toolCallId、status（PENDING/SUBMITTED/SKIPPED/CANCELLED）、schemaVersion=2、title、fields。字段为 TEXT 或 SINGLE_SELECT；选项规则沿用工具表单定义。
 - generation：id、kind、generationId（执行前可为 null）、status、assets。
 
-Agent 助手区域固定按四部分排列：可折叠的 AI 思考过程（process 文本与 tool）、表单操作、最终回复（final 文本）、图片展示（generation）。已填写、跳过、取消的表单各自折叠，展开显示字段值或操作说明；待填写表单保持可操作。普通生成仅显示真实生成状态和图片，不构造 Agent 回复。
+Agent 助手区域固定按四部分排列：可折叠的 创作过程（process 文本与 tool）、表单操作、最终回复（final 文本）、图片展示（generation）。已填写、跳过、取消的表单各自折叠，展开显示字段值或操作说明；待填写表单保持可操作。普通生成仅显示真实生成状态和图片，不构造 Agent 回复。
 
-工具项仍按每次调用独立返回，失败后的新调用使用新的 toolCallId，不增加重试关联协议。前端仅在渲染过程区时，将同一创作内连续同类的 text_to_image、image_to_image 或 inspect_image 合并为一行；过程文字、表单、final 文本及其他工具中断分组，generation 图片项不打断分组。read 与 request_user_input 不合并。多次调用显示“成功调用数/已发起调用总数”，单次保持原有标题；分母随新调用增加，表示调用次数而非图片数或预先计划的数量。进行中的组显示执行中，结束后汇总成功、失败、取消，后续成功不掩盖先前失败。原始工具项和结果不因展示合并而删除，实时缓存与历史快照使用同一渲染规则。
+text 与 tool 的 assistantMessageId 为 `assistant:{message.timestamp}`，用于把同一条模型回复的文字和工具关联为一个展示步骤；实时文字增量、工具终态和原生历史投影保持同一标识。该字段由原生消息派生，不回写或迁移历史 JSONL；前端兼容缺少该字段的旧缓存，缺失时逐项展示，不凭相邻顺序推测归属。表单和图片继续在各自区域显示。
+
+工具项仍按每次调用独立返回，失败后的新调用使用新的 toolCallId，不增加重试关联协议。前端仅在渲染过程区时，将同一创作内连续同类的 text_to_image、image_to_image 或 inspect_image 合并为一行；过程文字、表单、final 文本及其他工具中断分组，generation 图片项不打断分组。read 与 request_user_input 不合并。多次调用显示“成功调用数/已发起调用总数”，单次保持原有标题；分母随新调用增加，表示调用次数而非图片数或预先计划的数量。工具行不单独显示执行中、成功、失败、取消状态；所有调用仍保留并参与分母统计，成功数仅统计 SUCCEEDED，后续成功不覆盖先前失败。原始工具项和结果不因展示合并而删除，实时缓存与历史快照使用同一渲染规则。
 
 投影仅在创作成功或部分成功、最后一条原生 assistant 消息以 stop 结束且没有 toolCall 时，将该消息的文本归为 final。此前每次模型调用的公开文字都保留为 process；表单等待、失败和取消不把中途文字当最终回复。模型 thinking 块、图片二进制、压缩摘要不进入展示 DTO。历史投影与实时事件共享 message-items 转换，工具内部结果不由浏览器重新解释。
 

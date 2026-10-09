@@ -134,7 +134,7 @@ describe("AgentInputFormCard", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "取消本次创作" }));
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
 
     expect(onCancel).toHaveBeenCalledOnce();
     expect(onResolve).not.toHaveBeenCalled();
@@ -154,7 +154,7 @@ describe("AgentInputFormCard", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "取消本次创作" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "取消" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "跳过" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "提交中" })).toBeDisabled();
 
@@ -212,7 +212,7 @@ describe("AgentInputFormCard", () => {
     );
 
     expect(screen.getByLabelText("已处理的需求确认表单")).toHaveTextContent("本次创作已取消，此表单无需继续填写。");
-    expect(screen.queryByRole("button", { name: "取消本次创作" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "取消" })).not.toBeInTheDocument();
   });
 });
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { ClipboardList } from "lucide-react";
+import { ChevronRight, ClipboardList } from "lucide-react";
 import { type Dispatch, type SetStateAction, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -36,32 +36,38 @@ export function AgentInputFormCard({
   if (value.status !== "PENDING") {
     return (
       <details
-        className="mt-3 rounded-[8px] border border-[var(--border)] bg-[var(--surface-soft)] px-4 py-3"
+        className="group mt-3 rounded-[8px] border border-[var(--border)] bg-[var(--surface-soft)] px-3 py-2"
         aria-label="已处理的需求确认表单"
       >
-        <summary className="flex cursor-pointer items-center gap-2 text-sm font-semibold">
-          <ClipboardList className="size-4 text-[var(--accent)]" />
-          {value.title} · {value.status === "SUBMITTED" ? "已填写" : value.status === "SKIPPED" ? "已跳过" : "已取消"}
+        <summary className="flex cursor-pointer list-none items-center gap-2 text-xs font-normal text-[var(--accent)]">
+          <ClipboardList className="size-4 shrink-0" />
+          <span className="flex min-w-0 items-center gap-1">
+            <span className="min-w-0 break-words">{value.title}</span>
+            <ChevronRight
+              aria-hidden="true"
+              className="size-4 shrink-0 transition-transform group-open:rotate-90 motion-reduce:transition-none"
+            />
+          </span>
         </summary>
-        {value.status === "CANCELLED" ? (
-          <p className="mt-2 text-xs leading-5 text-[var(--text-secondary)]">本次创作已取消，此表单无需继续填写。</p>
-        ) : value.status === "SKIPPED" ? (
-          <p className="mt-2 text-xs leading-5 text-[var(--text-secondary)]">
-            已跳过，Agent 将根据已有信息采用合理默认值。
-          </p>
-        ) : (
-          <dl className="mt-2 space-y-1 text-xs leading-5 text-[var(--text-secondary)]">
-            {value.fields.map((field) => {
-              if (!field.value.trim()) return null;
-              return (
-                <div key={field.id} className="flex gap-1">
-                  <dt className="shrink-0">{field.label}：</dt>
-                  <dd className="text-[var(--primary)]">{formValueLabel(field)}</dd>
-                </div>
-              );
-            })}
-          </dl>
-        )}
+        <div className="mt-2 border-t border-[var(--border)] pt-2 text-xs leading-5 text-[var(--text-secondary)]">
+          {value.status === "CANCELLED" ? (
+            <p>本次创作已取消，此表单无需继续填写。</p>
+          ) : value.status === "SKIPPED" ? (
+            <p>已跳过，Agent 将根据已有信息采用合理默认值。</p>
+          ) : (
+            <dl className="space-y-1">
+              {value.fields.map((field) => {
+                if (!field.value.trim()) return null;
+                return (
+                  <div key={field.id} className="flex gap-1">
+                    <dt className="shrink-0">{field.label}：</dt>
+                    <dd className="text-[var(--primary)]">{formValueLabel(field)}</dd>
+                  </div>
+                );
+              })}
+            </dl>
+          )}
+        </div>
       </details>
     );
   }
@@ -165,9 +171,9 @@ export function AgentInputFormCard({
           type="button"
           disabled={!enabled || submitting || cancelling}
           onClick={onCancel}
-          className="h-9 rounded-[6px] border border-[var(--border-strong)] px-3 text-xs font-medium text-[var(--text-secondary)] transition hover:bg-[var(--surface-soft)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--surface-bg)] disabled:cursor-not-allowed disabled:opacity-60"
+          className="h-9 rounded-[6px] bg-[var(--surface-soft)] px-4 text-xs font-medium text-[var(--primary)] transition hover:bg-[var(--active-bg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--surface-bg)] disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {cancelling ? "取消中" : "取消本次创作"}
+          {cancelling ? "取消中" : "取消"}
         </button>
         <div className="flex gap-2">
           <button
@@ -181,7 +187,7 @@ export function AgentInputFormCard({
           <button
             disabled={!enabled || submitting || cancelling || missingRequired}
             type="submit"
-            className="inline-flex h-9 items-center rounded-[6px] bg-[var(--primary)] px-5 text-xs font-semibold text-[var(--surface-bg)] transition hover:bg-[var(--primary-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--surface-bg)] disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex h-9 items-center rounded-[6px] bg-[var(--accent)] px-5 text-xs font-semibold text-[var(--surface-bg)] transition hover:bg-[var(--accent-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--surface-bg)] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {submitting ? "提交中" : "确认"}
           </button>

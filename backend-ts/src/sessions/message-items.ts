@@ -3,13 +3,14 @@ import { agentInputFormSchema } from "../agent/agent-form-contract.js";
 import { generationResultSchema, type CreationItem } from "./session-contract.js";
 
 export function assistantItems(message: AssistantMessage, phase: "process" | "final" = "process"): CreationItem[] {
+  const assistantMessageId = `assistant:${message.timestamp}`;
   return message.content.flatMap<CreationItem>((block, index) => {
     if (block.type === "text" && block.text.trim()) {
-      return [{ id: `text:${message.timestamp}:${index}`, kind: "text", text: block.text, phase }];
+      return [{ id: `text:${message.timestamp}:${index}`, kind: "text", assistantMessageId, text: block.text, phase }];
     }
     if (block.type !== "toolCall") return [];
     const skillName = toolSkillName(block.name, block.arguments);
-    const items: CreationItem[] = [{ id: `tool:${block.id}`, kind: "tool", toolCallId: block.id,
+    const items: CreationItem[] = [{ id: `tool:${block.id}`, kind: "tool", assistantMessageId, toolCallId: block.id,
       name: block.name, ...(skillName ? { skillName } : {}), status: "RUNNING" }];
     if (isGeneration(block.name)) items.push({ id: block.id, kind: "generation", generationId: null,
       status: "RUNNING", assets: [] });
@@ -19,15 +20,16 @@ export function assistantItems(message: AssistantMessage, phase: "process" | "fi
 
 /** Tool details stay in Pi history; only status and structured form/image cards reach the browser. */
 export function toolResultItems(toolCallId: string, name: string, result: unknown, isError: boolean,
-    skillName?: string): CreationItem[] {
+    skillName?: string, assistantMessageId?: string): CreationItem[] {
   const value = object(result);
   const details = object(value.details);
   const failed = isError || (name === "inspect_image" && details.outcome === "FAILED")
     || (isGeneration(name) && details.status === "FAILED");
   const items: CreationItem[] = [{ id: `tool:${toolCallId}`, kind: "tool", toolCallId, name,
+    ...(assistantMessageId ? { assistantMessageId } : {}),
     ...(skillName ? { skillName } : {}), status: failed ? "FAILED" : "SUCCEEDED" }];
   if (name === "request_user_input" && !isError) {
-    const form = agentInputFormSchema.safeParse(object(value.details).form);
+    const form = agentInputFormSchema.safeParse(details.form);
     if (form.success) items.push({ ...form.data, id: toolCallId, kind: "form", toolCallId, status: "PENDING" });
   } else if (isGeneration(name)) {
     const generated = generationResultSchema.safeParse(value.details);

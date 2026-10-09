@@ -23,19 +23,16 @@ describe("Agent generation tools", () => {
       },
     });
     expect(Value.Check(textToImage!.parameters, {
-      userFacingPlan: "我会采用清晰的视觉层级完成这一版海报设计并突出画面主体。",
       prompt: "海边日落",
       aspectRatio: "16:9",
       imageCount: 2,
     })).toBe(true);
     expect(Value.Check(textToImage!.parameters, {
-      userFacingPlan: "我会采用清晰的视觉层级完成这一版海报设计并突出画面主体。",
       prompt: "海边日落",
       aspectRatio: "2:1",
       imageCount: 2,
     })).toBe(false);
     expect(Value.Check(imageToImage!.parameters, {
-      userFacingPlan: "我会延续参考图片的核心构图并完成这一版视觉调整。",
       prompt: "改成夜景",
       aspectRatio: "1:1",
       imageCount: 2,
@@ -110,13 +107,11 @@ describe("Agent generation tools", () => {
     });
 
     const wrongRatio = await textToImage!.execute("call-ratio", {
-      userFacingPlan: "我会按用户要求完成指定比例的海报方案并保持视觉重点清晰。",
       prompt: "公益海报", aspectRatio: "1:1", imageCount: 1,
     }, undefined, undefined, {} as never);
     expect(wrongRatio.details).toMatchObject({ code: "ASPECT_RATIO_CONSTRAINT_MISMATCH" });
 
     const tooMany = await textToImage!.execute("call-count", {
-      userFacingPlan: "我会按用户要求完成指定数量的海报方案并保持视觉重点清晰。",
       prompt: "公益海报", aspectRatio: "3:4", imageCount: 3,
     }, undefined, undefined, {} as never);
     expect(tooMany.details).toMatchObject({ code: "IMAGE_COUNT_EXCEEDS_REMAINING" });
@@ -135,7 +130,6 @@ describe("Agent generation tools", () => {
       constraints: { aspectRatio: "AUTO", imageCount: 3 },
     });
     const parameters = {
-      userFacingPlan: "我会先生成完整方向，并在部分成功时继续补足用户要求的最终数量。",
       prompt: "公益海报",
       aspectRatio: "3:4" as const,
     };

@@ -83,7 +83,7 @@ describe("Native session storage and projection", () => {
     expect(projected.items.find((item) => item.kind === "form")).toMatchObject({ status: "SUBMITTED", fields: [{ value: "云山路18号" }] });
     expect(projected.items.filter((item) => item.kind === "generation")).toHaveLength(1);
     expect(projected.items.find((item) => item.id === "tool:image-1")).toEqual({
-      id: "tool:image-1", kind: "tool", toolCallId: "image-1", name: "text_to_image", status: "SUCCEEDED",
+      id: "tool:image-1", kind: "tool", assistantMessageId: "assistant:20", toolCallId: "image-1", name: "text_to_image", status: "SUCCEEDED",
     });
     expect(JSON.stringify(projected)).not.toMatch(/private provider reasoning|private-image-bytes|"arguments"|"result"|生成了1张图片|等待用户确认/);
     expect(readFileSync(store.path("1", "10"), "utf8")).toContain("生成了1张图片");

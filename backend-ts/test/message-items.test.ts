@@ -8,13 +8,13 @@ describe("Tool display contract", () => {
   it.each(["read", "request_user_input", "text_to_image", "image_to_image", "inspect_image", "custom_tool"])(
     "omits %s parameters and results from both running and finished items", (name) => {
       const args = { path: "E:\\private\\skills\\poster-design\\SKILL.md", prompt: "private prompt", token: "private token" };
-      const running = assistantItems(fauxAssistantMessage(fauxToolCall(name, args, { id: "call-1" })))[0]!;
-      const display = { id: "tool:call-1", kind: "tool", toolCallId: "call-1", name,
+      const running = assistantItems(fauxAssistantMessage(fauxToolCall(name, args, { id: "call-1" }), { timestamp: 10 }))[0]!;
+      const display = { id: "tool:call-1", kind: "tool", assistantMessageId: "assistant:10", toolCallId: "call-1", name,
         ...(name === "read" ? { skillName: "poster-design" } : {}) };
       expect(running).toEqual({ ...display, status: "RUNNING" });
       const result = { content: [{ type: "text", text: "private tool result" }], details: { secret: "private details" } };
       for (const isError of [false, true]) {
-        const finished = toolResultItems("call-1", name, result, isError, name === "read" ? "poster-design" : undefined)[0];
+        const finished = toolResultItems("call-1", name, result, isError, name === "read" ? "poster-design" : undefined, "assistant:10")[0];
         expect(finished).toEqual({ ...display, status: isError ? "FAILED" : "SUCCEEDED" });
       }
     });

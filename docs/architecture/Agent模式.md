@@ -36,15 +36,15 @@
 
 每条 assistant 消息最多发起一个工具调用，工具结果返回后再由模型决定下一步。有工具的模型请求显式设置 `parallel_tool_calls=false`；如果供应商仍返回多个调用，Harness 在工具执行前整批阻止并返回纠正提示，不任意挑选一个执行。这个约束作用于单个 Agent loop，不限制不同会话并发，也不改变图片 MQ 的 prefetch 或请求速率。
 
-系统提示要求模型先查看可用 Skill 的名称与描述，匹配时先用 read 读取，理解方法后再决定是否需要 request_user_input 补充关键意图；没有匹配 Skill 时不强读，信息已充分时不重复确认。Skill 匹配与信息是否充分仍由模型判断，不宣称运行器已实现语义匹配的硬性验证。多个设计方向逐次调用工具，同一提示词的一次生图仍可请求多张图片。
+系统提示要求模型先查看可用 Skill 的名称与描述，匹配时先用 read 读取，理解方法后再决定是否需要 request_user_input 补充关键意图；没有匹配 Skill 时不强读，信息已充分时不重复确认。各 Skill 的触发边界、按需确认与完成条件见 [AI Runtime](../worker/AI-Runtime.md#pi-与工具)。Skill 匹配与信息是否充分仍由模型判断，不宣称运行器已实现语义匹配的硬性验证。多个设计方向逐次调用工具，同一提示词的一次生图仍可请求多张图片。
 
 ## 历史与模型上下文
 
-历史接口返回整个会话，最多 30 轮。TS 遍历原生当前分支，按 creation_started 分轮，把有效条目投影为 `turns[].items[]`：text、tool、form、generation；SQL 补充创作状态、revision、错误和完成时间，并按 toolCallId 合入图片任务状态及已结算资产，避免图片已完成但 Pi 尚未记录工具结果时丢失图片卡片。text 用 phase 区分过程与最终回复；tool 仅展示名称、执行状态和可选技能名，Skill 读取也使用 tool。TS 在生成展示数据时移除工具参数、完整路径和返回正文，历史接口与实时事件均不传递这些详情；原生 Pi 会话仍保留完整工具记录供模型使用。压缩摘要、模型设置、隐藏 thinking 和图片二进制不进入展示。
+历史接口返回整个会话，最多 30 轮。TS 遍历原生当前分支，按 creation_started 分轮，把有效条目投影为 `turns[].items[]`：text、tool、form、generation；SQL 补充创作状态、revision、错误和完成时间，并按 toolCallId 合入图片任务状态及已结算资产，避免图片已完成但 Pi 尚未记录工具结果时丢失图片卡片。text 用 phase 区分过程与最终回复；tool 传递名称、执行状态和可选技能名，UI 展示名称与计数，状态用于运行效果，Skill 读取也使用 tool。TS 在生成展示数据时移除工具参数、完整路径和返回正文，历史接口与实时事件均不传递这些详情；原生 Pi 会话仍保留完整工具记录供模型使用。压缩摘要、模型设置、隐藏 thinking 和图片二进制不进入展示。
 
 普通和 Agent 生图共用原生 `message` 记录：用户输入、`assistant/toolCall`、`toolResult`。普通模式由程序构造调用，标记 provider 为 `aivista`、model 为 `programmatic-generation`、用量为零，不启动 LLM；Agent 模式由 Pi 自动保存模型调用和工具返回。每次调用只保存一份工具结果，不额外写生成完成的自定义消息。
 
-`toolResult.content` 是模型可读的结果与资产 ID；`details` 保存 generationId、status、assets，以及失败时的 code/message/retryable。展示投影从 details 生成图片卡片；部分成功明确使用 PARTIALLY_SUCCEEDED。程序调用记录真实提示词、参考图、画幅、数量和 promptExtend，不添加虚构的设计说明。Agent 的 userFacingPlan 由系统提示要求填写，普通程序调用无需该字段。
+`toolResult.content` 是模型可读的结果与资产 ID；`details` 保存 generationId、status、assets，以及失败时的 code/message/retryable。展示投影从 details 生成图片卡片；部分成功明确使用 PARTIALLY_SUCCEEDED。程序调用记录真实提示词、参考图、画幅、数量和 promptExtend，不添加虚构的设计说明。Agent 的公开创作说明只使用 assistant text，不在生图工具参数中重复保存；普通程序调用不构造设计说明。
 
 模型上下文由 Pi SessionManager 恢复。默认 compaction 保留完整日志，在有效上下文中使用摘要和被保留的近期消息；不按产品创作轮次强制对齐压缩边界。展示历史读取完整分支，不能把 buildSessionContext 的压缩结果当聊天记录。
 
@@ -72,7 +72,7 @@ Java 在会话展示响应和 SSE 的结构化图片数组内补签名和 expire
 
 历史响应和 SSE 共用 creationId、item.id 及内容结构。前端先用 REST 初始化 QueryClient 中的 SessionDetail，随后用 creation.updated 更新轮次状态，用 creation.item.upserted 替换对应内容项。文本事件携带当前完整文本，重复事件不重复追加。message-items.ts 供 Pi 实时事件与 session-projector.ts 共用，最终回复由成功创作的末条无工具调用 assistant stop 消息确定。UI 固定为可折叠过程、表单操作、最终回复、图片四区；流式过程文字在确认完成时按原 ID 提升为 final。
 
-原生 Pi 和展示协议保留每次工具调用的独立身份与成功、失败、取消状态，不定义逻辑重试 ID。前端渲染时，将同一创作内连续同类的 text_to_image、image_to_image、inspect_image 分别合并为一行；过程文字、表单、final 文本或其他工具中断分组，generation 图片项不打断分组。read 与 request_user_input 保持逐次显示。多次调用的括号计数是“成功调用数/已发起调用总数”，不代表图片数量；单次不增加计数。组内有调用运行时显示执行中，并保留已有失败、取消次数；全部成功才显示已完成。该投影共用于实时缓存与历史展示，不修改或删除调用记录。工具状态由 TS 同时检查原生错误与结构化业务结果，避免业务失败被当作成功。
+原生 Pi 和展示协议保留每次工具调用的独立身份与成功、失败、取消状态，不定义逻辑重试 ID。前端渲染时，将同一创作内连续同类的 text_to_image、image_to_image、inspect_image 分别合并为一行；过程文字、表单、final 文本或其他工具中断分组，generation 图片项不打断分组。read 与 request_user_input 保持逐次显示。多次调用的括号计数是“成功调用数/已发起调用总数”，不代表图片数量；单次不增加计数。工具行不显示右侧状态文字或图标；创作执行中且组内有 RUNNING 调用时，名称与计数轻微扫光，减少动态效果时使用静态主题色。状态仍用于计数，不删除失败或取消记录。该投影共用于实时缓存与历史展示，不修改或删除调用记录。工具状态由 TS 同时检查原生错误与结构化业务结果，避免业务失败被当作成功。
 
 Pi 将供应商文字增量累积成当前文本块，TS 每 100ms 对相同 item.id 只保留最新完整文本再发送；第二次发送的是前两段的累计内容，前端按 ID 更新而非拼接增量。100ms 是合并刷新间隔，不是固定字符长度或网络包边界；有更新即可逐步展示，无需等待整段回答结束。
 
