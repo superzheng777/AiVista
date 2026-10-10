@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import type { GenerationAsset } from "@/entities/generation/model/generation";
 import { getInspiration } from "../api/inspiration-api";
 import { updateInspirationInFeeds } from "../model/inspiration-cache";
+import { publicResourceQueryKeys } from "@/entities/generation/model/resource-queries";
 import { PublicImageDetailOverlay } from "./public-image-detail-overlay";
 
 function DirectDetailFallback({ message, onExit }: { message: string; onExit: () => void }) {
@@ -27,7 +28,7 @@ export function DirectPublicInspirationDetail({ imageId, onExit }: { imageId: st
   const router = useRouter();
   const queryClient = useQueryClient();
   const detailQuery = useQuery({
-    queryKey: ["direct-public-image", imageId],
+    queryKey: publicResourceQueryKeys.direct(imageId),
     queryFn: () => getInspiration(imageId),
     staleTime: Infinity,
     refetchOnMount: false,
@@ -41,8 +42,15 @@ export function DirectPublicInspirationDetail({ imageId, onExit }: { imageId: st
   if (detailQuery.isError || !detailQuery.data)
     return <DirectDetailFallback message="该作品不存在、已撤销或暂时不可访问。" onExit={exit} />;
   const handleImageChange = (image: GenerationAsset) => {
-    queryClient.setQueryData(["direct-public-image", imageId], image);
+    queryClient.setQueryData(publicResourceQueryKeys.direct(imageId), image);
     updateInspirationInFeeds(queryClient, image);
   };
-  return <PublicImageDetailOverlay image={detailQuery.data} onClose={exit} onImageChange={handleImageChange} />;
+  return (
+    <PublicImageDetailOverlay
+      sourceQueryKey={publicResourceQueryKeys.direct(imageId)}
+      image={detailQuery.data}
+      onClose={exit}
+      onImageChange={handleImageChange}
+    />
+  );
 }

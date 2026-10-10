@@ -1,10 +1,11 @@
 "use client";
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, type QueryKey } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { needsImageUrlRefresh, type GenerationAsset } from "@/entities/generation/model/generation";
 
+import { publicResourceQueryKeys } from "@/entities/generation/model/resource-queries";
 import { getInspiration } from "../api/inspiration-api";
 import { discardUnavailableInspiration } from "./inspiration-cache";
 
@@ -17,10 +18,14 @@ function buildDetailHistoryPath(imageId: string) {
   return `${window.location.pathname}${window.location.search}`;
 }
 
-const detailQueryKey = (imageId: string | null) => ["public-image-detail", imageId] as const;
+const detailQueryKey = publicResourceQueryKeys.detail;
 
 /** 详情只保存选中 ID；图片来自当前列表，列表外的入口才按 ID 查询。 */
-export function usePublicImageDetail(items: GenerationAsset[], onImageChange?: (image: GenerationAsset) => void) {
+export function usePublicImageDetail(
+  listQueryKey: QueryKey | null,
+  items: GenerationAsset[],
+  onImageChange?: (image: GenerationAsset) => void,
+) {
   const queryClient = useQueryClient();
   const [imageId, setImageId] = useState<string | null>(null);
   const [openingImageId, setOpeningImageId] = useState<string | null>(null);
@@ -114,6 +119,7 @@ export function usePublicImageDetail(items: GenerationAsset[], onImageChange?: (
   const navigate = useCallback((listImage: GenerationAsset) => show(listImage, "replace"), [show]);
   return {
     image,
+    sourceQueryKey: listImage && listQueryKey ? listQueryKey : detailQueryKey(imageId),
     imageId,
     openingImageId: openingImageId ?? (imageId && !listImage && fallback.isPending ? imageId : null),
     openError: openError ?? (!listImage && fallback.isError ? "该作品已撤销或暂时不可访问。" : null),

@@ -4,6 +4,7 @@
 import { ResourceThumbnail } from "@/features/assets/ui/resource-thumbnail";
 import { personalResourceListPolicy, publicResourceListPolicy } from "@/shared/api/resource-list-policy";
 import { patchResource, removeResources } from "@/entities/generation/model/resource-cache";
+import { publicResourceQueryKeys } from "@/entities/generation/model/resource-queries";
 import { inspirationQueryKeys } from "@/features/inspiration/api/inspiration-api";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Dialog } from "@base-ui/react/dialog";
@@ -92,14 +93,14 @@ export function PublicUserPage({ userId }: { userId: string }) {
   });
   const publicWorks = useQuery({
     ...publicResourceListPolicy,
-    queryKey: ["publications", userId],
+    queryKey: publicResourceQueryKeys.publications(userId),
     queryFn: () => listPublications(userId),
     enabled: Boolean(!isSelf && activeView === "works"),
   });
   const canViewLikes = Boolean(isSelf || profile.data?.likesPublic);
   const likes = useQuery({
     ...(isSelf ? personalResourceListPolicy : publicResourceListPolicy),
-    queryKey: ["liked-publications", userId, isSelf ? "self" : "public"],
+    queryKey: publicResourceQueryKeys.likedPublications(userId, isSelf ? "self" : "public"),
     queryFn: () => listLikedPublications(userId, Boolean(isSelf)),
     enabled: Boolean(activeView === "likes" && canViewLikes),
   });
@@ -114,7 +115,7 @@ export function PublicUserPage({ userId }: { userId: string }) {
   const visibility = useMutation({
     mutationFn: setLikedPublicationsVisibility,
     onSuccess: () => {
-      queryClient.removeQueries({ queryKey: ["liked-publications", userId, "public"], exact: true });
+      queryClient.removeQueries({ queryKey: publicResourceQueryKeys.likedPublications(userId, "public"), exact: true });
       void profile.refetch();
     },
   });
@@ -216,7 +217,13 @@ export function PublicUserPage({ userId }: { userId: string }) {
 
   const publicDetailItems =
     activeView === "likes" ? (likes.data ?? []) : works.filter((asset) => asset.publicationReviewStatus === "APPROVED");
-  const detail = usePublicImageDetail(publicDetailItems, (image) => {
+  const detailSourceQueryKey =
+    activeView === "likes"
+      ? publicResourceQueryKeys.likedPublications(userId, isSelf ? "self" : "public")
+      : isSelf
+        ? publicationQueryKeys.mine
+        : publicResourceQueryKeys.publications(userId);
+  const detail = usePublicImageDetail(detailSourceQueryKey, publicDetailItems, (image) => {
     updateInspirationInFeeds(queryClient, image);
   });
   const pendingDetailItems =
@@ -368,6 +375,7 @@ export function PublicUserPage({ userId }: { userId: string }) {
       ) : null}
       {detail.image ? (
         <PublicImageDetailOverlay
+          sourceQueryKey={detail.sourceQueryKey}
           image={detail.image}
           onClose={detail.close}
           onImageChange={detail.updateImage}

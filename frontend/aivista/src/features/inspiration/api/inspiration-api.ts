@@ -6,12 +6,7 @@ import {
 import { browserApiClient } from "@/shared/api/browser-client";
 import { type ApiResponse, unwrapApiResponse } from "@/shared/api/api-response";
 
-export const inspirationQueryKeys = {
-  all: ["inspirations"] as const,
-  discovery: ["inspirations", "discovery"] as const,
-  following: ["inspirations", "following"] as const,
-  search: (keyword: string) => ["inspirations", "search", keyword] as const,
-};
+export { inspirationQueryKeys } from "@/entities/generation/model/resource-queries";
 export type InspirationPage = { items: GenerationAsset[]; nextCursor: string | null };
 export type InspirationSearchPage = { items: GenerationAsset[]; nextOffset: number | null };
 

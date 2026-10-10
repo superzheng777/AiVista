@@ -12,6 +12,7 @@ describe("PublicImageDetailOverlay", () => {
   it("uses the same full content-area layout as private asset details", () => {
     const { container } = render(
       <PublicImageDetailOverlay
+        sourceQueryKey={["public-image-detail", "1"]}
         image={{ id: "image-1" } as GenerationAsset}
         onClose={vi.fn()}
         onImageChange={vi.fn()}

@@ -3,7 +3,8 @@
 import { ResourceThumbnail } from "@/features/assets/ui/resource-thumbnail";
 import { useRouter } from "next/navigation";
 import { personalResourceListPolicy } from "@/shared/api/resource-list-policy";
-import { patchResource, removeResources } from "@/entities/generation/model/resource-cache";
+import { cancelResourceQueries, patchResource, removeResources } from "@/entities/generation/model/resource-cache";
+import { optimisticResourceUpdate } from "@/entities/generation/model/optimistic-resource-update";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Download, LoaderCircle, Sparkles, Star, Trash2, X } from "lucide-react";
 import Link from "next/link";
@@ -118,19 +119,15 @@ export function AssetsWorkspace() {
   const favorite = useMutation({
     mutationFn: ({ ids, value }: { ids: string[]; value: boolean }) => setGenerationImageFavorites(ids, value),
     onMutate: async ({ ids, value }) => {
-      await client.cancelQueries({ queryKey: assetQueryKeys.all });
-      const previous = client.getQueryData<GenerationAsset[]>(assetQueryKeys.all);
-      for (const id of ids) patchResource(client, id, { favorited: value });
-      return { previous };
+      await cancelResourceQueries(client, ids);
+      return optimisticResourceUpdate(client, new Map(ids.map((id) => [id, { favorited: value }])));
     },
-    onSuccess: (_result, { ids, value }) => {
-      for (const id of ids) patchResource(client, id, { favorited: value });
+    onSuccess: async (_result, { value }, context) => {
+      await context.finish(true);
       setNotice(value ? "已收藏图片" : "已取消收藏");
     },
-    onError: (_error, _data, context) => {
-      for (const asset of context?.previous ?? []) {
-        if (_data.ids.includes(asset.id)) patchResource(client, asset.id, { favorited: asset.favorited });
-      }
+    onError: async (_error, _data, context) => {
+      await context?.finish(false);
       setNotice("收藏状态更新失败，请重试。");
     },
   });

@@ -65,10 +65,16 @@ function CacheBackedCard({ onOpen }: { onOpen: (value: GenerationAsset) => void 
     },
     staleTime: Infinity,
   });
-  return <PublicInspirationCard image={data!.pages[0]!.items[0]!} onOpen={onOpen} />;
+  return (
+    <PublicInspirationCard
+      sourceQueryKey={inspirationQueryKeys.discovery}
+      image={data!.pages[0]!.items[0]!}
+      onOpen={onOpen}
+    />
+  );
 }
 
-function renderCard(initialImage: GenerationAsset = image) {
+function renderCard(initialImage: GenerationAsset = image, duplicate = false) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   queryClient.setQueryData<InfiniteData<InspirationPage>>(inspirationQueryKeys.discovery, {
     pages: [{ items: [initialImage], nextCursor: null }],
@@ -78,6 +84,7 @@ function renderCard(initialImage: GenerationAsset = image) {
   render(
     <QueryClientProvider client={queryClient}>
       <CacheBackedCard onOpen={onOpen} />
+      {duplicate ? <CacheBackedCard onOpen={onOpen} /> : null}
     </QueryClientProvider>,
   );
   return { queryClient, onOpen };
@@ -162,5 +169,96 @@ describe("PublicInspirationCard likes", () => {
     );
     expect(screen.getByRole("status")).toHaveTextContent("点赞状态更新失败，已恢复原状态。");
     expect(cachedImage(queryClient)).toMatchObject({ likedByCurrentUser: false, likeCount: 2 });
+  });
+});
+
+it("blocks same-image submissions across two mounted controls before rerender", async () => {
+  let resolveRequest!: (value: unknown) => void;
+  apiClient.put.mockReturnValueOnce(
+    new Promise((resolve) => {
+      resolveRequest = resolve;
+    }) as never,
+  );
+  const { queryClient } = renderCard(image, true);
+  const buttons = screen.getAllByRole("button", { name: "点赞，当前 2 个赞" });
+  act(() => {
+    fireEvent.click(buttons[0]!);
+    fireEvent.click(buttons[1]!);
+  });
+  await waitFor(() => expect(apiClient.put).toHaveBeenCalledTimes(1));
+  await waitFor(() =>
+    screen.getAllByRole("button", { name: "取消点赞，当前 3 个赞" }).forEach((button) => expect(button).toBeDisabled()),
+  );
+  await act(async () => {
+    resolveRequest({});
+  });
+  await waitFor(() =>
+    screen
+      .getAllByRole("button", { name: "取消点赞，当前 3 个赞" })
+      .forEach((button) => expect(button).not.toBeDisabled()),
+  );
+  expect(cachedImage(queryClient).likeCount).toBe(3);
+});
+
+it.each(["replaced", "removed"])(
+  "stops a click when the source publication was %s during cancellation",
+  async (change) => {
+    const { queryClient } = renderCard();
+    let release!: () => void;
+    vi.spyOn(queryClient, "cancelQueries").mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "点赞，当前 2 个赞" }));
+    await waitFor(() => expect(release).toBeDefined());
+    await act(async () => {
+      if (change === "removed") queryClient.removeQueries({ queryKey: inspirationQueryKeys.discovery });
+      else
+        queryClient.setQueryData(inspirationQueryKeys.discovery, {
+          pages: [{ items: [{ ...image, publicationVersion: 4 }] }],
+          pageParams: [null],
+        });
+      release();
+    });
+    expect(await screen.findByRole("status")).toHaveTextContent("作品信息已更新，请刷新后重试。");
+    expect(apiClient.put).not.toHaveBeenCalled();
+    expect(apiClient.delete).not.toHaveBeenCalled();
+  },
+);
+
+it.each([false, true])("preserves click intent and avoids counting twice when refreshed liked=%s", async (liked) => {
+  const { queryClient } = renderCard();
+  let release!: () => void;
+  vi.spyOn(queryClient, "cancelQueries").mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+  );
+  apiClient.put.mockResolvedValueOnce({} as never);
+  fireEvent.click(screen.getByRole("button", { name: "点赞，当前 2 个赞" }));
+  await waitFor(() => expect(release).toBeDefined());
+  await act(async () => {
+    queryClient.setQueryData(inspirationQueryKeys.discovery, {
+      pages: [{ items: [{ ...image, likedByCurrentUser: liked, likeCount: 10 }] }],
+      pageParams: [null],
+    });
+    // A newer timestamp in another cache must never decide this click's version or count.
+    queryClient.setQueryData(["direct-public-image", image.id], { ...image, publicationVersion: 4, likeCount: 99 });
+    release();
+  });
+  await waitFor(() =>
+    expect(apiClient.put).toHaveBeenCalledWith("/inspirations/image-11/like", undefined, {
+      params: { publicationVersion: 3 },
+    }),
+  );
+  expect(apiClient.delete).not.toHaveBeenCalled();
+  expect(cachedImage(queryClient)).toMatchObject({ likedByCurrentUser: true, likeCount: liked ? 10 : 11 });
+  expect(queryClient.getQueryData(["direct-public-image", image.id])).toMatchObject({
+    publicationVersion: 4,
+    likeCount: 99,
+    likedByCurrentUser: false,
   });
 });

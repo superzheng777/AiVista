@@ -66,7 +66,7 @@ export function retainFirstNotificationPage(client: ReturnType<typeof useQueryCl
 
 export function OfficialNotificationsBell() {
   const client = useQueryClient();
-  const publicDetail = usePublicImageDetail([], (image) => updateInspirationInFeeds(client, image));
+  const publicDetail = usePublicImageDetail(null, [], (image) => updateInspirationInFeeds(client, image));
   const { notificationRefreshVersion, publicationRefreshVersion } = useGenerationEventStream();
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<Tab>("official");
@@ -170,6 +170,7 @@ export function OfficialNotificationsBell() {
       </Dialog.Root>
       {publicDetail.image ? (
         <PublicImageDetailOverlay
+          sourceQueryKey={publicDetail.sourceQueryKey}
           image={publicDetail.image}
           onClose={publicDetail.close}
           onImageChange={publicDetail.updateImage}

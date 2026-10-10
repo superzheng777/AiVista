@@ -414,14 +414,14 @@ function ConversationPanel({ sessionId }: { sessionId: string }) {
         <div className="mx-auto w-full max-w-[1040px]">
           <div className="pointer-events-auto w-full max-w-[920px]">
             {!isFollowingBottom ? (
-              <div className="mb-3 flex justify-end">
+              <div className="mb-3 flex justify-center">
                 <button
                   type="button"
                   onClick={scrollToBottom}
-                  className="inline-flex h-10 items-center gap-2 rounded-full border border-[var(--border-strong)] bg-[var(--surface-bg)] px-4 text-xs font-medium text-[var(--primary)] shadow-lg transition hover:border-[var(--accent-border)] hover:bg-[var(--active-bg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+                  aria-label="回到底部"
+                  className="inline-flex size-10 items-center justify-center rounded-full border border-[var(--border-strong)] bg-[var(--surface-bg)] text-[var(--primary)] shadow-lg transition hover:border-[var(--accent-border)] hover:bg-[var(--active-bg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                 >
-                  <ArrowDown className="size-4" />
-                  回到底部
+                  <ArrowDown aria-hidden="true" className="size-4" />
                 </button>
               </div>
             ) : null}

@@ -37,7 +37,9 @@ export function InspirationSearchResults({ keyword }: { keyword: string }) {
     retry: false,
   });
   const images = useMemo(() => deduplicate(search.data?.pages.flatMap((page) => page.items) ?? []), [search.data]);
-  const detail = usePublicImageDetail(images, (image) => updateInspirationInFeeds(queryClient, image));
+  const detail = usePublicImageDetail(inspirationQueryKeys.search(queryKey), images, (image) =>
+    updateInspirationInFeeds(queryClient, image),
+  );
   const { fetchNextPage, hasNextPage, isFetchingNextPage, isFetchNextPageError } = search;
   const detailNavigation = useImageDetailNavigation({
     items: images,
@@ -99,7 +101,12 @@ export function InspirationSearchResults({ keyword }: { keyword: string }) {
           getItemKey={(image) => image.id}
           getItemHeight={getWorkPreviewCardHeight}
           renderItem={(image, priority) => (
-            <PublicInspirationCard image={image} priority={priority} onOpen={detail.open} />
+            <PublicInspirationCard
+              sourceQueryKey={inspirationQueryKeys.search(queryKey)}
+              image={image}
+              priority={priority}
+              onOpen={detail.open}
+            />
           )}
         />
       ) : null}
@@ -114,6 +121,7 @@ export function InspirationSearchResults({ keyword }: { keyword: string }) {
       </div>
       {detail.image ? (
         <PublicImageDetailOverlay
+          sourceQueryKey={detail.sourceQueryKey}
           image={detail.image}
           onClose={detail.close}
           onImageChange={detail.updateImage}

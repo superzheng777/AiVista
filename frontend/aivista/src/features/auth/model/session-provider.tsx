@@ -2,6 +2,7 @@
 
 import { createContext, type ReactNode, use, useEffect, useMemo, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { discardOptimisticResourceUpdates } from "@/entities/generation/model/optimistic-resource-update";
 
 import type { CurrentUser } from "@/entities/user/model/user";
 import type { LoginInput, RegisterInput, UpdateProfileInput } from "@/features/auth/api/auth-api";
@@ -52,6 +53,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     const identity = status === "authenticated" ? (user?.id ?? null) : null;
     if (cachedIdentity.current === identity) return;
     cachedIdentity.current = identity;
+    discardOptimisticResourceUpdates(queryClient);
     if (status === "anonymous") {
       window.sessionStorage.removeItem("aivista.pending-generation-submission");
       queryClient.clear();

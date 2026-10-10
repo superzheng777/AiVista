@@ -61,7 +61,7 @@ function renderHeader(isSelf: boolean) {
       liking={false}
       downloading={false}
       withdrawing={false}
-      likeError={false}
+      likeError={null}
       downloadError={false}
       withdrawError={false}
       {...callbacks}

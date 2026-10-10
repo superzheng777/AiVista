@@ -45,7 +45,11 @@ export function InspirationFeed({ view = "discovery" }: { view?: InspirationFeed
     enabled,
   });
   const images = inspirations.data?.pages.flatMap((page) => page.items) ?? [];
-  const detail = usePublicImageDetail(images, (image) => updateInspirationInFeeds(queryClient, image));
+  const detail = usePublicImageDetail(
+    following ? inspirationQueryKeys.following : inspirationQueryKeys.discovery,
+    images,
+    (image) => updateInspirationInFeeds(queryClient, image),
+  );
   const selfProfile = useQuery({
     queryKey: ["public-author", user?.id],
     queryFn: user ? () => getPublicAuthor(user.id) : skipToken,
@@ -165,7 +169,12 @@ export function InspirationFeed({ view = "discovery" }: { view?: InspirationFeed
             getItemKey={(image) => image.id}
             getItemHeight={getWorkPreviewCardHeight}
             renderItem={(image, priority) => (
-              <PublicInspirationCard image={image} priority={priority} onOpen={detail.open} />
+              <PublicInspirationCard
+                sourceQueryKey={following ? inspirationQueryKeys.following : inspirationQueryKeys.discovery}
+                image={image}
+                priority={priority}
+                onOpen={detail.open}
+              />
             )}
           />
         ) : null}
@@ -187,6 +196,7 @@ export function InspirationFeed({ view = "discovery" }: { view?: InspirationFeed
         ) : null}
         {detail.image ? (
           <PublicImageDetailOverlay
+            sourceQueryKey={detail.sourceQueryKey}
             image={detail.image}
             onClose={detail.close}
             onImageChange={detail.updateImage}

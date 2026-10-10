@@ -1,31 +1,35 @@
 "use client";
 /* eslint-disable @next/next/no-img-element */
 
-import { patchResource, removeResources, updateMyLikes } from "@/entities/generation/model/resource-cache";
+import { removeResources } from "@/entities/generation/model/resource-cache";
 import { Menu } from "@base-ui/react/menu";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, Heart, LoaderCircle, MoreHorizontal, Plus, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
+import { useImageLike } from "../model/use-image-like";
 
+import type { QueryKey } from "@tanstack/react-query";
 import type { GenerationAsset } from "@/entities/generation/model/generation";
 import type { ImageDetailNavigation } from "@/entities/generation/model/use-image-detail-navigation";
 import { ImageDetailShell } from "@/entities/generation/ui/image-detail-shell";
 import { downloadOriginalGenerationImage } from "@/features/assets/lib/original-image-download";
 import { useAuthDialog } from "@/features/auth/model/auth-dialog-provider";
 import { useSession } from "@/features/auth/model/session-provider";
-import { getInspiration, inspirationQueryKeys, setImageLike } from "@/features/inspiration/api/inspiration-api";
+import { getInspiration, inspirationQueryKeys } from "@/features/inspiration/api/inspiration-api";
 import { downloadPublicDisplayImage } from "@/features/inspiration/lib/public-image-download";
 import { removePublication } from "@/features/publication/api/publication-api";
 import { getPublicAuthor, setFollowing, type PublicAuthor } from "@/features/public-user/api/public-user-api";
 
 export function PublicImageDetail({
   image,
+  sourceQueryKey,
   onClose,
   onImageChange,
   navigation,
 }: {
   image: GenerationAsset;
+  sourceQueryKey: QueryKey;
   onClose: () => void;
   onImageChange: (image: GenerationAsset) => void;
   navigation?: ImageDetailNavigation;
@@ -33,7 +37,6 @@ export function PublicImageDetail({
   const { status, user } = useSession();
   const { open } = useAuthDialog();
   const queryClient = useQueryClient();
-  const [likeError, setLikeError] = useState(false);
   const [downloadError, setDownloadError] = useState(false);
   const isSelf = user?.id === image.authorId;
   const author = useQuery({
@@ -41,7 +44,7 @@ export function PublicImageDetail({
     queryFn: () => getPublicAuthor(image.authorId),
     enabled: Boolean(image.authorId),
   });
-  const like = useMutation({ mutationFn: (liked: boolean) => setImageLike(image.id, image.publicationVersion, liked) });
+  const like = useImageLike({ image, sourceQueryKey, userId: user?.id });
   const follow = useMutation({
     mutationFn: (following: boolean) => setFollowing(image.authorId, following),
     onSuccess: () => {
@@ -67,32 +70,6 @@ export function PublicImageDetail({
     if (status !== "authenticated") open();
     else action();
   };
-
-  function toggleLike(): void {
-    const previous = image;
-    const liked = !previous.likedByCurrentUser;
-    const next = {
-      ...previous,
-      likedByCurrentUser: liked,
-      likeCount: Math.max(0, previous.likeCount + (liked ? 1 : -1)),
-    };
-    setLikeError(false);
-    onImageChange(next);
-    patchResource(queryClient, image.id, { likedByCurrentUser: liked, likeCount: next.likeCount });
-    like.mutate(liked, {
-      onSuccess: () => {
-        if (user) updateMyLikes(queryClient, user.id, next);
-      },
-      onError: () => {
-        onImageChange(previous);
-        patchResource(queryClient, image.id, {
-          likedByCurrentUser: previous.likedByCurrentUser,
-          likeCount: previous.likeCount,
-        });
-        setLikeError(true);
-      },
-    });
-  }
 
   const download = useMutation({
     mutationFn: async () => {
@@ -120,11 +97,11 @@ export function PublicImageDetail({
           liking={like.isPending}
           downloading={download.isPending}
           withdrawing={withdraw.isPending}
-          likeError={likeError}
+          likeError={like.errorMessage}
           downloadError={downloadError}
           withdrawError={withdraw.isError}
           onFollow={() => requireLogin(() => follow.mutate(!(author.data?.viewerFollowing ?? false)))}
-          onLike={() => requireLogin(toggleLike)}
+          onLike={() => requireLogin(like.toggle)}
           onDownload={() => download.mutate()}
           onWithdraw={() => withdraw.mutate()}
         />
@@ -158,7 +135,7 @@ export function PublicDetailHeader({
   liking: boolean;
   downloading: boolean;
   withdrawing: boolean;
-  likeError: boolean;
+  likeError: string | null;
   downloadError: boolean;
   withdrawError: boolean;
   onFollow: () => void;
@@ -167,13 +144,8 @@ export function PublicDetailHeader({
   onWithdraw: () => void;
 }) {
   const likeLabel = `${image.likedByCurrentUser ? "取消点赞" : "点赞"}，当前 ${image.likeCount} 个赞`;
-  const errorMessage = likeError
-    ? "点赞状态更新失败，已恢复原状态。"
-    : downloadError
-      ? "下载失败，请稍后重试。"
-      : withdrawError
-        ? "撤销发布失败，请稍后重试。"
-        : null;
+  const errorMessage =
+    likeError ?? (downloadError ? "下载失败，请稍后重试。" : withdrawError ? "撤销发布失败，请稍后重试。" : null);
 
   return (
     <section className="border-b border-[var(--border)] pb-5">

@@ -3,9 +3,7 @@ import { mapGenerationAssetImage } from "@/entities/generation/model/generation"
 import { browserApiClient } from "@/shared/api/browser-client";
 import { type ApiResponse, unwrapApiResponse } from "@/shared/api/api-response";
 
-export const assetQueryKeys = {
-  all: ["assets"] as const,
-};
+export { assetQueryKeys } from "@/entities/generation/model/resource-queries";
 
 export async function listGenerationAssets(): Promise<GenerationAsset[]> {
   const response = await browserApiClient.get<ApiResponse<GenerationAssetImageDto[]>>("/generation-images");

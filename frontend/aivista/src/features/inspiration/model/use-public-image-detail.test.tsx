@@ -42,7 +42,9 @@ describe("usePublicImageDetail", () => {
     const replaceState = vi.spyOn(window.history, "replaceState");
     const first = asset("1");
     const second = asset("2");
-    const { result } = renderHook(() => usePublicImageDetail([first, second]), { wrapper });
+    const { result } = renderHook(() => usePublicImageDetail(["inspirations", "discovery"], [first, second]), {
+      wrapper,
+    });
 
     await act(async () => result.current.open(first));
     await act(async () => result.current.navigate(second));
@@ -60,7 +62,9 @@ describe("usePublicImageDetail", () => {
     window.history.replaceState(null, "", "/inspirations?view=following");
     const pushState = vi.spyOn(window.history, "pushState");
     const replaceState = vi.spyOn(window.history, "replaceState");
-    const { result } = renderHook(() => usePublicImageDetail([asset("1"), asset("2")]), { wrapper });
+    const { result } = renderHook(() => usePublicImageDetail(["inspirations", "discovery"], [asset("1"), asset("2")]), {
+      wrapper,
+    });
 
     await act(async () => result.current.open(asset("1")));
     await act(async () => result.current.navigate(asset("2")));
@@ -79,7 +83,7 @@ describe("usePublicImageDetail", () => {
 
   it("returns to the source history entry when a list detail closes", async () => {
     const back = vi.spyOn(window.history, "back").mockImplementation(() => undefined);
-    const { result } = renderHook(() => usePublicImageDetail([asset("1")]), { wrapper });
+    const { result } = renderHook(() => usePublicImageDetail(["inspirations", "discovery"], [asset("1")]), { wrapper });
 
     await act(async () => result.current.open(asset("1")));
     act(() => result.current.close());
@@ -93,7 +97,9 @@ describe("usePublicImageDetail", () => {
     async (sourcePath) => {
       window.history.replaceState(null, "", sourcePath);
       const pushState = vi.spyOn(window.history, "pushState");
-      const { result } = renderHook(() => usePublicImageDetail([asset("1")]), { wrapper });
+      const { result } = renderHook(() => usePublicImageDetail(["inspirations", "discovery"], [asset("1")]), {
+        wrapper,
+      });
 
       await act(async () => result.current.open(asset("1")));
 
@@ -113,7 +119,10 @@ describe("usePublicImageDetail", () => {
     const first = asset("1");
     const refreshing = asset("2", true);
     const latest = asset("3");
-    const { result } = renderHook(() => usePublicImageDetail([first, refreshing, latest]), { wrapper });
+    const { result } = renderHook(
+      () => usePublicImageDetail(["inspirations", "discovery"], [first, refreshing, latest]),
+      { wrapper },
+    );
     await act(async () => result.current.open(first));
 
     let pending!: Promise<void>;
@@ -132,7 +141,7 @@ describe("usePublicImageDetail", () => {
   it("renders the latest list image without keeping a separate detail snapshot", async () => {
     const first = asset("1");
     const updated = { ...first, likeCount: 1, likedByCurrentUser: true };
-    const { result, rerender } = renderHook(({ items }) => usePublicImageDetail(items), {
+    const { result, rerender } = renderHook(({ items }) => usePublicImageDetail(["inspirations", "discovery"], items), {
       initialProps: { items: [first] },
       wrapper,
     });
@@ -147,7 +156,9 @@ describe("usePublicImageDetail", () => {
     const first = asset("1");
     const updated = { ...first, likeCount: 1 };
     const onImageChange = vi.fn();
-    const { result } = renderHook(() => usePublicImageDetail([first], onImageChange), { wrapper });
+    const { result } = renderHook(() => usePublicImageDetail(["inspirations", "discovery"], [first], onImageChange), {
+      wrapper,
+    });
 
     await act(async () => result.current.open(first));
     act(() => result.current.updateImage(updated));
@@ -161,10 +172,13 @@ describe("usePublicImageDetail", () => {
     const refreshed = asset("1");
     vi.mocked(getInspiration).mockResolvedValueOnce(refreshed);
     const onImageChange = vi.fn();
-    const { result, rerender } = renderHook(({ items }) => usePublicImageDetail(items, onImageChange), {
-      initialProps: { items: [expired] },
-      wrapper,
-    });
+    const { result, rerender } = renderHook(
+      ({ items }) => usePublicImageDetail(["inspirations", "discovery"], items, onImageChange),
+      {
+        initialProps: { items: [expired] },
+        wrapper,
+      },
+    );
 
     await act(async () => result.current.open(expired));
     expect(onImageChange).toHaveBeenCalledWith(refreshed);
@@ -176,7 +190,9 @@ describe("usePublicImageDetail", () => {
   it("selects the list image recorded by browser history", async () => {
     const first = asset("1");
     const second = asset("2");
-    const { result } = renderHook(() => usePublicImageDetail([first, second]), { wrapper });
+    const { result } = renderHook(() => usePublicImageDetail(["inspirations", "discovery"], [first, second]), {
+      wrapper,
+    });
 
     await act(async () => result.current.open(first));
     act(() => {
@@ -188,7 +204,7 @@ describe("usePublicImageDetail", () => {
 
   it("uses a single-image query when there is no list", async () => {
     const first = asset("1");
-    const { result } = renderHook(() => usePublicImageDetail([]), { wrapper });
+    const { result } = renderHook(() => usePublicImageDetail(["inspirations", "discovery"], []), { wrapper });
 
     await act(async () => result.current.open(first));
 
@@ -201,7 +217,7 @@ describe("usePublicImageDetail", () => {
   it("dismisses a failed single-image request without leaving a stale error", async () => {
     vi.mocked(getInspiration).mockRejectedValueOnce(new Error("not found"));
     const back = vi.spyOn(window.history, "back").mockImplementation(() => undefined);
-    const { result } = renderHook(() => usePublicImageDetail([]), { wrapper });
+    const { result } = renderHook(() => usePublicImageDetail(["inspirations", "discovery"], []), { wrapper });
 
     act(() => {
       window.dispatchEvent(new PopStateEvent("popstate", { state: { aivistaPublicImageDetail: true, imageId: "9" } }));

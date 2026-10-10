@@ -5,9 +5,7 @@ import { type ApiResponse, unwrapApiResponse } from "@/shared/api/api-response";
 
 export type PublicationRequestResult = { imageId: string; status: "PENDING" };
 
-export const publicationQueryKeys = {
-  mine: ["publication", "mine"] as const,
-};
+export { publicationQueryKeys } from "@/entities/generation/model/resource-queries";
 
 export type SubmitPublicationInput = { title: string; description: string };
 

@@ -1,16 +1,17 @@
 "use client";
+import type { QueryKey } from "@tanstack/react-query";
 /* eslint-disable @next/next/no-img-element */
 
-import { patchResource, updateMyLikes } from "@/entities/generation/model/resource-cache";
+import { useImageLike } from "../model/use-image-like";
 import { Heart, MoreHorizontal, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState, type MouseEvent } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { needsImageUrlRefresh, type GenerationAsset } from "@/entities/generation/model/generation";
 import { useAuthDialog } from "@/features/auth/model/auth-dialog-provider";
 import { useSession } from "@/features/auth/model/session-provider";
-import { getInspiration, setImageLike } from "@/features/inspiration/api/inspiration-api";
+import { getInspiration } from "@/features/inspiration/api/inspiration-api";
 import {
   discardUnavailableInspiration,
   updateInspirationInFeeds,
@@ -86,19 +87,19 @@ function useVisibleImageSource(image: GenerationAsset, priority: boolean) {
 
 export function PublicInspirationCard({
   image,
+  sourceQueryKey,
   priority = false,
   onOpen,
 }: {
   image: GenerationAsset;
+  sourceQueryKey: QueryKey;
   priority?: boolean;
   onOpen?: (image: GenerationAsset) => void | Promise<void>;
 }) {
   const { cardRef, source, refreshAfterError } = useVisibleImageSource(image, priority);
-  const queryClient = useQueryClient();
   const { status, user } = useSession();
   const { open: openAuthDialog } = useAuthDialog();
-  const [likeError, setLikeError] = useState(false);
-  const like = useMutation({ mutationFn: (liked: boolean) => setImageLike(image.id, image.publicationVersion, liked) });
+  const like = useImageLike({ image, sourceQueryKey, userId: user?.id });
   const detailHref = `/inspirations?imageId=${encodeURIComponent(image.id)}`;
   const open = (event: MouseEvent<HTMLAnchorElement>) => {
     if (
@@ -121,34 +122,14 @@ export function PublicInspirationCard({
       openAuthDialog();
       return;
     }
-    const previous = image;
-    const liked = !previous.likedByCurrentUser;
-    const next = {
-      ...previous,
-      likedByCurrentUser: liked,
-      likeCount: Math.max(0, previous.likeCount + (liked ? 1 : -1)),
-    };
-    setLikeError(false);
-    patchResource(queryClient, image.id, { likedByCurrentUser: liked, likeCount: next.likeCount });
-    like.mutate(liked, {
-      onSuccess: () => {
-        if (user) updateMyLikes(queryClient, user.id, next);
-      },
-      onError: () => {
-        patchResource(queryClient, image.id, {
-          likedByCurrentUser: previous.likedByCurrentUser,
-          likeCount: previous.likeCount,
-        });
-        setLikeError(true);
-      },
-    });
+    like.toggle();
   };
   const likeLabel = `${image.likedByCurrentUser ? "取消点赞" : "点赞"}，当前 ${image.likeCount} 个赞`;
   const likeControl = (
     <>
-      {likeError ? (
-        <span role="status" className="sr-only">
-          点赞状态更新失败，已恢复原状态。
+      {like.errorMessage ? (
+        <span role="status" className="text-xs text-[var(--primary)]">
+          {like.errorMessage}
         </span>
       ) : null}
       <button
