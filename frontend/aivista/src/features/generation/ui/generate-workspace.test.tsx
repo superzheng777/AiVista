@@ -12,6 +12,7 @@ import {
 } from "../api/generation-api";
 import { sessionFixture } from "../model/session-events.test-fixture";
 import { receiveCreationEvent } from "../model/session-events";
+import { useGenerationEventStreamStore } from "../model/generation-event-stream-store";
 import { GenerateWorkspace } from "./generate-workspace";
 const route = vi.hoisted(() => ({ search: "sessionId=1" }));
 const navigate = vi.fn();
@@ -29,9 +30,7 @@ vi.mock("../api/generation-api", async (original) => ({
   deleteGenerationSession: vi.fn(),
 }));
 const acknowledge = vi.fn();
-vi.mock("../model/generation-event-stream-provider", () => ({
-  useGenerationEventStream: () => ({ syncVersion: 0, acknowledgeSession: acknowledge }),
-}));
+
 vi.mock("./generation-composer", () => ({
   GenerationComposer: ({ hasActiveCreation }: { hasActiveCreation: boolean }) => (
     <button disabled={hasActiveCreation}>提交创作</button>
@@ -40,6 +39,10 @@ vi.mock("./generation-composer", () => ({
 let desktop = true;
 const mediaListeners = new Set<() => void>();
 beforeEach(() => {
+  useGenerationEventStreamStore.setState(
+    { ...useGenerationEventStreamStore.getInitialState(), acknowledgeSession: acknowledge },
+    true,
+  );
   route.search = "sessionId=1";
   desktop = true;
   mediaListeners.clear();
@@ -90,9 +93,18 @@ describe("GenerateWorkspace", () => {
     vi.mocked(getGenerationSession).mockResolvedValue(data);
     vi.mocked(listGenerationSessions).mockResolvedValue([data]);
     let finish!: () => void;
-    vi.mocked(deleteGenerationSession).mockImplementation(() => new Promise<void>((resolve) => { finish = resolve; }));
+    vi.mocked(deleteGenerationSession).mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(<QueryClientProvider client={client}><GenerateWorkspace /></QueryClientProvider>);
+    render(
+      <QueryClientProvider client={client}>
+        <GenerateWorkspace />
+      </QueryClientProvider>,
+    );
     await screen.findByText("制作海报");
     await deleteFromMenu("海报设计");
     expect(deleteGenerationSession).toHaveBeenCalledWith("1");
@@ -106,7 +118,15 @@ describe("GenerateWorkspace", () => {
     expect(acknowledge).toHaveBeenCalledWith("1");
     expect(client.getQueryData(generationQueryKeys.session("1"))).toBeUndefined();
     expect(client.getQueryData(generationQueryKeys.sessions())).toEqual([]);
-    expect(receiveCreationEvent(client, { type: "creation.updated", sessionId: "1", creationId: "2", status: "SUCCEEDED", revision: 2 })).toBe(false);
+    expect(
+      receiveCreationEvent(client, {
+        type: "creation.updated",
+        sessionId: "1",
+        creationId: "2",
+        status: "SUCCEEDED",
+        revision: 2,
+      }),
+    ).toBe(false);
     client.clear();
   });
 
@@ -118,7 +138,11 @@ describe("GenerateWorkspace", () => {
     vi.mocked(deleteGenerationSession).mockResolvedValue();
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     client.setQueryData(generationQueryKeys.session("other"), other);
-    render(<QueryClientProvider client={client}><GenerateWorkspace /></QueryClientProvider>);
+    render(
+      <QueryClientProvider client={client}>
+        <GenerateWorkspace />
+      </QueryClientProvider>,
+    );
     await screen.findByText("制作海报");
     await deleteFromMenu("另一会话");
     await waitFor(() => expect(screen.queryByRole("button", { name: "另一会话" })).not.toBeInTheDocument());
@@ -132,7 +156,10 @@ describe("GenerateWorkspace", () => {
   });
 
   it.each([
-    [{ isAxiosError: true, response: { status: 409, data: { code: 40908, message: "当前会话已有创作正在进行" } } }, "当前会话已有创作正在进行"],
+    [
+      { isAxiosError: true, response: { status: 409, data: { code: 40908, message: "当前会话已有创作正在进行" } } },
+      "当前会话已有创作正在进行",
+    ],
     [new Error("offline"), "会话删除失败，请重试。"],
   ])("preserves history on deletion failure and allows retry", async (error, message) => {
     const data = sessionFixture();
@@ -140,7 +167,11 @@ describe("GenerateWorkspace", () => {
     vi.mocked(listGenerationSessions).mockResolvedValue([data]);
     vi.mocked(deleteGenerationSession).mockRejectedValueOnce(error).mockResolvedValueOnce();
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(<QueryClientProvider client={client}><GenerateWorkspace /></QueryClientProvider>);
+    render(
+      <QueryClientProvider client={client}>
+        <GenerateWorkspace />
+      </QueryClientProvider>,
+    );
     await screen.findByText("制作海报");
     await deleteFromMenu("海报设计");
     expect(await screen.findByRole("alert")).toHaveTextContent(message as string);

@@ -14,7 +14,7 @@ import {
   getGenerationAsset,
   setGenerationImageFavorites,
 } from "@/features/assets/api/asset-api";
-import { useGenerationEventStream } from "@/features/generation/model/generation-event-stream-provider";
+import { useGenerationEventStreamStore } from "@/features/generation/model/generation-event-stream-store";
 import {
   deleteInteractionNotification,
   deleteInteractionNotifications,
@@ -67,7 +67,8 @@ export function retainFirstNotificationPage(client: ReturnType<typeof useQueryCl
 export function OfficialNotificationsBell() {
   const client = useQueryClient();
   const publicDetail = usePublicImageDetail(null, [], (image) => updateInspirationInFeeds(client, image));
-  const { notificationRefreshVersion, publicationRefreshVersion } = useGenerationEventStream();
+  const notificationRefreshVersion = useGenerationEventStreamStore((state) => state.notificationRefreshVersion);
+  const publicationRefreshVersion = useGenerationEventStreamStore((state) => state.publicationRefreshVersion);
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<Tab>("official");
   const [image, setImage] = useState<GenerationAsset | null>(null);

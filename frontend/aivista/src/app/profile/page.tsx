@@ -3,12 +3,13 @@
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 
-import { useSession } from "@/features/auth/model/session-provider";
+import { useAuthStore } from "@/features/auth/model/auth-store";
 
 /** Legacy entry point. The profile itself always lives at /users?userId={userId}. */
 export default function ProfilePage() {
   const router = useRouter();
-  const { status, user } = useSession();
+  const status = useAuthStore((state) => state.status);
+  const user = useAuthStore((state) => state.user);
 
   useEffect(() => {
     if (status === "authenticated" && user) router.replace(`/users?userId=${encodeURIComponent(user.id)}`);

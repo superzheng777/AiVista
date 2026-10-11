@@ -1,11 +1,11 @@
 "use client";
 
 import { AppShell } from "@/widgets/app-shell/ui/app-shell";
-import { useSession } from "@/features/auth/model/session-provider";
+import { useAuthStore } from "@/features/auth/model/auth-store";
 import { AssetsWorkspace } from "@/features/assets/ui/assets-workspace";
 
 export default function AssetsPage() {
-  const { status } = useSession();
+  const status = useAuthStore((state) => state.status);
 
   return (
     <AppShell>

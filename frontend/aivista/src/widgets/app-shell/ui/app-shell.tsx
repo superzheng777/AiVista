@@ -6,10 +6,10 @@ import { usePathname, useRouter } from "next/navigation";
 import { type MouseEvent, type ReactNode, useEffect } from "react";
 
 import { AccountControl } from "@/features/account-menu/ui/account-control";
-import { useAuthDialog } from "@/features/auth/model/auth-dialog-provider";
+import { useAuthDialogStore } from "@/features/auth/model/auth-dialog-store";
 import type { AuthStatus } from "@/features/auth/model/auth-store";
-import { useSession } from "@/features/auth/model/session-provider";
-import { useGenerationEventStream } from "@/features/generation/model/generation-event-stream-provider";
+import { useAuthStore } from "@/features/auth/model/auth-store";
+import { useGenerationEventStreamStore } from "@/features/generation/model/generation-event-stream-store";
 import { OfficialNotificationsBell } from "@/features/official-notifications/ui/official-notifications-bell";
 import { cn } from "@/shared/lib/cn";
 
@@ -28,9 +28,13 @@ function isProtectedPath(pathname: string): boolean {
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { status } = useSession();
-  const generationStream = useGenerationEventStream();
-  const { open: openAuthDialog } = useAuthDialog();
+  const status = useAuthStore((state) => state.status);
+  const streamStatus = useGenerationEventStreamStore((state) => state.status);
+  const reconnectAttempt = useGenerationEventStreamStore((state) => state.reconnectAttempt);
+  const retryNow = useGenerationEventStreamStore((state) => state.retryNow);
+  const hasCompletedResults = useGenerationEventStreamStore((state) => state.completedSessionIds.size > 0);
+  const hasAttention = useGenerationEventStreamStore((state) => state.attentionSessionIds.size > 0);
+  const openAuthDialog = useAuthDialogStore((state) => state.open);
 
   useEffect(() => {
     if (status === "anonymous" && isProtectedPath(pathname)) {
@@ -41,10 +45,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <GenerationStreamNotice
-        status={generationStream.status}
-        attempt={generationStream.reconnectAttempt}
+        status={streamStatus}
+        attempt={reconnectAttempt}
         onRetry={() => {
-          void generationStream.retryNow();
+          void retryNow();
         }}
       />
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-[88px] flex-col items-center border-r border-[var(--border)] bg-[var(--surface-bg)] py-5 md:flex">
@@ -67,7 +71,9 @@ export function AppShell({ children }: { children: ReactNode }) {
               onAuthRequired={openAuthDialog}
               editorial
               generationBadge={
-                item.href === "/generate" && !pathname.startsWith("/generate") ? generationStream : undefined
+                item.href === "/generate" && !pathname.startsWith("/generate")
+                  ? { hasAttention, hasCompletedResults }
+                  : undefined
               }
             />
           ))}
@@ -91,7 +97,9 @@ export function AppShell({ children }: { children: ReactNode }) {
             onAuthRequired={openAuthDialog}
             editorial
             generationBadge={
-              item.href === "/generate" && !pathname.startsWith("/generate") ? generationStream : undefined
+              item.href === "/generate" && !pathname.startsWith("/generate")
+                ? { hasAttention, hasCompletedResults }
+                : undefined
             }
           />
         ))}
@@ -144,7 +152,7 @@ function SidebarLink({
   authStatus: AuthStatus;
   onAuthRequired: () => void;
   editorial?: boolean;
-  generationBadge?: Pick<ReturnType<typeof useGenerationEventStream>, "hasAttention" | "hasCompletedResults">;
+  generationBadge?: { hasAttention: boolean; hasCompletedResults: boolean };
 }) {
   const Icon = item.icon;
   function handleClick(event: MouseEvent<HTMLAnchorElement>) {

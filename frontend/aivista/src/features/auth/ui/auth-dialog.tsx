@@ -6,19 +6,20 @@ import { useEffect, useRef, useState } from "react";
 import { useForm, type UseFormRegisterReturn } from "react-hook-form";
 
 import { getUserAgreementPolicy, type UserAgreementPolicy } from "@/features/auth/api/auth-api";
-import { useAuthDialog } from "@/features/auth/model/auth-dialog-provider";
-import { useSession } from "@/features/auth/model/session-provider";
+import { useAuthDialogStore } from "@/features/auth/model/auth-dialog-store";
+import { useAuthStore } from "@/features/auth/model/auth-store";
 import { authFormSchema, type AuthFormValues, type AuthMode } from "@/features/auth/model/auth-form";
 
 export function AuthDialog() {
-  const { isOpen } = useAuthDialog();
+  const isOpen = useAuthDialogStore((state) => state.isOpen);
 
   return isOpen ? <OpenAuthDialog /> : null;
 }
 
 function OpenAuthDialog() {
-  const { close } = useAuthDialog();
-  const { login, register } = useSession();
+  const close = useAuthDialogStore((state) => state.close);
+  const login = useAuthStore((state) => state.login);
+  const register = useAuthStore((state) => state.register);
   const mountedRef = useRef(true);
   const [mode, setMode] = useState<AuthMode>("login");
   const form = useForm<AuthFormValues>({

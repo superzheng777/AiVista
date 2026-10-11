@@ -145,8 +145,17 @@ export function SessionHistoryItem({
             ) : null}
           </button>
           <Menu.Root>
-            <Menu.Trigger disabled={remove.isPending} aria-label={`会话操作：${session.title}`} title="会话操作" className={iconButton}>
-              {remove.isPending ? <LoaderCircle aria-label="正在删除" className="size-3.5 animate-spin" /> : <MoreHorizontal className="size-3.5" />}
+            <Menu.Trigger
+              disabled={remove.isPending}
+              aria-label={`会话操作：${session.title}`}
+              title="会话操作"
+              className={iconButton}
+            >
+              {remove.isPending ? (
+                <LoaderCircle aria-label="正在删除" className="size-3.5 animate-spin" />
+              ) : (
+                <MoreHorizontal className="size-3.5" />
+              )}
             </Menu.Trigger>
             <Menu.Portal>
               <Menu.Positioner sideOffset={6} align="end" className="z-[80] outline-none">

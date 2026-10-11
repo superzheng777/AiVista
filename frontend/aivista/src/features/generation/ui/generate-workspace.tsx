@@ -9,7 +9,12 @@ import { BOTTOM_FOLLOW_THRESHOLD_PX, nextBottomFollowState } from "../model/conv
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import type { GenerationAsset } from "@/entities/generation/model/generation";
-import { isActiveCreation, mergeSessionSnapshot, type SessionDetail, type SessionSummary } from "@/entities/generation/model/session";
+import {
+  isActiveCreation,
+  mergeSessionSnapshot,
+  type SessionDetail,
+  type SessionSummary,
+} from "@/entities/generation/model/session";
 import { ImageDetailShell } from "@/entities/generation/ui/image-detail-shell";
 import { OwnedImageDetailActions } from "@/entities/generation/ui/owned-image-detail-actions";
 import { patchResource, removeResources } from "@/entities/generation/model/resource-cache";
@@ -26,8 +31,17 @@ import {
   listGenerationSessions,
   resolveAgentForm,
 } from "@/features/generation/api/generation-api";
-import { forgetSessionEvents, hydrateSession, isSessionDeleted, receiveCreationEvent } from "@/features/generation/model/session-events";
-import { useGenerationEventStream } from "@/features/generation/model/generation-event-stream-provider";
+import {
+  forgetSessionEvents,
+  hydrateSession,
+  isSessionDeleted,
+  receiveCreationEvent,
+} from "@/features/generation/model/session-events";
+import { useShallow } from "zustand/react/shallow";
+import {
+  selectSessionIndicators,
+  useGenerationEventStreamStore,
+} from "@/features/generation/model/generation-event-stream-store";
 import { GenerationComposer } from "./generation-composer";
 import { ConversationTurn } from "./conversation-turn";
 import { SessionHistoryItem } from "./session-history-item";
@@ -42,7 +56,8 @@ export function GenerateWorkspace() {
   const client = useQueryClient();
   const router = useRouter();
   const sessionId = useSearchParams().get("sessionId");
-  const { sessionIndicators, acknowledgeSession } = useGenerationEventStream();
+  const sessionIndicators = useGenerationEventStreamStore(useShallow(selectSessionIndicators));
+  const acknowledgeSession = useGenerationEventStreamStore((state) => state.acknowledgeSession);
   const sessionsQuery = useQuery({ queryKey: generationQueryKeys.sessions(), queryFn: listGenerationSessions });
   const sessions = sessionsQuery.data;
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -241,7 +256,8 @@ function NewConversationPanel({ toolbar }: { toolbar: ReactNode }) {
 function ConversationPanel({ sessionId, toolbar }: { sessionId: string; toolbar: ReactNode }) {
   const client = useQueryClient();
   const router = useRouter();
-  const { syncVersion, acknowledgeSession } = useGenerationEventStream();
+  const syncVersion = useGenerationEventStreamStore((state) => state.syncVersion);
+  const acknowledgeSession = useGenerationEventStreamStore((state) => state.acknowledgeSession);
   const lastSync = useRef(syncVersion);
   const historyRef = useRef<HTMLDivElement>(null);
   const composerDockRef = useRef<HTMLDivElement>(null);

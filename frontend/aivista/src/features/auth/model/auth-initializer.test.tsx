@@ -4,9 +4,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { CurrentUser } from "@/entities/user/model/user";
 import { useAuthStore } from "./auth-store";
-import { SessionProvider } from "./session-provider";
+import { useAuthDialogStore } from "./auth-dialog-store";
+import { AuthInitializer } from "./auth-initializer";
 
-vi.mock("@/shared/api/browser-client", () => ({ configureBrowserAuth: () => () => {} }));
+const authBridge = vi.hoisted(() => ({ configure: vi.fn(), cleanup: vi.fn() }));
+vi.mock("@/shared/api/browser-client", () => ({ configureBrowserAuth: authBridge.configure }));
 
 const initial = useAuthStore.getState();
 const user: CurrentUser = {
@@ -21,11 +23,18 @@ const user: CurrentUser = {
 let client: QueryClient;
 
 beforeEach(() => {
+  vi.clearAllMocks();
+  authBridge.configure.mockReturnValue(authBridge.cleanup);
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  useAuthStore.setState({ ...initial, restoreSession: async () => {}, status: "authenticated", user });
+  useAuthStore.setState({
+    ...initial,
+    restoreSession: vi.fn().mockResolvedValue(undefined),
+    status: "authenticated",
+    user,
+  });
   render(
     <QueryClientProvider client={client}>
-      <SessionProvider>session</SessionProvider>
+      <AuthInitializer />
     </QueryClientProvider>,
   );
   client.setQueryData(["assets"], ["private-asset-a"]);
@@ -55,4 +64,16 @@ describe("session resource cache isolation", () => {
     act(() => useAuthStore.setState({ status: "anonymous", user: null }));
     expect(client.getQueryCache().getAll()).toEqual([]);
   });
+});
+
+it("restores authentication, configures the Axios bridge and releases UI state on unmount", () => {
+  expect(useAuthStore.getState().restoreSession).toHaveBeenCalledOnce();
+  expect(authBridge.configure).toHaveBeenCalledOnce();
+  const bridge = authBridge.configure.mock.calls[0]![0];
+  act(() => useAuthStore.setState({ accessToken: "new-token" }));
+  expect(bridge.getAccessToken()).toBe("new-token");
+  useAuthDialogStore.getState().open();
+  cleanup();
+  expect(authBridge.cleanup).toHaveBeenCalledOnce();
+  expect(useAuthDialogStore.getState().isOpen).toBe(false);
 });

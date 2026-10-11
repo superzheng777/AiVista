@@ -7,8 +7,13 @@ const auth = vi.hoisted(() => ({
   open: vi.fn(),
 }));
 
-vi.mock("@/features/auth/model/auth-dialog-provider", () => ({ useAuthDialog: () => ({ open: auth.open }) }));
-vi.mock("@/features/auth/model/session-provider", () => ({ useSession: () => ({ status: auth.status, user: null }) }));
+vi.mock("@/features/auth/model/auth-dialog-store", () => ({
+  useAuthDialogStore: (select: (state: { open: () => void }) => unknown) => select({ open: auth.open }),
+}));
+vi.mock("@/features/auth/model/auth-store", () => ({
+  useAuthStore: (select: (state: { status: string; user: null }) => unknown) =>
+    select({ status: auth.status, user: null }),
+}));
 vi.mock("@/shared/api/browser-client", () => ({ browserApiClient: { get: vi.fn(), put: vi.fn(), delete: vi.fn() } }));
 
 import type { GenerationAsset } from "@/entities/generation/model/generation";

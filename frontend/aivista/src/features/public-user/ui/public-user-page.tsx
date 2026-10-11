@@ -24,8 +24,8 @@ import { ImageDetailOverlay } from "@/entities/generation/ui/image-detail-overla
 import { ImageDetailShell } from "@/entities/generation/ui/image-detail-shell";
 import { getGenerationAsset } from "@/features/assets/api/asset-api";
 import { downloadOriginalGenerationImage } from "@/features/assets/lib/original-image-download";
-import { useAuthDialog } from "@/features/auth/model/auth-dialog-provider";
-import { useSession } from "@/features/auth/model/session-provider";
+import { useAuthDialogStore } from "@/features/auth/model/auth-dialog-store";
+import { useAuthStore } from "@/features/auth/model/auth-store";
 import { LogoutConfirmDialog } from "@/features/auth/ui/logout-confirm-dialog";
 import { PublicImageDetailOverlay } from "@/features/inspiration/ui/public-image-detail-overlay";
 import { PublicImageOpenError } from "@/features/inspiration/ui/public-image-open-error";
@@ -72,8 +72,11 @@ function createdAtText(value: string): string {
 export function PublicUserPage({ userId }: { userId: string }) {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { status, user, logout, updateProfile } = useSession();
-  const { open: openAuthDialog } = useAuthDialog();
+  const status = useAuthStore((state) => state.status);
+  const user = useAuthStore((state) => state.user);
+  const logout = useAuthStore((state) => state.logout);
+  const updateProfile = useAuthStore((state) => state.updateProfile);
+  const openAuthDialog = useAuthDialogStore((state) => state.open);
   const isSelf = user?.id === userId;
   const [activeView, setActiveView] = useState<ProfileView>("works");
   const [editing, setEditing] = useState(false);

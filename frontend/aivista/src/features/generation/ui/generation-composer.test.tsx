@@ -6,12 +6,16 @@ import { GenerationComposer } from "@/features/generation/ui/generation-composer
 import { createAgentCreation, createGenerationTask } from "@/features/generation/api/generation-api";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
-vi.mock("@/features/auth/model/auth-dialog-provider", () => ({ useAuthDialog: () => ({ open: vi.fn() }) }));
-vi.mock("@/features/auth/model/session-provider", () => ({
-  useSession: () => ({ status: "authenticated", user: { id: "user-1" } }),
+vi.mock("@/features/auth/model/auth-dialog-store", () => ({
+  useAuthDialogStore: (select: (state: { open: () => void }) => unknown) => select({ open: vi.fn() }),
 }));
-vi.mock("@/features/generation/model/generation-event-stream-provider", () => ({
-  useGenerationEventStream: () => ({ ensureReady: vi.fn().mockResolvedValue(true) }),
+vi.mock("@/features/auth/model/auth-store", () => ({
+  useAuthStore: (select: (state: { status: string; user: { id: string } }) => unknown) =>
+    select({ status: "authenticated", user: { id: "user-1" } }),
+}));
+vi.mock("@/features/generation/model/generation-event-stream-store", () => ({
+  useGenerationEventStreamStore: (select: (state: { ensureReady: () => Promise<boolean> }) => unknown) =>
+    select({ ensureReady: vi.fn().mockResolvedValue(true) }),
 }));
 vi.mock("@/features/user-agreement/model/use-user-agreement-consent", () => ({
   useUserAgreementConsent: () => ({

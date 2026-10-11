@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AuthDialogProvider, useAuthDialog } from "@/features/auth/model/auth-dialog-provider";
+import { useAuthDialogStore } from "@/features/auth/model/auth-dialog-store";
 import { AuthDialog } from "@/features/auth/ui/auth-dialog";
 
 const authApi = vi.hoisted(() => ({ getUserAgreementPolicy: vi.fn() }));
@@ -12,12 +12,12 @@ vi.mock("@/features/auth/api/auth-api", async (importOriginal) => {
   return { ...actual, getUserAgreementPolicy: authApi.getUserAgreementPolicy };
 });
 
-vi.mock("@/features/auth/model/session-provider", () => ({
-  useSession: () => session,
+vi.mock("@/features/auth/model/auth-store", () => ({
+  useAuthStore: (select: (state: typeof session) => unknown) => select(session),
 }));
 
 function AuthDialogTrigger() {
-  const { open } = useAuthDialog();
+  const open = useAuthDialogStore((state) => state.open);
   return (
     <button type="button" onClick={open}>
       打开登录
@@ -27,16 +27,17 @@ function AuthDialogTrigger() {
 
 describe("AuthDialog", () => {
   beforeEach(() => {
+    useAuthDialogStore.setState({ isOpen: false });
     vi.clearAllMocks();
     authApi.getUserAgreementPolicy.mockResolvedValue({ policyVersion: "v1", policyContent: "测试协议" });
   });
 
   it("clears the password and hides it again after the dialog is closed", () => {
     render(
-      <AuthDialogProvider>
+      <>
         <AuthDialogTrigger />
         <AuthDialog />
-      </AuthDialogProvider>,
+      </>,
     );
 
     fireEvent.click(screen.getByRole("button", { name: "打开登录" }));
@@ -58,10 +59,10 @@ describe("AuthDialog", () => {
       .mockRejectedValueOnce(new Error("temporary failure"))
       .mockResolvedValueOnce({ policyVersion: "v1", policyContent: "测试协议" });
     render(
-      <AuthDialogProvider>
+      <>
         <AuthDialogTrigger />
         <AuthDialog />
-      </AuthDialogProvider>,
+      </>,
     );
 
     fireEvent.click(screen.getByRole("button", { name: "打开登录" }));
@@ -77,10 +78,10 @@ describe("AuthDialog", () => {
 
   it("loads the agreement and submits registration under Strict Mode", async () => {
     render(
-      <AuthDialogProvider>
+      <>
         <AuthDialogTrigger />
         <AuthDialog />
-      </AuthDialogProvider>,
+      </>,
       { reactStrictMode: true },
     );
     fireEvent.click(screen.getByRole("button", { name: "打开登录" }));

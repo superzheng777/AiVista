@@ -25,7 +25,7 @@ import {
   setGenerationImageFavorites,
 } from "@/features/assets/api/asset-api";
 import { downloadOriginalGenerationImage } from "@/features/assets/lib/original-image-download";
-import { useGenerationEventStream } from "@/features/generation/model/generation-event-stream-provider";
+import { useGenerationEventStreamStore } from "@/features/generation/model/generation-event-stream-store";
 import { PublicationFormDialog } from "@/features/publication/ui/publication-form-dialog";
 import { cn } from "@/shared/lib/cn";
 import { AccentSquare, DotMatrix } from "@/shared/ui/editorial-ornaments/editorial-ornaments";
@@ -67,7 +67,8 @@ function statusOf(asset: GenerationAsset) {
 export function AssetsWorkspace() {
   const client = useQueryClient();
   const router = useRouter();
-  const { hasCompletedResults, acknowledgeCompletedResults } = useGenerationEventStream();
+  const hasCompletedResults = useGenerationEventStreamStore((state) => state.completedSessionIds.size > 0);
+  const acknowledgeCompletedResults = useGenerationEventStreamStore((state) => state.acknowledgeCompletedResults);
   const acknowledgedAt = useRef(0);
   const [managing, setManaging] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());

@@ -9,8 +9,8 @@ import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { needsImageUrlRefresh, type GenerationAsset } from "@/entities/generation/model/generation";
-import { useAuthDialog } from "@/features/auth/model/auth-dialog-provider";
-import { useSession } from "@/features/auth/model/session-provider";
+import { useAuthDialogStore } from "@/features/auth/model/auth-dialog-store";
+import { useAuthStore } from "@/features/auth/model/auth-store";
 import { getInspiration } from "@/features/inspiration/api/inspiration-api";
 import {
   discardUnavailableInspiration,
@@ -97,8 +97,9 @@ export function PublicInspirationCard({
   onOpen?: (image: GenerationAsset) => void | Promise<void>;
 }) {
   const { cardRef, source, refreshAfterError } = useVisibleImageSource(image, priority);
-  const { status, user } = useSession();
-  const { open: openAuthDialog } = useAuthDialog();
+  const status = useAuthStore((state) => state.status);
+  const user = useAuthStore((state) => state.user);
+  const openAuthDialog = useAuthDialogStore((state) => state.open);
   const like = useImageLike({ image, sourceQueryKey, userId: user?.id });
   const detailHref = `/inspirations?imageId=${encodeURIComponent(image.id)}`;
   const open = (event: MouseEvent<HTMLAnchorElement>) => {

@@ -6,8 +6,8 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { LogoutConfirmDialog } from "@/features/auth/ui/logout-confirm-dialog";
-import { useAuthDialog } from "@/features/auth/model/auth-dialog-provider";
-import { useSession } from "@/features/auth/model/session-provider";
+import { useAuthDialogStore } from "@/features/auth/model/auth-dialog-store";
+import { useAuthStore } from "@/features/auth/model/auth-store";
 import { cn } from "@/shared/lib/cn";
 
 type AccountControlProps = { compact?: boolean };
@@ -15,8 +15,11 @@ type Submenu = "app" | null;
 
 export function AccountControl({ compact = false }: AccountControlProps) {
   const router = useRouter();
-  const { status, user, restoreSession, logout } = useSession();
-  const { open: openAuthDialog } = useAuthDialog();
+  const status = useAuthStore((state) => state.status);
+  const user = useAuthStore((state) => state.user);
+  const restoreSession = useAuthStore((state) => state.restoreSession);
+  const logout = useAuthStore((state) => state.logout);
+  const openAuthDialog = useAuthDialogStore((state) => state.open);
   const containerRef = useRef<HTMLDivElement>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);

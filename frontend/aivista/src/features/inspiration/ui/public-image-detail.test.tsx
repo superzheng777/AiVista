@@ -5,8 +5,13 @@ import type { GenerationAsset } from "@/entities/generation/model/generation";
 import { AuthorCard, PublicDetailHeader } from "@/features/inspiration/ui/public-image-detail";
 import type { PublicAuthor } from "@/features/public-user/api/public-user-api";
 
-vi.mock("@/features/auth/model/auth-dialog-provider", () => ({ useAuthDialog: () => ({ open: vi.fn() }) }));
-vi.mock("@/features/auth/model/session-provider", () => ({ useSession: () => ({ status: "anonymous", user: null }) }));
+vi.mock("@/features/auth/model/auth-dialog-store", () => ({
+  useAuthDialogStore: (select: (state: { open: () => void }) => unknown) => select({ open: vi.fn() }),
+}));
+vi.mock("@/features/auth/model/auth-store", () => ({
+  useAuthStore: (select: (state: { status: string; user: null }) => unknown) =>
+    select({ status: "anonymous", user: null }),
+}));
 
 const author: PublicAuthor = {
   id: "12" as PublicAuthor["id"],

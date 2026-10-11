@@ -14,8 +14,8 @@ import type { GenerationAsset } from "@/entities/generation/model/generation";
 import type { ImageDetailNavigation } from "@/entities/generation/model/use-image-detail-navigation";
 import { ImageDetailShell } from "@/entities/generation/ui/image-detail-shell";
 import { downloadOriginalGenerationImage } from "@/features/assets/lib/original-image-download";
-import { useAuthDialog } from "@/features/auth/model/auth-dialog-provider";
-import { useSession } from "@/features/auth/model/session-provider";
+import { useAuthDialogStore } from "@/features/auth/model/auth-dialog-store";
+import { useAuthStore } from "@/features/auth/model/auth-store";
 import { getInspiration, inspirationQueryKeys } from "@/features/inspiration/api/inspiration-api";
 import { downloadPublicDisplayImage } from "@/features/inspiration/lib/public-image-download";
 import { removePublication } from "@/features/publication/api/publication-api";
@@ -34,8 +34,9 @@ export function PublicImageDetail({
   onImageChange: (image: GenerationAsset) => void;
   navigation?: ImageDetailNavigation;
 }) {
-  const { status, user } = useSession();
-  const { open } = useAuthDialog();
+  const status = useAuthStore((state) => state.status);
+  const user = useAuthStore((state) => state.user);
+  const open = useAuthDialogStore((state) => state.open);
   const queryClient = useQueryClient();
   const [downloadError, setDownloadError] = useState(false);
   const isSelf = user?.id === image.authorId;

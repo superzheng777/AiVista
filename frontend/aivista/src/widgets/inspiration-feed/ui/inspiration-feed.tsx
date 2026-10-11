@@ -5,8 +5,8 @@ import { skipToken, useInfiniteQuery, useQuery, useQueryClient } from "@tanstack
 import Link from "next/link";
 import { useEffect, useRef } from "react";
 
-import { useAuthDialog } from "@/features/auth/model/auth-dialog-provider";
-import { useSession } from "@/features/auth/model/session-provider";
+import { useAuthDialogStore } from "@/features/auth/model/auth-dialog-store";
+import { useAuthStore } from "@/features/auth/model/auth-store";
 import { useImageDetailNavigation } from "@/entities/generation/model/use-image-detail-navigation";
 import {
   inspirationQueryKeys,
@@ -32,8 +32,10 @@ const scrollPositions: Record<InspirationFeedView, number> = { discovery: 0, fol
 export function InspirationFeed({ view = "discovery" }: { view?: InspirationFeedView }) {
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
-  const { status, user, restoreSession } = useSession();
-  const { open: openAuthDialog } = useAuthDialog();
+  const status = useAuthStore((state) => state.status);
+  const user = useAuthStore((state) => state.user);
+  const restoreSession = useAuthStore((state) => state.restoreSession);
+  const openAuthDialog = useAuthDialogStore((state) => state.open);
   const following = view === "following";
   const enabled = !following || status === "authenticated";
   const inspirations = useInfiniteQuery({

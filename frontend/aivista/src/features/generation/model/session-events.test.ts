@@ -2,13 +2,26 @@ import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 import type { SessionDetail } from "@/entities/generation/model/session";
 import { generationQueryKeys } from "../api/generation-api";
-import { clearSessionEvents, forgetSessionEvents, hydrateSession, insertCreatedTurn, isSessionDeleted, receiveCreationEvent } from "./session-events";
+import {
+  clearSessionEvents,
+  forgetSessionEvents,
+  hydrateSession,
+  insertCreatedTurn,
+  isSessionDeleted,
+  receiveCreationEvent,
+} from "./session-events";
 import { sessionFixture } from "./session-events.test-fixture";
 
 describe("session snapshots and SSE", () => {
   it("discards deleted session events without clearing other sessions and resets on logout", () => {
     const client = new QueryClient();
-    const event = { type: "creation.updated" as const, sessionId: "1", creationId: "2", status: "SUCCEEDED" as const, revision: 2 };
+    const event = {
+      type: "creation.updated" as const,
+      sessionId: "1",
+      creationId: "2",
+      status: "SUCCEEDED" as const,
+      revision: 2,
+    };
     receiveCreationEvent(client, event);
     receiveCreationEvent(client, { ...event, sessionId: "other" });
     forgetSessionEvents(client, "1");

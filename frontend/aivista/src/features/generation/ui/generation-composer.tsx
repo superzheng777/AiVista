@@ -35,9 +35,9 @@ import {
   generationFormSchema,
   type GenerationFormValues,
 } from "@/features/generation/model/generation-form";
-import { useAuthDialog } from "@/features/auth/model/auth-dialog-provider";
-import { useSession } from "@/features/auth/model/session-provider";
-import { useGenerationEventStream } from "@/features/generation/model/generation-event-stream-provider";
+import { useAuthDialogStore } from "@/features/auth/model/auth-dialog-store";
+import { useAuthStore } from "@/features/auth/model/auth-store";
+import { useGenerationEventStreamStore } from "@/features/generation/model/generation-event-stream-store";
 import { getApiErrorCode } from "@/shared/api/api-response";
 import { insertCreatedTurn } from "@/features/generation/model/session-events";
 import {
@@ -324,9 +324,9 @@ export function GenerationComposer({
 }: GenerationComposerProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { status } = useSession();
-  const { open: openAuthDialog } = useAuthDialog();
-  const generationStream = useGenerationEventStream();
+  const status = useAuthStore((state) => state.status);
+  const openAuthDialog = useAuthDialogStore((state) => state.open);
+  const ensureStreamReady = useGenerationEventStreamStore((state) => state.ensureReady);
   const [showOptions, setShowOptions] = useState(false);
   const [openSelect, setOpenSelect] = useState<"mode" | null>(null);
   const [referenceMenuOpen, setReferenceMenuOpen] = useState(false);
@@ -471,7 +471,7 @@ export function GenerationComposer({
     const inputAssetIds = referenceImages.map((image) => image.id);
     setSubmitFeedback(null);
     setIsPreparingStream(true);
-    const streamReady = await generationStream.ensureReady();
+    const streamReady = await ensureStreamReady();
     setIsPreparingStream(false);
     if (!streamReady) {
       setSubmitFeedback({ message: "无法建立实时连接，本次生成尚未开始。", retryable: true });
