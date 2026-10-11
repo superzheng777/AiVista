@@ -1,0 +1,53 @@
+.control {
+  transition-property: color, background-color, border-color;
+  transition-duration: var(--motion-duration-fast);
+  transition-timing-function: var(--motion-ease);
+}
+
+.sidebarContent {
+  width: 320px;
+  height: 100%;
+  border-right: 1px solid var(--border);
+}
+
+/* Keep both tracks present so the browser can interpolate the sidebar width. */
+@media (min-width: 64rem) {
+  .layout {
+    grid-template-columns: var(--session-sidebar-width) minmax(0, 1fr);
+    transition: grid-template-columns var(--motion-duration-standard) var(--motion-ease);
+  }
+
+  .toolbar {
+    transition: left var(--motion-duration-standard) var(--motion-ease);
+  }
+}
+
+.drawer {
+  transform: translateX(0);
+  transition: transform var(--motion-duration-standard) var(--motion-ease);
+}
+
+.drawer[data-starting-style],
+.drawer[data-ending-style] {
+  transform: translateX(-100%);
+}
+
+.backdrop {
+  opacity: 1;
+  transition: opacity var(--motion-duration-standard) var(--motion-ease);
+}
+
+.backdrop[data-starting-style],
+.backdrop[data-ending-style] {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .layout,
+  .toolbar,
+  .drawer,
+  .backdrop,
+  .control {
+    transition: none;
+  }
+}

@@ -49,6 +49,11 @@
 :root {
   --font-sans: "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
 
+  /* Shared interaction motion. Components choose properties, not their own timing. */
+  --motion-duration-fast: 150ms;
+  --motion-duration-standard: 220ms;
+  --motion-ease: cubic-bezier(0.2, 0, 0, 1);
+
   /* Core editorial palette */
   --page-bg: #f5f0e6;
   --surface-bg: #fffdf7;

@@ -12,6 +12,7 @@ import { getApiErrorMessage } from "@/shared/api/api-response";
 import { deleteGenerationSession, generationQueryKeys, updateGenerationSessionTitle } from "../api/generation-api";
 import type { GenerationSessionIndicator } from "../model/generation-event-stream-parsing";
 import { sessionTitleFormSchema, type SessionTitleFormValues } from "../model/session-title-form";
+import styles from "./generate-workspace.module.css";
 
 export function SessionHistoryItem({
   session,
@@ -75,7 +76,8 @@ export function SessionHistoryItem({
   return (
     <div
       className={cn(
-        "rounded-[7px] border text-sm transition",
+        styles.control,
+        "rounded-[7px] border text-sm",
         selected
           ? "border-[var(--accent-border)] bg-[var(--active-bg)] font-medium text-[var(--primary)]"
           : "border-transparent text-[var(--text-secondary)] hover:bg-[var(--surface-soft)] hover:text-[var(--primary)]",
@@ -123,12 +125,12 @@ export function SessionHistoryItem({
           ) : null}
         </form>
       ) : (
-        <div className="flex min-h-[50px] items-center pr-2">
+        <div className="flex min-h-[42px] items-center pr-2">
           <button
             type="button"
             onClick={onSelect}
             aria-current={selected ? "page" : undefined}
-            className="flex min-h-[50px] min-w-0 flex-1 items-center gap-[10px] rounded-[6px] pl-[13px] pr-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+            className="flex min-h-[42px] min-w-0 flex-1 items-center gap-[10px] rounded-[6px] pl-[13px] pr-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
           >
             <MessageSquare className="size-[18px] shrink-0" />
             <span title={session.title} className="min-w-0 flex-1 truncate">

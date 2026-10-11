@@ -13,11 +13,13 @@ import {
 import { sessionFixture } from "../model/session-events.test-fixture";
 import { receiveCreationEvent } from "../model/session-events";
 import { GenerateWorkspace } from "./generate-workspace";
+const route = vi.hoisted(() => ({ search: "sessionId=1" }));
 const navigate = vi.fn();
-const replace = vi.fn();
+const replaceHistory = vi.fn();
+const pushHistory = vi.fn();
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: navigate, replace }),
-  useSearchParams: () => new URLSearchParams("sessionId=1"),
+  useRouter: () => ({ push: navigate }),
+  useSearchParams: () => new URLSearchParams(route.search),
 }));
 vi.mock("../api/generation-api", async (original) => ({
   ...(await original<typeof import("../api/generation-api")>()),
@@ -35,7 +37,24 @@ vi.mock("./generation-composer", () => ({
     <button disabled={hasActiveCreation}>提交创作</button>
   ),
 }));
+let desktop = true;
+const mediaListeners = new Set<() => void>();
 beforeEach(() => {
+  route.search = "sessionId=1";
+  desktop = true;
+  mediaListeners.clear();
+  vi.spyOn(window.history, "pushState").mockImplementation(pushHistory);
+  vi.spyOn(window.history, "replaceState").mockImplementation(replaceHistory);
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn(() => ({
+      get matches() {
+        return desktop;
+      },
+      addEventListener: (_event: string, callback: () => void) => mediaListeners.add(callback),
+      removeEventListener: (_event: string, callback: () => void) => mediaListeners.delete(callback),
+    })),
+  );
   Element.prototype.scrollTo = vi.fn();
   vi.mocked(listGenerationSessions).mockResolvedValue([]);
   vi.mocked(updateGenerationSessionTitle).mockReset();
@@ -44,6 +63,8 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 describe("GenerateWorkspace", () => {
   async function beginRename(title: string) {
@@ -77,11 +98,11 @@ describe("GenerateWorkspace", () => {
     expect(deleteGenerationSession).toHaveBeenCalledWith("1");
     expect(screen.getByRole("button", { name: /^海报设计/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "会话操作：海报设计" })).toBeDisabled();
-    expect(replace).not.toHaveBeenCalled();
+    expect(replaceHistory).not.toHaveBeenCalled();
     await act(async () => finish());
     expect(await screen.findByText("你好，想创作什么？")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^海报设计/ })).not.toBeInTheDocument();
-    expect(replace).toHaveBeenCalledWith("/generate");
+    expect(replaceHistory).toHaveBeenCalledWith(null, "", "/generate");
     expect(acknowledge).toHaveBeenCalledWith("1");
     expect(client.getQueryData(generationQueryKeys.session("1"))).toBeUndefined();
     expect(client.getQueryData(generationQueryKeys.sessions())).toEqual([]);
@@ -102,7 +123,7 @@ describe("GenerateWorkspace", () => {
     await deleteFromMenu("另一会话");
     await waitFor(() => expect(screen.queryByRole("button", { name: "另一会话" })).not.toBeInTheDocument());
     expect(screen.getByText("制作海报")).toBeInTheDocument();
-    expect(replace).not.toHaveBeenCalled();
+    expect(replaceHistory).not.toHaveBeenCalled();
     expect(navigate).not.toHaveBeenCalled();
     expect(client.getQueryData(generationQueryKeys.session("other"))).toBeUndefined();
     expect(client.getQueryData(generationQueryKeys.session("1"))).toBeDefined();
@@ -126,7 +147,7 @@ describe("GenerateWorkspace", () => {
     expect(screen.getByRole("button", { name: /^海报设计/ })).toBeInTheDocument();
     expect(client.getQueryData(generationQueryKeys.session("1"))).toBeDefined();
     expect(client.getQueryData(generationQueryKeys.sessions())).toEqual([data]);
-    expect(replace).not.toHaveBeenCalled();
+    expect(replaceHistory).not.toHaveBeenCalled();
     await deleteFromMenu("海报设计");
     expect(await screen.findByText("你好，想创作什么？")).toBeInTheDocument();
     expect(deleteGenerationSession).toHaveBeenCalledTimes(2);
@@ -284,6 +305,95 @@ describe("GenerateWorkspace", () => {
     );
     await screen.findByText(/已达到30轮/);
     expect(screen.getByRole("button", { name: "提交创作" })).toBeDisabled();
+    client.clear();
+  });
+});
+
+describe("generation navigation", () => {
+  function renderWorkspace() {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <GenerateWorkspace />
+      </QueryClientProvider>,
+    );
+    return client;
+  }
+
+  it("shows the shared controls on a new conversation and allows the desktop sidebar to collapse", async () => {
+    route.search = "";
+    const client = renderWorkspace();
+    expect(screen.getByRole("link", { name: "资产库" })).toHaveAttribute("href", "/assets");
+    expect(screen.getByText("你好，想创作什么？")).toBeVisible();
+    const sidebar = screen.getByRole("complementary", { name: "会话侧栏" });
+    fireEvent.click(screen.getByRole("button", { name: "收起会话侧栏" }));
+    expect(screen.queryByRole("complementary", { name: "会话侧栏" })).not.toBeInTheDocument();
+    expect(sidebar).toBeInTheDocument();
+    expect(sidebar).toHaveAttribute("inert");
+    expect(sidebar).toHaveAttribute("aria-hidden", "true");
+    expect(screen.getByRole("button", { name: "展开会话侧栏" })).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(screen.getByRole("button", { name: "展开会话侧栏" }));
+    expect(screen.getByRole("complementary", { name: "会话侧栏" })).toBe(sidebar);
+    expect(sidebar).not.toHaveAttribute("inert");
+    client.clear();
+  });
+
+  it("keeps the existing conversation mounted when toggling its sidebar", async () => {
+    vi.mocked(getGenerationSession).mockResolvedValue(sessionFixture());
+    const client = renderWorkspace();
+    await screen.findByText("制作海报");
+    const history = screen.getByLabelText("当前会话历史");
+    expect(screen.getByRole("link", { name: "资产库" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "收起会话侧栏" }));
+    expect(screen.getByLabelText("当前会话历史")).toBe(history);
+    fireEvent.click(screen.getByRole("button", { name: "展开会话侧栏" }));
+    expect(screen.getByLabelText("当前会话历史")).toBe(history);
+    client.clear();
+  });
+
+  it("opens a mobile drawer and dismisses it after selecting a session or starting a new conversation", async () => {
+    desktop = false;
+    route.search = "";
+    vi.mocked(listGenerationSessions).mockResolvedValue([sessionFixture()]);
+    const client = renderWorkspace();
+    const user = userEvent.setup();
+    const trigger = screen.getByRole("button", { name: "展开会话侧栏" });
+    await user.click(trigger);
+    const drawer = await screen.findByRole("dialog", { name: "会话侧栏" });
+    await user.click(await within(drawer).findByRole("button", { name: /^海报设计/ }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(navigate).toHaveBeenCalledWith("/generate?sessionId=1");
+    await user.click(trigger);
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "新对话" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(pushHistory).toHaveBeenCalledWith(null, "", "/generate");
+    client.clear();
+  });
+
+  it("supports Escape with focus restoration and releases the drawer when resizing to desktop", async () => {
+    desktop = false;
+    route.search = "";
+    const client = renderWorkspace();
+    const user = userEvent.setup();
+    const trigger = screen.getByRole("button", { name: "展开会话侧栏" });
+    await user.click(trigger);
+    await screen.findByRole("dialog");
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(trigger).toHaveFocus());
+    await user.click(trigger);
+    act(() => {
+      desktop = true;
+      mediaListeners.forEach((notify) => notify());
+    });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.getByRole("complementary", { name: "会话侧栏" })).toBeInTheDocument();
+    act(() => {
+      desktop = false;
+      mediaListeners.forEach((notify) => notify());
+    });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "展开会话侧栏" })).toHaveAttribute("aria-expanded", "false");
     client.clear();
   });
 });
