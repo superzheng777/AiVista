@@ -1,10 +1,8 @@
+import type { GenerationAsset } from "@/entities/image-resource/model/image-resource";
+import { updateResourceCaches } from "@/entities/image-resource/model/resource-cache";
+import { assetQueryKeys, publicationQueryKeys } from "@/entities/image-resource/model/resource-queries";
 import { getApiErrorCode } from "@/shared/api/api-response";
-
 import type { QueryClient } from "@tanstack/react-query";
-
-import type { GenerationAsset } from "@/entities/generation/model/generation";
-import { assetQueryKeys, publicationQueryKeys } from "@/entities/generation/model/resource-queries";
-import { updateResourceCaches } from "@/entities/generation/model/resource-cache";
 
 export function updateInspirationInFeeds(queryClient: QueryClient, image: GenerationAsset): void {
   updateResourceCaches(queryClient, (current, key) => {

@@ -1,14 +1,14 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-
-vi.mock("@/shared/api/browser-client", () => ({ browserApiClient: { get: vi.fn(), post: vi.fn(), delete: vi.fn() } }));
 import { browserApiClient } from "@/shared/api/browser-client";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   deleteInteractionNotification,
   deleteInteractionNotifications,
   listInteractionNotifications,
   markAllInteractionNotificationsRead,
   markInteractionNotificationRead,
-} from "@/features/interaction-notifications/api/interaction-notifications-api";
+} from "./interaction-notifications-api";
+
+vi.mock("@/shared/api/browser-client", () => ({ browserApiClient: { get: vi.fn(), post: vi.fn(), delete: vi.fn() } }));
 
 const client = vi.mocked(browserApiClient);
 const response = (data: unknown) => ({ data: { code: 0, message: "ok", data } }) as never;

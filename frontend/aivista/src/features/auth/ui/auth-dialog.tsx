@@ -1,14 +1,15 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Eye, EyeOff, LockKeyhole, UserRound, X } from "lucide-react";
+import { UserRound, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { useForm, type UseFormRegisterReturn } from "react-hook-form";
-
-import { getUserAgreementPolicy, type UserAgreementPolicy } from "@/features/auth/api/auth-api";
-import { useAuthDialogStore } from "@/features/auth/model/auth-dialog-store";
-import { useAuthStore } from "@/features/auth/model/auth-store";
-import { authFormSchema, type AuthFormValues, type AuthMode } from "@/features/auth/model/auth-form";
+import { useForm } from "react-hook-form";
+import { getUserAgreementPolicy, type UserAgreementPolicy } from "../api/auth-api";
+import { useAuthDialogStore } from "../model/auth-dialog-store";
+import { authFormSchema, type AuthFormValues, type AuthMode } from "../model/auth-form";
+import { useAuthStore } from "../model/auth-store";
+import { PasswordField } from "./password-field";
+import { UserAgreementDialog } from "./registration-agreement-dialog";
 
 export function AuthDialog() {
   const isOpen = useAuthDialogStore((state) => state.isOpen);
@@ -278,101 +279,5 @@ function OpenAuthDialog() {
         <UserAgreementDialog policy={agreementPolicy} onClose={() => setIsAgreementOpen(false)} />
       ) : null}
     </div>
-  );
-}
-
-function UserAgreementDialog({ policy, onClose }: { policy: UserAgreementPolicy; onClose: () => void }) {
-  return (
-    <div
-      className="fixed inset-0 z-10 grid place-items-center bg-[var(--overlay)] p-4"
-      role="presentation"
-      onMouseDown={(event) => {
-        if (event.currentTarget === event.target) onClose();
-      }}
-    >
-      <section
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="user-agreement-title"
-        className="w-full max-w-lg rounded-[10px] border border-[var(--border)] bg-[var(--surface-bg)] p-5 shadow-xl"
-      >
-        <div className="flex items-center justify-between gap-4">
-          <h2 id="user-agreement-title" className="text-base font-semibold text-[var(--primary)]">
-            用户协议
-          </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="关闭用户协议"
-            className="grid size-8 place-items-center rounded-[6px] text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
-          >
-            <X className="size-4" />
-          </button>
-        </div>
-        <div className="mt-4 max-h-80 overflow-y-auto whitespace-pre-wrap rounded-[7px] bg-[var(--surface-soft)] p-4 text-sm leading-6 text-[var(--text-secondary)]">
-          {policy.policyContent}
-        </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="mt-4 h-10 w-full rounded-[7px] bg-[var(--primary)] text-sm font-medium text-[var(--surface-bg)] transition hover:bg-[var(--primary-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--surface-bg)]"
-        >
-          我已阅读
-        </button>
-      </section>
-    </div>
-  );
-}
-
-function PasswordField({
-  label,
-  registration,
-  error,
-  autoComplete,
-  placeholder,
-  isVisible,
-  onToggleVisibility,
-}: {
-  label: string;
-  registration: UseFormRegisterReturn;
-  error?: string;
-  autoComplete: "current-password" | "new-password";
-  placeholder: string;
-  isVisible: boolean;
-  onToggleVisibility: () => void;
-}) {
-  const VisibilityIcon = isVisible ? EyeOff : Eye;
-  const toggleLabel = isVisible ? "隐藏密码" : "显示密码";
-
-  return (
-    <label className="block">
-      <span className="sr-only">{label}</span>
-      <span className="relative block">
-        <LockKeyhole className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-        <input
-          {...registration}
-          type={isVisible ? "text" : "password"}
-          autoComplete={autoComplete}
-          required
-          minLength={8}
-          maxLength={64}
-          className="h-11 w-full rounded-[7px] border border-[var(--border)] bg-[var(--surface-bg)] py-2 pl-10 pr-10 text-sm text-[var(--primary)] outline-none transition placeholder:text-[var(--placeholder)] focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent-border)]"
-          placeholder={placeholder}
-        />
-        <button
-          type="button"
-          onClick={onToggleVisibility}
-          aria-label={toggleLabel}
-          className="absolute right-1.5 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-[6px] text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
-        >
-          <VisibilityIcon className="size-4" />
-        </button>
-      </span>
-      {error ? (
-        <span role="alert" className="text-xs text-destructive">
-          {error}
-        </span>
-      ) : null}
-    </label>
   );
 }

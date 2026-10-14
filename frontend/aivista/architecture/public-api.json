@@ -1,0 +1,149 @@
+{
+  "entities/creation-session/model/agent-input-form": ["AgentInputForm", "AgentInputFormField"],
+  "entities/creation-session/model/session": [
+    "CreatedCreation",
+    "CreationEvent",
+    "CreationTurn",
+    "SessionAsset",
+    "SessionDetail",
+    "SessionFormItem",
+    "SessionItem",
+    "SessionSummary",
+    "applyCreationEvent",
+    "isActiveCreation",
+    "mergeSessionSnapshot"
+  ],
+  "entities/image-resource/lib/copy-generation-image": ["copyGenerationImage"],
+  "entities/image-resource/model/image-resource": [
+    "GenerationAsset",
+    "GenerationAssetImageDto",
+    "ImageUrl",
+    "mapGenerationAssetImage",
+    "needsImageUrlRefresh"
+  ],
+  "entities/image-resource/model/optimistic-resource-update": [
+    "discardOptimisticResourceUpdates",
+    "optimisticResourceUpdate"
+  ],
+  "entities/image-resource/model/resource-cache": [
+    "cancelResourceQueries",
+    "patchResource",
+    "readResource",
+    "removeResources",
+    "updateMyLikes",
+    "updateResourceCaches"
+  ],
+  "entities/image-resource/model/resource-queries": [
+    "assetQueryKeys",
+    "inspirationQueryKeys",
+    "publicResourceQueryKeys",
+    "publicationQueryKeys"
+  ],
+  "entities/image-resource/model/use-image-detail-navigation": ["ImageDetailNavigation", "useImageDetailNavigation"],
+  "entities/image-resource/ui/image-detail-overlay": ["ImageDetailOverlay"],
+  "entities/image-resource/ui/image-detail-shell": ["ImageDetailShell"],
+  "entities/image-resource/ui/owned-image-detail-actions": ["OwnedImageDetailActions"],
+  "entities/notification/model/notification": [
+    "InteractionNotification",
+    "NotificationViolation",
+    "OfficialNotification",
+    "OfficialNotificationEventType"
+  ],
+  "entities/user-event-stream/model/user-event-stream-store": ["selectSessionIndicators", "useUserEventStreamStore"],
+  "entities/user-event-stream/model/user-event-stream-types": ["SessionIndicator"],
+  "entities/user/model/user": ["CurrentUser", "UserId"],
+  "entities/user/model/user-agreement-consent": ["UserAgreementConsent"],
+  "features/account-menu/ui/account-control": ["AccountControl"],
+  "features/assets/api/asset-api": [
+    "assetQueryKeys",
+    "deleteGenerationAssets",
+    "getGenerationAsset",
+    "listGenerationAssets",
+    "setGenerationImageFavorites",
+    "uploadGenerationReferenceImage"
+  ],
+  "features/assets/lib/original-image-download": ["downloadOriginalGenerationImage"],
+  "features/assets/ui/asset-detail": ["AssetDetail"],
+  "features/auth/model/auth-dialog-store": ["useAuthDialogStore"],
+  "features/auth/model/auth-initializer": ["AuthInitializer"],
+  "features/auth/model/auth-store": ["AuthStatus", "useAuthStore"],
+  "features/auth/ui/auth-dialog": ["AuthDialog"],
+  "features/auth/ui/logout-confirm-dialog": ["LogoutConfirmDialog"],
+  "features/generation/api/generation-api": [
+    "cancelCreation",
+    "deleteGenerationSession",
+    "generationQueryKeys",
+    "getGenerationSession",
+    "listGenerationSessions",
+    "resolveAgentForm",
+    "updateGenerationSessionTitle"
+  ],
+  "features/generation/model/session-events": [
+    "clearSessionEvents",
+    "forgetSessionEvents",
+    "hydrateSession",
+    "isSessionDeleted",
+    "receiveCreationEvent"
+  ],
+  "features/generation/ui/agent-input-form-card": ["AgentInputFormCard"],
+  "features/generation/ui/agent-process": ["AgentProcess"],
+  "features/generation/ui/generation-composer": ["GenerationComposer"],
+  "features/image-access/ui/resource-thumbnail": ["ResourceThumbnail"],
+  "features/inspiration/api/inspiration-api": [
+    "getInspiration",
+    "inspirationQueryKeys",
+    "listFollowingInspirations",
+    "listInspirations",
+    "searchInspirations"
+  ],
+  "features/inspiration/model/inspiration-cache": ["discardUnavailableInspiration", "updateInspirationInFeeds"],
+  "features/inspiration/model/search-query": ["searchFormSchema", "searchQueryKey"],
+  "features/inspiration/model/use-public-image-detail": ["usePublicImageDetail"],
+  "features/inspiration/ui/inspiration-search-form": ["InspirationSearchForm"],
+  "features/inspiration/ui/public-image-detail-overlay": ["PublicImageDetailOverlay"],
+  "features/inspiration/ui/public-image-open-error": ["PublicImageOpenError"],
+  "features/inspiration/ui/public-inspiration-card": ["PublicInspirationCard"],
+  "features/interaction-notifications/api/interaction-notifications-api": [
+    "deleteInteractionNotification",
+    "deleteInteractionNotifications",
+    "interactionNotificationQueryKeys",
+    "listInteractionNotifications",
+    "markAllInteractionNotificationsRead",
+    "markInteractionNotificationRead"
+  ],
+  "features/notifications/api/notification-api": ["fetchNotificationUnreadCount", "notificationQueryKeys"],
+  "features/official-notifications/api/official-notifications-api": [
+    "deleteOfficialNotification",
+    "deleteOfficialNotifications",
+    "listOfficialNotifications",
+    "markAllOfficialNotificationsRead",
+    "markOfficialNotificationRead",
+    "officialNotificationQueryKeys"
+  ],
+  "features/official-notifications/model/notification-display": [
+    "isPublicationFailed",
+    "isPublicationRejected",
+    "notificationEventLabel",
+    "violationText"
+  ],
+  "features/public-user/api/public-user-api": [
+    "PublicAuthor",
+    "getPublicAuthor",
+    "listLikedPublications",
+    "listPublications",
+    "setFollowing",
+    "setLikedPublicationsVisibility"
+  ],
+  "features/public-user/model/profile-form": ["ProfileFormValues", "profileFormSchema"],
+  "features/publication/api/publication-api": ["listMyPublications", "publicationQueryKeys", "removePublication"],
+  "features/publication/ui/publication-form-dialog": ["PublicationFormDialog"],
+  "features/user-agreement/api/user-agreement-consent-api": ["getUserAgreementConsent", "userAgreementQueryKeys"],
+  "features/user-agreement/model/use-user-agreement-consent": ["useUserAgreementConsent"],
+  "features/user-agreement/ui/user-agreement-consent-dialog": ["UserAgreementConsentDialog"],
+  "widgets/asset-library/ui/asset-library-workspace": ["AssetLibraryWorkspace"],
+  "widgets/generation-workspace/ui/generation-workspace": ["GenerationWorkspace"],
+  "widgets/inspiration-feed/ui/inspiration-feed": ["InspirationFeed", "InspirationFeedView"],
+  "widgets/inspiration-search/ui/inspiration-search-results": ["InspirationSearchResults"],
+  "widgets/notification-center/ui/notification-center": ["NotificationCenter"],
+  "widgets/user-profile/ui/user-profile-page": ["UserProfilePage"]
+}

@@ -1,11 +1,11 @@
-import type { GenerationAsset, GenerationAssetImageDto } from "@/entities/generation/model/generation";
-import { mapGenerationAssetImage } from "@/entities/generation/model/generation";
-import { browserApiClient } from "@/shared/api/browser-client";
+import type { GenerationAsset, GenerationAssetImageDto } from "@/entities/image-resource/model/image-resource";
+import { mapGenerationAssetImage } from "@/entities/image-resource/model/image-resource";
 import { type ApiResponse, unwrapApiResponse } from "@/shared/api/api-response";
+import { browserApiClient } from "@/shared/api/browser-client";
 
 export type PublicationRequestResult = { imageId: string; status: "PENDING" };
 
-export { publicationQueryKeys } from "@/entities/generation/model/resource-queries";
+export { publicationQueryKeys } from "@/entities/image-resource/model/resource-queries";
 
 export type SubmitPublicationInput = { title: string; description: string };
 

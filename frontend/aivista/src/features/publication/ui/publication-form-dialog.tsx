@@ -1,21 +1,16 @@
 "use client";
 
-import { useQueryClient } from "@tanstack/react-query";
-import { patchResource } from "@/entities/generation/model/resource-cache";
-import { zodResolver } from "@hookform/resolvers/zod";
+import type { GenerationAsset } from "@/entities/image-resource/model/image-resource";
+import { patchResource } from "@/entities/image-resource/model/resource-cache";
+import { getApiErrorCode, getApiErrorMessage } from "@/shared/api/api-response";
 import { Dialog } from "@base-ui/react/dialog";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useQueryClient } from "@tanstack/react-query";
 import { LoaderCircle, Send, X } from "lucide-react";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
-
-import type { GenerationAsset } from "@/entities/generation/model/generation";
-import {
-  type PublicationRequestResult,
-  publicationQueryKeys,
-  submitPublication,
-} from "@/features/publication/api/publication-api";
-import { publicationFormSchema, type PublicationFormValues } from "@/features/publication/model/publication-form";
-import { getApiErrorCode, getApiErrorMessage } from "@/shared/api/api-response";
+import { publicationQueryKeys, submitPublication, type PublicationRequestResult } from "../api/publication-api";
+import { publicationFormSchema, type PublicationFormValues } from "../model/publication-form";
 
 function submitMessageOf(error: unknown): string {
   const code = getApiErrorCode(error);

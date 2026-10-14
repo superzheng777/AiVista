@@ -1,10 +1,12 @@
-import type { CursorPage, GenerationAssetImageDto } from "@/entities/generation/model/generation";
-import { mapGenerationAssetImage } from "@/entities/generation/model/generation";
+import type { GenerationAssetImageDto } from "@/entities/image-resource/model/image-resource";
+import { mapGenerationAssetImage } from "@/entities/image-resource/model/image-resource";
 import type { InteractionNotification } from "@/entities/notification/model/notification";
-import { browserApiClient } from "@/shared/api/browser-client";
 import { type ApiResponse, unwrapApiResponse } from "@/shared/api/api-response";
+import { browserApiClient } from "@/shared/api/browser-client";
+import type { CursorPage } from "@/shared/api/cursor-page";
 
 export const interactionNotificationQueryKeys = { list: ["interaction-notifications", "list"] as const };
+
 type InteractionDto = {
   notificationId: string;
   eventType: InteractionNotification["eventType"];
@@ -31,15 +33,19 @@ export async function listInteractionNotifications(
     nextCursor: page.nextCursor,
   };
 }
+
 export async function markInteractionNotificationRead(id: string): Promise<void> {
   await browserApiClient.post(`/users/me/interaction-notifications/${id}/read`);
 }
+
 export async function markAllInteractionNotificationsRead(): Promise<void> {
   await browserApiClient.post("/users/me/interaction-notifications/read-all");
 }
+
 export async function deleteInteractionNotification(id: string): Promise<void> {
   await browserApiClient.delete(`/users/me/interaction-notifications/${id}`);
 }
+
 export async function deleteInteractionNotifications(ids: string[]): Promise<void> {
   await browserApiClient.post("/users/me/interaction-notifications/deletions", { notificationIds: ids });
 }

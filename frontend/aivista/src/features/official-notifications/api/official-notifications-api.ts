@@ -1,22 +1,16 @@
+import type { GenerationAssetImageDto } from "@/entities/image-resource/model/image-resource";
+import { mapGenerationAssetImage } from "@/entities/image-resource/model/image-resource";
 import type {
+  NotificationViolation,
   OfficialNotification,
   OfficialNotificationEventType,
-  NotificationViolation,
 } from "@/entities/notification/model/notification";
-import type { CursorPage, GenerationAssetImageDto } from "@/entities/generation/model/generation";
-import { mapGenerationAssetImage } from "@/entities/generation/model/generation";
-import { browserApiClient } from "@/shared/api/browser-client";
 import { type ApiResponse, unwrapApiResponse } from "@/shared/api/api-response";
+import { browserApiClient } from "@/shared/api/browser-client";
+import type { CursorPage } from "@/shared/api/cursor-page";
 
 export const officialNotificationQueryKeys = {
   list: ["official-notifications", "list"] as const,
-  unreadCount: ["notifications", "unread-count"] as const,
-};
-
-export type NotificationUnreadCount = {
-  officialUnreadCount: number;
-  interactionUnreadCount: number;
-  totalUnreadCount: number;
 };
 
 type OfficialNotificationDto = {
@@ -39,13 +33,6 @@ export async function listOfficialNotifications(cursor: string | null): Promise<
   );
   const page = unwrapApiResponse(response.data);
   return { items: page.items.map(mapOfficialNotification), nextCursor: page.nextCursor };
-}
-
-export async function fetchNotificationUnreadCount(): Promise<NotificationUnreadCount> {
-  const response = await browserApiClient.get<ApiResponse<NotificationUnreadCount>>(
-    "/users/me/notifications/unread-count",
-  );
-  return unwrapApiResponse(response.data);
 }
 
 export async function markOfficialNotificationRead(notificationId: string): Promise<void> {

@@ -1,18 +1,18 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
-import { useAuthDialogStore } from "@/features/auth/model/auth-dialog-store";
-import { AuthDialog } from "@/features/auth/ui/auth-dialog";
+import { useAuthDialogStore } from "../model/auth-dialog-store";
+import { AuthDialog } from "./auth-dialog";
 
 const authApi = vi.hoisted(() => ({ getUserAgreementPolicy: vi.fn() }));
+
 const session = vi.hoisted(() => ({ login: vi.fn(), register: vi.fn() }));
 
-vi.mock("@/features/auth/api/auth-api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/features/auth/api/auth-api")>();
+vi.mock("../api/auth-api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../api/auth-api")>();
   return { ...actual, getUserAgreementPolicy: authApi.getUserAgreementPolicy };
 });
 
-vi.mock("@/features/auth/model/auth-store", () => ({
+vi.mock("../model/auth-store", () => ({
   useAuthStore: (select: (state: typeof session) => unknown) => select(session),
 }));
 

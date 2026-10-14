@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-
-import { normalizeSearchInput, searchFormSchema, searchQueryKey } from "@/features/inspiration/model/search-query";
+import { normalizeSearchInput, searchFormSchema, searchQueryKey } from "./search-query";
 
 describe("search query", () => {
   it("normalizes width and whitespace without changing the submitted display value", () => {

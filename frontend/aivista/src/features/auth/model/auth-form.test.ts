@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-
-import { authFormSchema } from "@/features/auth/model/auth-form";
+import { authFormSchema } from "./auth-form";
 
 const registration = {
   loginName: "alice_2026",

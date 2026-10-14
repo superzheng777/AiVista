@@ -1,13 +1,13 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-
-vi.mock("@/shared/api/browser-client", () => ({ browserApiClient: { get: vi.fn(), put: vi.fn(), delete: vi.fn() } }));
 import { browserApiClient } from "@/shared/api/browser-client";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   listLikedPublications,
   listPublications,
   setFollowing,
   setLikedPublicationsVisibility,
-} from "@/features/public-user/api/public-user-api";
+} from "./public-user-api";
+
+vi.mock("@/shared/api/browser-client", () => ({ browserApiClient: { get: vi.fn(), put: vi.fn(), delete: vi.fn() } }));
 
 const client = vi.mocked(browserApiClient);
 const response = (data: unknown) => ({ data: { code: 0, message: "ok", data } }) as never;

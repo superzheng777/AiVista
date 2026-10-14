@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
-
-import { AppProviders } from "@/app/providers";
+import { AppProviders } from "./providers";
 
 export const metadata: Metadata = {
   title: "AiVista",

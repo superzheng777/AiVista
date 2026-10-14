@@ -1,11 +1,9 @@
+import { browserApiClient } from "@/shared/api/browser-client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
+import { setGenerationImageFavorites, uploadGenerationReferenceImage } from "./asset-api";
 vi.mock("@/shared/api/browser-client", () => ({
   browserApiClient: { get: vi.fn(), post: vi.fn() },
 }));
-
-import { browserApiClient } from "@/shared/api/browser-client";
-import { setGenerationImageFavorites, uploadGenerationReferenceImage } from "@/features/assets/api/asset-api";
 
 const client = vi.mocked(browserApiClient);
 

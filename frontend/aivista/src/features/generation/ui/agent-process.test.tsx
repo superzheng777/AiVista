@@ -1,17 +1,20 @@
+import type { SessionDetail, SessionItem } from "@/entities/creation-session/model/session";
 import { QueryClient } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import type { SessionDetail, SessionItem } from "@/entities/generation/model/session";
 import { generationQueryKeys } from "../api/generation-api";
 import { hydrateSession, receiveCreationEvent } from "../model/session-events";
 import { sessionFixture } from "../model/session-events.test-fixture";
 import { AgentProcess } from "./agent-process";
 
 afterEach(cleanup);
+
 type ToolItem = Extract<SessionItem, { kind: "tool" }>;
+
 function tool(id: string, name: string, status: ToolItem["status"] = "SUCCEEDED"): ToolItem {
   return { id: `tool:${id}`, kind: "tool", toolCallId: id, name, status };
 }
+
 const image: SessionItem = {
   id: "image-1",
   kind: "generation",
@@ -19,6 +22,7 @@ const image: SessionItem = {
   status: "SUCCEEDED",
   assets: [],
 };
+
 const form: SessionItem = {
   id: "form-1",
   kind: "form",
@@ -28,6 +32,7 @@ const form: SessionItem = {
   title: "确认需求",
   fields: [],
 };
+
 function rows() {
   return within(screen.getByRole("list", { name: "创作步骤" })).getAllByRole("listitem");
 }

@@ -1,7 +1,6 @@
+import type { GenerationAsset } from "@/entities/image-resource/model/image-resource";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
-import type { GenerationAsset } from "@/entities/generation/model/generation";
-import { downloadPublicDisplayImage } from "@/features/inspiration/lib/public-image-download";
+import { downloadPublicDisplayImage } from "./public-image-download";
 
 const image: GenerationAsset = {
   id: "image-1",
@@ -29,6 +28,7 @@ const image: GenerationAsset = {
 };
 
 const okResponse = () => ({ ok: true, blob: vi.fn().mockResolvedValue(new Blob(["image"])) }) as unknown as Response;
+
 const failedResponse = () => ({ ok: false, blob: vi.fn() }) as unknown as Response;
 
 beforeEach(() => {

@@ -1,12 +1,11 @@
 "use client";
 
+import { cn } from "@/shared/lib/cn";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Search } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
-
-import { searchFormSchema, type SearchFormValues } from "@/features/inspiration/model/search-query";
-import { cn } from "@/shared/lib/cn";
+import { searchFormSchema, type SearchFormValues } from "../model/search-query";
 
 export function InspirationSearchForm({
   initialValue = "",

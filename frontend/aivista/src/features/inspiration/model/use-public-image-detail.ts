@@ -1,11 +1,9 @@
 "use client";
 
+import { needsImageUrlRefresh, type GenerationAsset } from "@/entities/image-resource/model/image-resource";
+import { publicResourceQueryKeys } from "@/entities/image-resource/model/resource-queries";
 import { useQuery, useQueryClient, type QueryKey } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
-
-import { needsImageUrlRefresh, type GenerationAsset } from "@/entities/generation/model/generation";
-
-import { publicResourceQueryKeys } from "@/entities/generation/model/resource-queries";
 import { getInspiration } from "../api/inspiration-api";
 import { discardUnavailableInspiration } from "./inspiration-cache";
 

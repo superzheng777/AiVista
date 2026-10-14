@@ -1,14 +1,13 @@
 "use client";
 
+import type { AgentInputForm, AgentInputFormField } from "@/entities/creation-session/model/agent-input-form";
+import type { SessionFormItem } from "@/entities/creation-session/model/session";
+import { cn } from "@/shared/lib/cn";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { ChevronRight, ClipboardList } from "lucide-react";
 import { type Dispatch, type SetStateAction, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-
-import type { AgentInputForm, AgentInputFormField } from "@/entities/generation/model/generation";
-import type { SessionFormItem } from "@/entities/generation/model/session";
-import { agentInputValuesSchema } from "@/features/generation/model/agent-input-form";
-import { cn } from "@/shared/lib/cn";
+import { agentInputValuesSchema } from "../model/agent-input-form";
 
 export function AgentInputFormCard({
   value,

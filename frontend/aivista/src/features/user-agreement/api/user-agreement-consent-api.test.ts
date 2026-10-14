@@ -1,14 +1,9 @@
+import { browserApiClient } from "@/shared/api/browser-client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
+import { confirmUserAgreement, getUserAgreementConsent } from "./user-agreement-consent-api";
 vi.mock("@/shared/api/browser-client", () => ({
   browserApiClient: { get: vi.fn(), post: vi.fn(), delete: vi.fn() },
 }));
-
-import { browserApiClient } from "@/shared/api/browser-client";
-import {
-  confirmUserAgreement,
-  getUserAgreementConsent,
-} from "@/features/user-agreement/api/user-agreement-consent-api";
 
 const client = vi.mocked(browserApiClient);
 const okEnvelope = { code: 0, message: "ok" } as const;

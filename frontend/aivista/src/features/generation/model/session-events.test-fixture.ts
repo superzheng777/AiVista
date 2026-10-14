@@ -1,4 +1,4 @@
-import type { SessionDetail } from "@/entities/generation/model/session";
+import type { SessionDetail } from "@/entities/creation-session/model/session";
 
 export function sessionFixture(): SessionDetail {
   return {

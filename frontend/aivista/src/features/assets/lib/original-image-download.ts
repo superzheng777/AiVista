@@ -1,5 +1,5 @@
-import type { GenerationAsset } from "@/entities/generation/model/generation";
-import { getOriginalGenerationImageDownloadUrl } from "@/features/assets/api/asset-api";
+import type { GenerationAsset } from "@/entities/image-resource/model/image-resource";
+import { getOriginalGenerationImageDownloadUrl } from "../api/asset-api";
 
 /**
  * Original files are never part of normal image payloads. Ask the owner-only

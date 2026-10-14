@@ -1,29 +1,27 @@
 "use client";
 
-import { publicResourceListPolicy } from "@/shared/api/resource-list-policy";
-import { skipToken, useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
-import Link from "next/link";
-import { useEffect, useRef } from "react";
-
+import { useImageDetailNavigation } from "@/entities/image-resource/model/use-image-detail-navigation";
 import { useAuthDialogStore } from "@/features/auth/model/auth-dialog-store";
 import { useAuthStore } from "@/features/auth/model/auth-store";
-import { useImageDetailNavigation } from "@/entities/generation/model/use-image-detail-navigation";
 import {
   inspirationQueryKeys,
   listFollowingInspirations,
   listInspirations,
 } from "@/features/inspiration/api/inspiration-api";
+import { updateInspirationInFeeds } from "@/features/inspiration/model/inspiration-cache";
+import { usePublicImageDetail } from "@/features/inspiration/model/use-public-image-detail";
 import { InspirationSearchForm } from "@/features/inspiration/ui/inspiration-search-form";
-import { PublicInspirationCard } from "@/features/inspiration/ui/public-inspiration-card";
 import { PublicImageDetailOverlay } from "@/features/inspiration/ui/public-image-detail-overlay";
 import { PublicImageOpenError } from "@/features/inspiration/ui/public-image-open-error";
-import { usePublicImageDetail } from "@/features/inspiration/model/use-public-image-detail";
-import { updateInspirationInFeeds } from "@/features/inspiration/model/inspiration-cache";
+import { PublicInspirationCard } from "@/features/inspiration/ui/public-inspiration-card";
 import { getPublicAuthor } from "@/features/public-user/api/public-user-api";
-import { cn } from "@/shared/lib/cn";
+import { publicResourceListPolicy } from "@/shared/api/resource-list-policy";
 import { AccentSquare, DotMatrix } from "@/shared/ui/editorial-ornaments/editorial-ornaments";
 import { ShortestLaneFeed } from "@/shared/ui/shortest-lane-feed/shortest-lane-feed";
 import { getWorkPreviewCardHeight } from "@/shared/ui/work-preview-card/work-preview-card";
+import { skipToken, useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
+import { EmptyState, FeedSkeleton, FeedTab } from "./inspiration-feed-states";
 
 export type InspirationFeedView = "discovery" | "following";
 
@@ -210,76 +208,5 @@ export function InspirationFeed({ view = "discovery" }: { view?: InspirationFeed
         ) : null}
       </div>
     </main>
-  );
-}
-
-function FeedTab({ href, active, children }: { href: string; active: boolean; children: string }) {
-  return (
-    <Link
-      href={href}
-      scroll={false}
-      aria-current={active ? "page" : undefined}
-      className={cn(
-        "relative mr-10 flex h-full items-center text-[17px] transition-colors focus-visible:outline-2 focus-visible:outline-offset-2",
-        active ? "font-semibold text-[var(--primary)]" : "text-[var(--text-secondary)] hover:text-[var(--primary)]",
-      )}
-    >
-      {children}
-      {active ? <span className="absolute inset-x-0 bottom-0 h-0.5 bg-[var(--primary)]" aria-hidden /> : null}
-    </Link>
-  );
-}
-
-function FeedSkeleton() {
-  return (
-    <div className="columns-2 gap-[18px] sm:columns-3 lg:columns-4 min-[1600px]:columns-5">
-      {Array.from({ length: 10 }, (_, index) => (
-        <div
-          key={index}
-          className="mb-[18px] break-inside-avoid animate-pulse overflow-hidden rounded-[8px] border border-[var(--border)] bg-[var(--surface-bg)]"
-        >
-          <div className={cn("bg-[var(--skeleton)]", index % 3 === 0 ? "h-72" : index % 3 === 1 ? "h-48" : "h-60")} />
-          <div className="h-[52px] border-t border-[var(--border)]" />
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function EmptyState({
-  message,
-  action,
-  href,
-  onAction,
-}: {
-  message: string;
-  action?: string;
-  href?: string;
-  onAction?: () => void;
-}) {
-  return (
-    <section className="mx-auto mt-24 max-w-[420px] text-center">
-      <div aria-hidden="true" className="relative mx-auto h-14 w-16">
-        <span className="absolute left-2 top-0 size-9 border border-[var(--text-secondary)]" />
-        <span className="absolute bottom-0 right-1 size-9 border border-[var(--primary)]" />
-        <AccentSquare size={8} className="absolute bottom-1 left-0" />
-        <span className="absolute right-0 top-0 text-lg leading-none">✦</span>
-      </div>
-      <p className="mt-5 text-sm text-[var(--text-secondary)]">{message}</p>
-      {action && href ? (
-        <Link href={href} className="mt-4 inline-flex text-sm font-medium text-[var(--accent)] hover:underline">
-          {action}
-        </Link>
-      ) : null}
-      {action && onAction ? (
-        <button
-          type="button"
-          onClick={onAction}
-          className="mt-4 text-sm font-medium text-[var(--accent)] hover:underline"
-        >
-          {action}
-        </button>
-      ) : null}
-    </section>
   );
 }

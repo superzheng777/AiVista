@@ -1,5 +1,4 @@
-/** 官方消息类型。当前仅发布终态三类；后续迭代新增类型时扩展。 */
-import type { GenerationAsset } from "@/entities/generation/model/generation";
+import type { GenerationAsset } from "@/entities/image-resource/model/image-resource";
 
 export type OfficialNotificationEventType = "PUBLICATION_APPROVED" | "PUBLICATION_REJECTED" | "PUBLICATION_FAILED";
 

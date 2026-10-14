@@ -1,9 +1,8 @@
+import type { GenerationAsset } from "@/entities/image-resource/model/image-resource";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
-import type { GenerationAsset } from "@/entities/generation/model/generation";
 import { getInspiration } from "../api/inspiration-api";
 import { usePublicImageDetail } from "./use-public-image-detail";
 

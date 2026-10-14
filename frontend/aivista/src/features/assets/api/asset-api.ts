@@ -1,9 +1,13 @@
-import type { GenerationAsset, GenerationAssetImageDto, ImageUrl } from "@/entities/generation/model/generation";
-import { mapGenerationAssetImage } from "@/entities/generation/model/generation";
-import { browserApiClient } from "@/shared/api/browser-client";
+import type {
+  GenerationAsset,
+  GenerationAssetImageDto,
+  ImageUrl,
+} from "@/entities/image-resource/model/image-resource";
+import { mapGenerationAssetImage } from "@/entities/image-resource/model/image-resource";
 import { type ApiResponse, unwrapApiResponse } from "@/shared/api/api-response";
+import { browserApiClient } from "@/shared/api/browser-client";
 
-export { assetQueryKeys } from "@/entities/generation/model/resource-queries";
+export { assetQueryKeys } from "@/entities/image-resource/model/resource-queries";
 
 export async function listGenerationAssets(): Promise<GenerationAsset[]> {
   const response = await browserApiClient.get<ApiResponse<GenerationAssetImageDto[]>>("/generation-images");

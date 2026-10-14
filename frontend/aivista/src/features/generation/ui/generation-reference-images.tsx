@@ -1,18 +1,17 @@
 "use client";
 
-import { ResourceThumbnail } from "@/features/assets/ui/resource-thumbnail";
-import { personalResourceListPolicy } from "@/shared/api/resource-list-policy";
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { ImagePlus, LoaderCircle, Upload, X } from "lucide-react";
-import { type ReactNode, useEffect, useRef, useState } from "react";
-
-import type { GenerationAsset } from "@/entities/generation/model/generation";
+import type { GenerationAsset } from "@/entities/image-resource/model/image-resource";
 import {
   assetQueryKeys,
   getGenerationAsset,
   listGenerationAssets,
   uploadGenerationReferenceImage,
 } from "@/features/assets/api/asset-api";
+import { ResourceThumbnail } from "@/features/image-access/ui/resource-thumbnail";
+import { personalResourceListPolicy } from "@/shared/api/resource-list-policy";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { ImagePlus, LoaderCircle, Upload, X } from "lucide-react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 
 const MAX_REFERENCE_IMAGES = 3;
 

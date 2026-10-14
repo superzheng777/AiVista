@@ -1,9 +1,9 @@
 "use client";
 
+import type { GenerationAsset } from "@/entities/image-resource/model/image-resource";
+import { optimisticResourceUpdate } from "@/entities/image-resource/model/optimistic-resource-update";
+import { cancelResourceQueries, readResource, updateMyLikes } from "@/entities/image-resource/model/resource-cache";
 import { useIsMutating, useMutation, useQueryClient, type QueryKey } from "@tanstack/react-query";
-import type { GenerationAsset } from "@/entities/generation/model/generation";
-import { cancelResourceQueries, readResource, updateMyLikes } from "@/entities/generation/model/resource-cache";
-import { optimisticResourceUpdate } from "@/entities/generation/model/optimistic-resource-update";
 import { setImageLike } from "../api/inspiration-api";
 
 class ChangedPublicationError extends Error {}

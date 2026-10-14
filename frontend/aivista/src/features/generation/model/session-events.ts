@@ -1,18 +1,21 @@
-import type { QueryClient } from "@tanstack/react-query";
 import {
   applyCreationEvent,
   mergeSessionSnapshot,
   type CreatedCreation,
   type CreationEvent,
   type SessionDetail,
-} from "@/entities/generation/model/session";
+} from "@/entities/creation-session/model/session";
+import type { QueryClient } from "@tanstack/react-query";
 import { generationQueryKeys } from "../api/generation-api";
 
 const pending = new WeakMap<QueryClient, Map<string, Map<string, CreationEvent>>>();
+
 const deleted = new WeakMap<QueryClient, Set<string>>();
+
 export function isSessionDeleted(client: QueryClient, sessionId: string): boolean {
   return deleted.get(client)?.has(sessionId) ?? false;
 }
+
 export function forgetSessionEvents(client: QueryClient, sessionId: string): void {
   pending.get(client)?.delete(sessionId);
   let sessions = deleted.get(client);
@@ -22,6 +25,7 @@ export function forgetSessionEvents(client: QueryClient, sessionId: string): voi
   }
   sessions.add(sessionId);
 }
+
 export function receiveCreationEvent(client: QueryClient, event: CreationEvent): boolean {
   if (isSessionDeleted(client, event.sessionId)) return false;
   const key = generationQueryKeys.session(event.sessionId);
@@ -43,6 +47,7 @@ export function receiveCreationEvent(client: QueryClient, event: CreationEvent):
   events.set(`${event.creationId}:${event.type === "creation.updated" ? "status" : event.item.id}`, event);
   return true;
 }
+
 export function hydrateSession(client: QueryClient, snapshot: SessionDetail): SessionDetail {
   let result = mergeSessionSnapshot(client.getQueryData(generationQueryKeys.session(snapshot.sessionId)), snapshot);
   const sessions = pending.get(client);
@@ -50,6 +55,7 @@ export function hydrateSession(client: QueryClient, snapshot: SessionDetail): Se
   sessions?.delete(snapshot.sessionId);
   return result;
 }
+
 export function insertCreatedTurn(client: QueryClient, result: CreatedCreation): void {
   const key = generationQueryKeys.session(result.sessionId);
   const current = client.getQueryData<SessionDetail>(key);
@@ -71,6 +77,7 @@ export function insertCreatedTurn(client: QueryClient, result: CreatedCreation):
       };
   client.setQueryData(key, hydrateSession(client, snapshot));
 }
+
 export function clearSessionEvents(client: QueryClient): void {
   pending.delete(client);
   deleted.delete(client);

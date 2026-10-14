@@ -1,8 +1,8 @@
 "use client";
 
-import { AppShell } from "@/widgets/app-shell/ui/app-shell";
 import { useAuthStore } from "@/features/auth/model/auth-store";
-import { AssetsWorkspace } from "@/features/assets/ui/assets-workspace";
+import { AssetLibraryWorkspace } from "@/widgets/asset-library/ui/asset-library-workspace";
+import { AppShell } from "../_ui/app-shell";
 
 export default function AssetsPage() {
   const status = useAuthStore((state) => state.status);
@@ -10,7 +10,7 @@ export default function AssetsPage() {
   return (
     <AppShell>
       {status === "authenticated" ? (
-        <AssetsWorkspace />
+        <AssetLibraryWorkspace />
       ) : (
         <main className="min-h-screen" aria-busy="true" aria-label="正在加载个人资产" />
       )}

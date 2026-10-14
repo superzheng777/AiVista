@@ -1,6 +1,5 @@
 import type { CSSProperties } from "react";
-
-import { cn } from "@/shared/lib/cn";
+import { cn } from "../../lib/cn";
 
 type DotMatrixProps = {
   columns: number;

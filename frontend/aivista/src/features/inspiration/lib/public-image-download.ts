@@ -1,4 +1,4 @@
-import { needsImageUrlRefresh, type GenerationAsset } from "@/entities/generation/model/generation";
+import { needsImageUrlRefresh, type GenerationAsset } from "@/entities/image-resource/model/image-resource";
 
 async function fetchDisplayImage(image: GenerationAsset): Promise<Response> {
   const url = image.imageUrls.display?.url;

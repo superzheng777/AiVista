@@ -1,10 +1,9 @@
 "use client";
 
+import type { GenerationAsset } from "@/entities/image-resource/model/image-resource";
+import type { ImageDetailNavigation } from "@/entities/image-resource/model/use-image-detail-navigation";
+import { ImageDetailOverlay } from "@/entities/image-resource/ui/image-detail-overlay";
 import type { QueryKey } from "@tanstack/react-query";
-import type { GenerationAsset } from "@/entities/generation/model/generation";
-import type { ImageDetailNavigation } from "@/entities/generation/model/use-image-detail-navigation";
-import { ImageDetailOverlay } from "@/entities/generation/ui/image-detail-overlay";
-
 import { PublicImageDetail } from "./public-image-detail";
 
 export function PublicImageDetailOverlay({

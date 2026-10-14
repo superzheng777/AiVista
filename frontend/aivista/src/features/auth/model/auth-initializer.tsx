@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { discardOptimisticResourceUpdates } from "@/entities/generation/model/optimistic-resource-update";
-import { useAuthStore } from "./auth-store";
-import { useAuthDialogStore } from "./auth-dialog-store";
+import { discardOptimisticResourceUpdates } from "@/entities/image-resource/model/optimistic-resource-update";
 import { configureBrowserAuth } from "@/shared/api/browser-client";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
+import { useAuthDialogStore } from "./auth-dialog-store";
+import { useAuthStore } from "./auth-store";
 
 export function AuthInitializer() {
   const queryClient = useQueryClient();

@@ -1,7 +1,6 @@
 import { Heart } from "lucide-react";
 import type { CSSProperties, ReactNode } from "react";
-
-import { cn } from "@/shared/lib/cn";
+import { cn } from "../../lib/cn";
 
 export const WORK_PREVIEW_CARD_META_HEIGHT = 52;
 

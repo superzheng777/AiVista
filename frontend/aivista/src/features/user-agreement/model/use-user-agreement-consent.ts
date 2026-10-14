@@ -1,13 +1,12 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-
 import type { UserAgreementConsent } from "@/entities/user/model/user-agreement-consent";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   confirmUserAgreement,
   getUserAgreementConsent,
   userAgreementQueryKeys,
-} from "@/features/user-agreement/api/user-agreement-consent-api";
+} from "../api/user-agreement-consent-api";
 
 /**
  * 当前用户《用户协议》确认状态与确认动作。

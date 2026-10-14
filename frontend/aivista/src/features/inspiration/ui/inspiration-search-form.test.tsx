@@ -1,7 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
-import { InspirationSearchForm } from "@/features/inspiration/ui/inspiration-search-form";
+import { InspirationSearchForm } from "./inspiration-search-form";
 
 const navigation = vi.hoisted(() => ({ push: vi.fn() }));
 

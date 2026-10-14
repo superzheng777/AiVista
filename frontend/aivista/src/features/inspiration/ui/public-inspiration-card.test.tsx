@@ -1,6 +1,10 @@
+import type { GenerationAsset } from "@/entities/image-resource/model/image-resource";
+import { browserApiClient } from "@/shared/api/browser-client";
 import { QueryClient, QueryClientProvider, useQuery, type InfiniteData } from "@tanstack/react-query";
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { inspirationQueryKeys, type InspirationPage } from "../api/inspiration-api";
+import { PublicInspirationCard } from "./public-inspiration-card";
 
 const auth = vi.hoisted(() => ({
   status: "authenticated" as "authenticated" | "anonymous",
@@ -10,18 +14,16 @@ const auth = vi.hoisted(() => ({
 vi.mock("@/features/auth/model/auth-dialog-store", () => ({
   useAuthDialogStore: (select: (state: { open: () => void }) => unknown) => select({ open: auth.open }),
 }));
+
 vi.mock("@/features/auth/model/auth-store", () => ({
   useAuthStore: (select: (state: { status: string; user: null }) => unknown) =>
     select({ status: auth.status, user: null }),
 }));
+
 vi.mock("@/shared/api/browser-client", () => ({ browserApiClient: { get: vi.fn(), put: vi.fn(), delete: vi.fn() } }));
 
-import type { GenerationAsset } from "@/entities/generation/model/generation";
-import { inspirationQueryKeys, type InspirationPage } from "@/features/inspiration/api/inspiration-api";
-import { PublicInspirationCard } from "@/features/inspiration/ui/public-inspiration-card";
-import { browserApiClient } from "@/shared/api/browser-client";
-
 const apiClient = vi.mocked(browserApiClient);
+
 const image: GenerationAsset = {
   id: "image-11",
   sourceIndex: 0,

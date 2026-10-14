@@ -1,26 +1,23 @@
 "use client";
-import type { QueryKey } from "@tanstack/react-query";
+
 /* eslint-disable @next/next/no-img-element */
 
-import { useImageLike } from "../model/use-image-like";
-import { Heart, MoreHorizontal, Sparkles } from "lucide-react";
-import Link from "next/link";
-import { useEffect, useRef, useState, type MouseEvent } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-
-import { needsImageUrlRefresh, type GenerationAsset } from "@/entities/generation/model/generation";
+import { needsImageUrlRefresh, type GenerationAsset } from "@/entities/image-resource/model/image-resource";
 import { useAuthDialogStore } from "@/features/auth/model/auth-dialog-store";
 import { useAuthStore } from "@/features/auth/model/auth-store";
-import { getInspiration } from "@/features/inspiration/api/inspiration-api";
-import {
-  discardUnavailableInspiration,
-  updateInspirationInFeeds,
-} from "@/features/inspiration/model/inspiration-cache";
 import {
   WorkPreviewCardImage,
   WorkPreviewCardInfoBar,
   WorkPreviewCardSurface,
 } from "@/shared/ui/work-preview-card/work-preview-card";
+import type { QueryKey } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
+import { Heart, MoreHorizontal, Sparkles } from "lucide-react";
+import Link from "next/link";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
+import { getInspiration } from "../api/inspiration-api";
+import { discardUnavailableInspiration, updateInspirationInFeeds } from "../model/inspiration-cache";
+import { useImageLike } from "../model/use-image-like";
 
 function useVisibleImageSource(image: GenerationAsset, priority: boolean) {
   const queryClient = useQueryClient();

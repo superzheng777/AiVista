@@ -1,16 +1,16 @@
 "use client";
 
+import type { SessionItem } from "@/entities/creation-session/model/session";
+import { cn } from "@/shared/lib/cn";
 import { ChevronRight, LoaderCircle, Wrench } from "lucide-react";
 import { useState } from "react";
-import type { SessionItem } from "@/entities/generation/model/session";
-import { cn } from "@/shared/lib/cn";
-import styles from "./agent-process.module.css";
 import {
   processSteps,
   skillDisplayName,
   toolActivityProgress,
   type ToolActivityGroup,
 } from "../model/agent-activity-presentation";
+import styles from "./agent-process.module.css";
 
 export function AgentProcess({ items, active }: { items: SessionItem[]; active: boolean }) {
   const [open, setOpen] = useState(active);

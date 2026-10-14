@@ -1,7 +1,6 @@
+import type { GenerationAsset } from "@/entities/image-resource/model/image-resource";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-
-import type { GenerationAsset } from "@/entities/generation/model/generation";
 import { PublicImageDetailOverlay } from "./public-image-detail-overlay";
 
 vi.mock("./public-image-detail", () => ({

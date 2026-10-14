@@ -1,18 +1,15 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-
-vi.mock("@/shared/api/browser-client", () => ({
-  browserApiClient: { get: vi.fn(), post: vi.fn(), delete: vi.fn() },
-}));
-
 import { browserApiClient } from "@/shared/api/browser-client";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  fetchNotificationUnreadCount,
-  deleteOfficialNotifications,
   deleteOfficialNotification,
+  deleteOfficialNotifications,
   listOfficialNotifications,
   markAllOfficialNotificationsRead,
   markOfficialNotificationRead,
-} from "@/features/official-notifications/api/official-notifications-api";
+} from "./official-notifications-api";
+vi.mock("@/shared/api/browser-client", () => ({
+  browserApiClient: { get: vi.fn(), post: vi.fn(), delete: vi.fn() },
+}));
 
 const client = vi.mocked(browserApiClient);
 const okEnvelope = { code: 0, message: "ok" } as const;
@@ -100,18 +97,6 @@ describe("official-notifications-api", () => {
       },
     ]);
     expect(result.nextCursor).toBeNull();
-  });
-
-  it("fetchNotificationUnreadCount 保留官方与互动未读数", async () => {
-    client.get.mockResolvedValue(
-      responseData({ officialUnreadCount: 2, interactionUnreadCount: 1, totalUnreadCount: 3 }),
-    );
-    await expect(fetchNotificationUnreadCount()).resolves.toEqual({
-      officialUnreadCount: 2,
-      interactionUnreadCount: 1,
-      totalUnreadCount: 3,
-    });
-    expect(client.get).toHaveBeenCalledWith("/users/me/notifications/unread-count");
   });
 
   it("markOfficialNotificationRead 调用标记已读端点", async () => {

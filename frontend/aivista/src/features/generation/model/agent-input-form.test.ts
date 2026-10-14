@@ -1,7 +1,6 @@
+import type { AgentInputForm } from "@/entities/creation-session/model/agent-input-form";
 import { describe, expect, it } from "vitest";
-
-import type { AgentInputForm } from "@/entities/generation/model/generation";
-import { agentInputValuesSchema } from "@/features/generation/model/agent-input-form";
+import { agentInputValuesSchema } from "./agent-input-form";
 
 const form: AgentInputForm = {
   schemaVersion: 2,

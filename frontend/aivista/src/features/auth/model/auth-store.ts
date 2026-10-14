@@ -1,11 +1,10 @@
 "use client";
 
+import type { CurrentUser } from "@/entities/user/model/user";
+import { getApiErrorCode, type ApiResponse } from "@/shared/api/api-response";
 import { isAxiosError } from "axios";
 import { create } from "zustand";
-
-import type { CurrentUser } from "@/entities/user/model/user";
-import * as authApi from "@/features/auth/api/auth-api";
-import { getApiErrorCode, type ApiResponse } from "@/shared/api/api-response";
+import * as authApi from "../api/auth-api";
 
 export type AuthStatus = "loading" | "anonymous" | "authenticated" | "error";
 

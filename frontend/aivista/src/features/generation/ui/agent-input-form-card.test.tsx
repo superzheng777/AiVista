@@ -1,8 +1,7 @@
+import type { SessionFormItem } from "@/entities/creation-session/model/session";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-
-import type { SessionFormItem } from "@/entities/generation/model/session";
-import { AgentInputFormCard } from "@/features/generation/ui/agent-input-form-card";
+import { AgentInputFormCard } from "./agent-input-form-card";
 
 describe("AgentInputFormCard", () => {
   it("prefills model suggestions and submits the filled form document", async () => {

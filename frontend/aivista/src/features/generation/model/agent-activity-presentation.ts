@@ -1,7 +1,9 @@
-import type { SessionItem } from "@/entities/generation/model/session";
+import type { SessionItem } from "@/entities/creation-session/model/session";
 
 type ToolItem = Extract<SessionItem, { kind: "tool" }>;
+
 export type ToolActivityGroup = { id: string; kind: "tool-group"; tools: [ToolItem, ...ToolItem[]] };
+
 type ProcessActivity = Extract<SessionItem, { kind: "text" }> | ToolActivityGroup;
 
 const GROUPED_TOOLS = new Set(["text_to_image", "image_to_image", "inspect_image"]);

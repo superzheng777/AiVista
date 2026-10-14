@@ -1,14 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-
-vi.mock("@/shared/api/browser-client", () => ({ browserApiClient: { get: vi.fn(), put: vi.fn(), delete: vi.fn() } }));
-
-import {
-  listFollowingInspirations,
-  listInspirations,
-  searchInspirations,
-  setImageLike,
-} from "@/features/inspiration/api/inspiration-api";
 import { browserApiClient } from "@/shared/api/browser-client";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { listFollowingInspirations, listInspirations, searchInspirations, setImageLike } from "./inspiration-api";
+vi.mock("@/shared/api/browser-client", () => ({ browserApiClient: { get: vi.fn(), put: vi.fn(), delete: vi.fn() } }));
 
 const client = vi.mocked(browserApiClient);
 const image = {

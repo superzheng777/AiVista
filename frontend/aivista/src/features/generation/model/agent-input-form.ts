@@ -1,6 +1,5 @@
+import type { AgentInputForm } from "@/entities/creation-session/model/agent-input-form";
 import { z } from "zod";
-
-import type { AgentInputForm } from "@/entities/generation/model/generation";
 
 export function agentInputValuesSchema(form: AgentInputForm) {
   return z.object({ values: z.array(z.string()).length(form.fields.length) }).superRefine(({ values }, context) => {

@@ -1,15 +1,16 @@
-import type { AgentInputForm } from "@/entities/generation/model/generation";
+import type { AgentInputForm } from "@/entities/creation-session/model/agent-input-form";
 import type {
   CreatedCreation,
   CreationTurn,
   SessionDetail,
-  SessionSummary,
   SessionItem,
-} from "@/entities/generation/model/session";
-import { browserApiClient } from "@/shared/api/browser-client";
+  SessionSummary,
+} from "@/entities/creation-session/model/session";
 import { type ApiResponse, unwrapApiResponse } from "@/shared/api/api-response";
+import { browserApiClient } from "@/shared/api/browser-client";
 
-export type { CreatedCreation } from "@/entities/generation/model/session";
+export type { CreatedCreation } from "@/entities/creation-session/model/session";
+
 export type CreateGenerationTaskInput = {
   sessionId?: string;
   prompt: string;
@@ -19,6 +20,7 @@ export type CreateGenerationTaskInput = {
   promptExtend: boolean;
   imageCount: number;
 };
+
 export type CreateAgentCreationInput = {
   sessionId?: string;
   prompt: string;
@@ -26,19 +28,23 @@ export type CreateAgentCreationInput = {
   aspectRatio: "AUTO" | "1:1" | "4:3" | "3:4" | "16:9" | "9:16";
   imageCount: number;
 };
+
 export const generationQueryKeys = {
   all: ["generation"] as const,
   sessions: () => ["generation", "sessions"] as const,
   session: (sessionId: string) => ["generation", "session", sessionId] as const,
 };
+
 export async function listGenerationSessions(): Promise<SessionSummary[]> {
   return unwrapApiResponse((await browserApiClient.get<ApiResponse<SessionSummary[]>>("/generation-sessions")).data);
 }
+
 export async function getGenerationSession(sessionId: string): Promise<SessionDetail> {
   return unwrapApiResponse(
     (await browserApiClient.get<ApiResponse<SessionDetail>>(`/generation-sessions/${sessionId}`)).data,
   );
 }
+
 export async function updateGenerationSessionTitle(
   sessionId: string,
   title: string,
@@ -52,9 +58,11 @@ export async function updateGenerationSessionTitle(
     ).data,
   );
 }
+
 export async function deleteGenerationSession(sessionId: string): Promise<void> {
   await browserApiClient.delete(`/generation-sessions/${encodeURIComponent(sessionId)}`);
 }
+
 export function createGenerationTask(input: CreateGenerationTaskInput): Promise<CreatedCreation> {
   return create("NORMAL", input, {
     aspectRatio: input.aspectRatio,
@@ -63,12 +71,14 @@ export function createGenerationTask(input: CreateGenerationTaskInput): Promise<
     promptExtend: input.promptExtend,
   });
 }
+
 export function createAgentCreation(input: CreateAgentCreationInput): Promise<CreatedCreation> {
   return create("AGENT", input, {
     aspectRatio: input.aspectRatio === "AUTO" ? undefined : input.aspectRatio,
     imageCount: input.imageCount === 0 ? undefined : input.imageCount,
   });
 }
+
 async function create(
   mode: "NORMAL" | "AGENT",
   input: { sessionId?: string; prompt: string; inputAssetIds?: string[] },
@@ -85,6 +95,7 @@ async function create(
     ).data,
   );
 }
+
 export async function cancelCreation(
   creationId: string,
 ): Promise<Pick<CreationTurn, "creationId" | "status" | "revision">> {
@@ -97,6 +108,7 @@ export async function cancelCreation(
     ).data,
   );
 }
+
 export async function resolveAgentForm(input: {
   creationId: string;
   toolCallId: string;

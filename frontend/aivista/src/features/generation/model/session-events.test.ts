@@ -1,6 +1,6 @@
+import type { SessionDetail } from "@/entities/creation-session/model/session";
 import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
-import type { SessionDetail } from "@/entities/generation/model/session";
 import { generationQueryKeys } from "../api/generation-api";
 import {
   clearSessionEvents,
@@ -70,7 +70,7 @@ describe("session snapshots and SSE", () => {
   it("promotes the final reply without duplicating it or regressing completed tools on a stale snapshot", () => {
     const client = new QueryClient();
     client.setQueryData(generationQueryKeys.session("1"), sessionFixture());
-    const emit = (item: import("@/entities/generation/model/session").SessionItem) =>
+    const emit = (item: import("@/entities/creation-session/model/session").SessionItem) =>
       receiveCreationEvent(client, { type: "creation.item.upserted", sessionId: "1", creationId: "2", item });
     emit({ id: "text", kind: "text", phase: "process", text: "海报已完成" });
     emit({

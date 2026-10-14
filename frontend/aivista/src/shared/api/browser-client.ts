@@ -1,6 +1,5 @@
 import axios, { type InternalAxiosRequestConfig } from "axios";
-
-import type { ApiResponse } from "@/shared/api/api-response";
+import type { ApiResponse } from "./api-response";
 
 /** Browser-side client. All calls use Next.js's same-origin /api proxy. */
 export const browserApiClient = axios.create({

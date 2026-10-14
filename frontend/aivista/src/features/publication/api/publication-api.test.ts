@@ -1,14 +1,14 @@
+import { mapGenerationAssetImage } from "@/entities/image-resource/model/image-resource";
+import { browserApiClient } from "@/shared/api/browser-client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { listMyPublications, removePublication, submitPublication } from "./publication-api";
 
 vi.mock("@/shared/api/browser-client", () => ({
   browserApiClient: { get: vi.fn(), post: vi.fn(), delete: vi.fn() },
 }));
 
-import { browserApiClient } from "@/shared/api/browser-client";
-import { listMyPublications, removePublication, submitPublication } from "@/features/publication/api/publication-api";
-import { mapGenerationAssetImage } from "@/entities/generation/model/generation";
-
 const client = vi.mocked(browserApiClient);
+
 const okEnvelope = { code: 0, message: "ok" } as const;
 
 function responseData<T>(data: T): never {

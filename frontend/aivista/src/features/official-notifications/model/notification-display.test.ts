@@ -1,12 +1,11 @@
-import { describe, expect, it } from "vitest";
-
 import type { OfficialNotification } from "@/entities/notification/model/notification";
+import { describe, expect, it } from "vitest";
 import {
   isPublicationFailed,
   isPublicationRejected,
   notificationEventLabel,
   violationText,
-} from "@/features/official-notifications/model/notification-display";
+} from "./notification-display";
 
 function notification(overrides: Partial<OfficialNotification>): OfficialNotification {
   return {

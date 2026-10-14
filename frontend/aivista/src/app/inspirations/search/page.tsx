@@ -1,7 +1,6 @@
 import { Suspense } from "react";
-
-import { InspirationSearchRoute } from "@/features/inspiration/ui/inspiration-search-route";
-import { AppShell } from "@/widgets/app-shell/ui/app-shell";
+import { AppShell } from "../../_ui/app-shell";
+import { InspirationSearchRoute } from "./_ui/inspiration-search-route";
 
 export default function InspirationSearchPage() {
   return (

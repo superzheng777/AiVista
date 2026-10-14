@@ -1,7 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-
-import { cn } from "@/shared/lib/cn";
+import { cn } from "./cn";
 
 describe("cn", () => {
   it("合并类名并解决冲突", () => {

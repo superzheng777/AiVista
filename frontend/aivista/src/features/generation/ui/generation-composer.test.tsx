@@ -1,29 +1,33 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
-import { GenerationComposer } from "@/features/generation/ui/generation-composer";
-import { createAgentCreation, createGenerationTask } from "@/features/generation/api/generation-api";
+import { createAgentCreation, createGenerationTask } from "../api/generation-api";
+import { GenerationComposer } from "./generation-composer";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
+
 vi.mock("@/features/auth/model/auth-dialog-store", () => ({
   useAuthDialogStore: (select: (state: { open: () => void }) => unknown) => select({ open: vi.fn() }),
 }));
+
 vi.mock("@/features/auth/model/auth-store", () => ({
   useAuthStore: (select: (state: { status: string; user: { id: string } }) => unknown) =>
     select({ status: "authenticated", user: { id: "user-1" } }),
 }));
-vi.mock("@/features/generation/model/generation-event-stream-store", () => ({
-  useGenerationEventStreamStore: (select: (state: { ensureReady: () => Promise<boolean> }) => unknown) =>
+
+vi.mock("@/entities/user-event-stream/model/user-event-stream-store", () => ({
+  useUserEventStreamStore: (select: (state: { ensureReady: () => Promise<boolean> }) => unknown) =>
     select({ ensureReady: vi.fn().mockResolvedValue(true) }),
 }));
+
 vi.mock("@/features/user-agreement/model/use-user-agreement-consent", () => ({
   useUserAgreementConsent: () => ({
     consentQuery: { isLoading: false, isError: false, data: { consented: true } },
     confirmConsent: { isPending: false, error: null, mutate: vi.fn() },
   }),
 }));
-vi.mock("@/features/generation/ui/generation-reference-images", () => ({
+
+vi.mock("./generation-reference-images", () => ({
   GenerationReferenceImages: () => null,
   GenerationReferenceImagePicker: ({ onChange }: { onChange: (images: unknown[]) => void }) => (
     <button type="button" onClick={() => onChange([{ id: "asset-101" }])}>
@@ -31,11 +35,13 @@ vi.mock("@/features/generation/ui/generation-reference-images", () => ({
     </button>
   ),
 }));
+
 vi.mock("@/features/user-agreement/ui/user-agreement-consent-dialog", () => ({
   UserAgreementConsentDialog: () => null,
 }));
-vi.mock("@/features/generation/api/generation-api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/features/generation/api/generation-api")>();
+
+vi.mock("../api/generation-api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../api/generation-api")>();
   return { ...actual, createAgentCreation: vi.fn(), createGenerationTask: vi.fn() };
 });
 

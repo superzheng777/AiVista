@@ -2,12 +2,14 @@ import {
   mapGenerationAssetImage,
   type GenerationAsset,
   type GenerationAssetImageDto,
-} from "@/entities/generation/model/generation";
+} from "@/entities/image-resource/model/image-resource";
+import { unwrapApiResponse, type ApiResponse } from "@/shared/api/api-response";
 import { browserApiClient } from "@/shared/api/browser-client";
-import { type ApiResponse, unwrapApiResponse } from "@/shared/api/api-response";
 
-export { inspirationQueryKeys } from "@/entities/generation/model/resource-queries";
+export { inspirationQueryKeys } from "@/entities/image-resource/model/resource-queries";
+
 export type InspirationPage = { items: GenerationAsset[]; nextCursor: string | null };
+
 export type InspirationSearchPage = { items: GenerationAsset[]; nextOffset: number | null };
 
 export async function listInspirations(cursor: string | null): Promise<InspirationPage> {

@@ -64,7 +64,7 @@
 - 页面不出现横向滚动条
 - 三个区域均占满视口高度
 
-桌面展开状态的布局示意（实际由 AppShell 与 GenerateWorkspace 分层实现，侧栏列宽支持收起）：
+桌面展开状态的布局示意（实际由 AppShell 与 GenerationWorkspace 分层实现，侧栏列宽支持收起）：
 
 ```css
 .page {
