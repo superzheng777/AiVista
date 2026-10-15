@@ -58,8 +58,17 @@ export class GenerationImageTransferService {
         })]);
       } finally { source.destroy(); counter.destroy(); }
       const processClient = this.client as OSS & { processObjectSave(source: string, target: string, process: string): Promise<unknown> };
-      await processClient.processObjectSave(original, `${objectKey}/card.webp`, "image/resize,l_640/format,webp/quality,Q_80");
-      await processClient.processObjectSave(original, `${objectKey}/display.webp`, "image/resize,l_1600/format,webp/quality,Q_85");
+      for (const [file, process] of [
+        ["card.webp", "image/resize,l_640/format,webp/quality,Q_80"],
+        ["display.webp", "image/resize,l_1600/format,webp/quality,Q_85"],
+      ] as const) {
+        const key = `${objectKey}/${file}`;
+        await processClient.processObjectSave(original, key, process);
+        // Save-as does not inherit the original's HTTP metadata. Set it before settlement.
+        await this.client.copy(key, key, { headers: {
+          "x-oss-metadata-directive": "REPLACE", "Content-Type": "image/webp", "Cache-Control": "private, max-age=3600",
+        } });
+      }
       return { sourceIndex, objectKey, fileSize: counter.bytes, width: task.width, height: task.height };
     } catch (error) { await this.deleteGroup(objectKey); throw error; }
   }

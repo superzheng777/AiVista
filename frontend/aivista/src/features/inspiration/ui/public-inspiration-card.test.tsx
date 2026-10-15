@@ -3,7 +3,7 @@ import { browserApiClient } from "@/shared/api/browser-client";
 import { QueryClient, QueryClientProvider, useQuery, type InfiniteData } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { inspirationQueryKeys, type InspirationPage } from "../api/inspiration-api";
+import { getInspiration, inspirationQueryKeys, type InspirationPage } from "../api/inspiration-api";
 import { PublicInspirationCard } from "./public-inspiration-card";
 
 const auth = vi.hoisted(() => ({
@@ -21,6 +21,10 @@ vi.mock("@/features/auth/model/auth-store", () => ({
 }));
 
 vi.mock("@/shared/api/browser-client", () => ({ browserApiClient: { get: vi.fn(), put: vi.fn(), delete: vi.fn() } }));
+vi.mock("../api/inspiration-api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api/inspiration-api")>()),
+  getInspiration: vi.fn(),
+}));
 
 const apiClient = vi.mocked(browserApiClient);
 
@@ -100,6 +104,44 @@ function renderCard(initialImage: GenerationAsset = image, duplicate = false) {
 function cachedImage(queryClient: QueryClient): GenerationAsset {
   return queryClient.getQueryData<InfiniteData<InspirationPage>>(inspirationQueryKeys.discovery)!.pages[0]!.items[0]!;
 }
+
+describe("PublicInspirationCard URL renewal", () => {
+  it.each([false, true])("keeps the valid thumbnail while early renewal finishes (failure: %s)", async (failure) => {
+    let resolveRefresh!: (value: GenerationAsset) => void;
+    let rejectRefresh!: (error: Error) => void;
+    vi.mocked(getInspiration).mockReturnValueOnce(
+      new Promise((resolve, reject) => {
+        resolveRefresh = resolve;
+        rejectRefresh = reject;
+      }),
+    );
+    const soonExpiring = {
+      ...image,
+      imageUrls: {
+        ...image.imageUrls,
+        thumbnail: { url: "https://cdn.example/old.webp", expiresAt: new Date(Date.now() + 30_000).toISOString() },
+      },
+    };
+    const client = new QueryClient();
+    render(
+      <QueryClientProvider client={client}>
+        <PublicInspirationCard image={soonExpiring} sourceQueryKey={inspirationQueryKeys.discovery} priority />
+      </QueryClientProvider>,
+    );
+    expect(getInspiration).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("img")).toHaveAttribute("src", "https://cdn.example/old.webp");
+    await act(async () => {
+      if (failure) rejectRefresh(new Error("offline"));
+      else resolveRefresh(image);
+    });
+    expect(screen.getByRole("img")).toHaveAttribute(
+      "src",
+      failure ? "https://cdn.example/old.webp" : image.imageUrls.thumbnail!.url,
+    );
+    expect(getInspiration).toHaveBeenCalledTimes(1);
+    client.clear();
+  });
+});
 
 describe("PublicInspirationCard likes", () => {
   it("opens authentication without changing state or opening details for anonymous users", () => {

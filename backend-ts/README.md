@@ -6,6 +6,8 @@ Agent 每条模型回复最多调用一个工具，模型请求关闭并行工�
 
 安装依赖后运行 `pnpm typecheck`、`pnpm test`、`pnpm build`、`pnpm worker`。默认测试不调用真实模型；隔离数据库测试使用 `AIVISTA_NATIVE_SCHEMA_TEST=true pnpm test:schema`（PowerShell 中先设置环境变量）。
 
+图片转存后为 `card.webp`、`display.webp` 补写一小时私有 HTTP 缓存，元数据失败沿用清理重试；原图默认缓存 600 秒，签名有效期不变。已有对象补写及验证范围见[图像访问与分发优化模块](../docs/java/modules/图像访问与分发优化模块.md)，不引入签名缓存表或 Redis。
+
 - [运行、配置与验证](../docs/worker/AI-Runtime.md)
 - [会话架构](../docs/architecture/Agent模式.md)
 - [REST、SSE 与 MQ 协议](../docs/architecture/creation-protocol.md)

@@ -54,6 +54,10 @@ pnpm worker
 
 LLM 使用 AIVISTA_AGENT_BAILIAN_BASE_URL 与 AIVISTA_AGENT_BAILIAN_API_KEY；后者可复用图像模型 Key。不得将凭据、签名 URL 或完整本机会话文件提交 Git。
 
+## 图片 HTTP 缓存
+
+图片转存规则：原图保持默认 `private, max-age=600`；`card.webp` 与 `display.webp` 由 OSS `processObjectSave` 生成后，分别同键 `copy` 设置 `Content-Type: image/webp`、`Cache-Control: private, max-age=3600`。缓存元数据写入成功后才结算，失败沿用整个对象组的清理及最多三次转存尝试，不重新调用图片模型。签名有效期与 HTTP 缓存期限独立，未增加缓存表或 Redis。已有对象需要补写元数据，部署说明及验证记录见[图像访问与分发优化模块](../java/modules/图像访问与分发优化模块.md)。
+
 ## Pi 与工具
 
 Harness 使用固定项目根目录，加载 `.pi/SYSTEM.md` 与显式 Skill 目录。生产调用传入按用户/会话打开的 SessionManager；测试可使用内存 SessionManager。模型绑定跨执行复用，Pi session 对象每次执行后释放，JSONL 原始记录保留。

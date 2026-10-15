@@ -19,7 +19,8 @@
     "GenerationAssetImageDto",
     "ImageUrl",
     "mapGenerationAssetImage",
-    "needsImageUrlRefresh"
+    "needsImageUrlRefresh",
+    "isImageUrlExpired"
   ],
   "entities/image-resource/model/optimistic-resource-update": [
     "discardOptimisticResourceUpdates",

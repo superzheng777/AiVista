@@ -2,7 +2,11 @@
 
 /* eslint-disable @next/next/no-img-element */
 
-import { needsImageUrlRefresh, type GenerationAsset } from "@/entities/image-resource/model/image-resource";
+import {
+  isImageUrlExpired,
+  needsImageUrlRefresh,
+  type GenerationAsset,
+} from "@/entities/image-resource/model/image-resource";
 import { useAuthDialogStore } from "@/features/auth/model/auth-dialog-store";
 import { useAuthStore } from "@/features/auth/model/auth-store";
 import {
@@ -46,10 +50,9 @@ function useVisibleImageSource(image: GenerationAsset, priority: boolean) {
     if (!nearViewport) return;
     let cancelled = false;
     async function setCurrentSource() {
-      if (!needsImageUrlRefresh(thumbnail)) {
-        if (!cancelled) setSource(thumbnail?.url ?? null);
-        return;
-      }
+      // An early renewal must not hide the still-valid image while the request runs.
+      if (!isImageUrlExpired(thumbnail)) setSource(thumbnail?.url ?? null);
+      if (!needsImageUrlRefresh(thumbnail)) return;
       try {
         const refreshed = await getInspiration(image.id);
         if (!cancelled) {
@@ -58,7 +61,6 @@ function useVisibleImageSource(image: GenerationAsset, priority: boolean) {
         }
       } catch (error) {
         discardUnavailableInspiration(queryClient, image.id, error);
-        if (!cancelled) setSource(thumbnail?.url ?? null);
       }
     }
     void setCurrentSource();

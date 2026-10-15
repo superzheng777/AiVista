@@ -15,6 +15,26 @@ describe("generation image transfer", () => {
       "users/7/tasks/301/0/card.webp", "image/resize,l_640/format,webp/quality,Q_80");
     expect(oss.processObjectSave).toHaveBeenNthCalledWith(2, "users/7/tasks/301/0/original.png",
       "users/7/tasks/301/0/display.webp", "image/resize,l_1600/format,webp/quality,Q_85");
+    for (const file of ["card.webp", "display.webp"]) {
+      const key = `users/7/tasks/301/0/${file}`;
+      expect(oss.copy).toHaveBeenCalledWith(key, key, { headers: {
+        "x-oss-metadata-directive": "REPLACE", "Content-Type": "image/webp", "Cache-Control": "private, max-age=3600",
+      } });
+    }
+    expect(oss.copy).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not settle variants without cache metadata and retries the cleaned group", async () => {
+    const oss = ossMock();
+    oss.copy.mockRejectedValueOnce(new Error("metadata failed"));
+    const service = createService(oss);
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => new Response(new Uint8Array([1]))));
+    expect(await service.transfer(task(), ["https://provider.example/0.png"])).toHaveLength(1);
+    expect(oss.delete.mock.calls.map(([key]) => key)).toEqual([
+      "users/7/tasks/301/0/original.png", "users/7/tasks/301/0/card.webp", "users/7/tasks/301/0/display.webp",
+    ]);
+    expect(oss.put).toHaveBeenCalledTimes(2);
+    expect(oss.copy).toHaveBeenCalledTimes(3);
   });
 
   it("cleans and retries a failed object group without rerunning the image model", async () => {
@@ -57,5 +77,5 @@ function createService(oss: ReturnType<typeof ossMock>) {
   Object.assign(service as any, { client: oss }); return service;
 }
 function ossMock() { return { put: vi.fn(async (_key: string, stream: AsyncIterable<Buffer>) => { for await (const _chunk of stream) { /* consume */ } }),
-  processObjectSave: vi.fn(async () => undefined), delete: vi.fn(async () => undefined) }; }
+  processObjectSave: vi.fn(async () => undefined), copy: vi.fn(async () => undefined), delete: vi.fn(async (_key: string) => undefined) }; }
 function task() { return { id: 301n, user_id: 7n, width: 2048, height: 2048 } as never; }

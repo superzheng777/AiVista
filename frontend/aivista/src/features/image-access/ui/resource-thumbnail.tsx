@@ -2,7 +2,11 @@
 
 /* eslint-disable @next/next/no-img-element */
 
-import { needsImageUrlRefresh, type GenerationAsset } from "@/entities/image-resource/model/image-resource";
+import {
+  isImageUrlExpired,
+  needsImageUrlRefresh,
+  type GenerationAsset,
+} from "@/entities/image-resource/model/image-resource";
 import { patchResource } from "@/entities/image-resource/model/resource-cache";
 import { getGenerationAsset } from "@/features/assets/api/asset-api";
 import { getInspiration } from "@/features/inspiration/api/inspiration-api";
@@ -34,8 +38,8 @@ export function ResourceThumbnail({
     refreshed?.image.id === image.id && refreshed.requestedUrl === thumbnail?.url
       ? (refreshed.image.imageUrls.thumbnail ?? refreshed.image.imageUrls.display)
       : null;
-  const source = replacement && !needsImageUrlRefresh(replacement) ? replacement : thumbnail;
-  const expired = needsImageUrlRefresh(source);
+  const source = replacement && !isImageUrlExpired(replacement) ? replacement : thumbnail;
+  const expired = isImageUrlExpired(source);
 
   const refresh = useCallback(async () => {
     const key = `${image.id}:${thumbnail?.url}`;
@@ -53,18 +57,18 @@ export function ResourceThumbnail({
   }, [access, client, image.id, thumbnail]);
 
   useEffect(() => {
-    if (!expired || !source || !element.current) return;
+    if (!source || !element.current) return;
     const observer = new IntersectionObserver(
       (entries) => {
         if (!entries[0]?.isIntersecting) return;
         observer.disconnect();
-        void refresh();
+        if (needsImageUrlRefresh(source)) void refresh();
       },
       { rootMargin: "360px" },
     );
     observer.observe(element.current);
     return () => observer.disconnect();
-  }, [source, expired, refresh]);
+  }, [source, refresh]);
 
   return (
     <img

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { mapGenerationAssetImage, needsImageUrlRefresh, type GenerationAssetImageDto } from "./image-resource";
+import {
+  isImageUrlExpired,
+  mapGenerationAssetImage,
+  needsImageUrlRefresh,
+  type GenerationAssetImageDto,
+} from "./image-resource";
 
 const dto: GenerationAssetImageDto = {
   imageId: "img-1",
@@ -64,13 +69,26 @@ describe("mapGenerationAssetImage", () => {
 });
 
 describe("needsImageUrlRefresh", () => {
-  it("keeps a URL that has not expired", () => {
+  it("keeps a URL outside the 60-second renewal window", () => {
     expect(
       needsImageUrlRefresh(
-        { url: "https://example.test", expiresAt: "2026-08-11T12:00:01.000Z" },
+        { url: "https://example.test", expiresAt: "2026-08-11T12:01:00.001Z" },
         Date.parse("2026-08-11T12:00:00.000Z"),
       ),
     ).toBe(false);
+  });
+
+  it.each([0, 1, 59_999, 60_000])("renews a URL with %i milliseconds remaining", (remaining) => {
+    const now = Date.parse("2026-08-11T12:00:00Z");
+    const url = { url: "https://example.test", expiresAt: new Date(now + remaining).toISOString() };
+    expect(needsImageUrlRefresh(url, now)).toBe(true);
+    expect(isImageUrlExpired(url, now)).toBe(remaining === 0);
+  });
+
+  it("treats missing URLs as unavailable but keeps URLs without an expiry", () => {
+    expect(needsImageUrlRefresh(null)).toBe(true);
+    expect(isImageUrlExpired(null)).toBe(true);
+    expect(needsImageUrlRefresh({ url: "https://example.test", expiresAt: null })).toBe(false);
   });
 
   it("refreshes an expired or malformed URL", () => {
