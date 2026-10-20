@@ -25,9 +25,6 @@ export function loadJavaLocalEnvironment(path: string | undefined, processEnviro
   }
   set("AIVISTA_DB_USERNAME", value("spring.datasource.username"));
   set("AIVISTA_DB_PASSWORD", value("spring.datasource.password"));
-  const serverPort = value("server.port");
-  const contextPath = value("server.servlet.context-path");
-  set("AIVISTA_JAVA_BASE_URL", `http://127.0.0.1:${serverPort ?? 8888}${contextPath ?? ""}`);
   set("AIVISTA_GENERATION_WORKER_TOKEN", value("app.generation.worker-api.token"));
   set("AIVISTA_RABBITMQ_HOST", value("spring.rabbitmq.host"));
   set("AIVISTA_RABBITMQ_PORT", value("spring.rabbitmq.port"));

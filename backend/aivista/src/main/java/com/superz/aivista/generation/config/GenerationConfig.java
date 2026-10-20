@@ -7,13 +7,13 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
- * 注册资产管理、SSE 与业务待办清理使用的配置。
+ * 注册资产管理、WebSocket 与业务待办清理使用的配置。
  */
 @Configuration
 @EnableScheduling
 @EnableConfigurationProperties({
         GenerationConsentProperties.class,
-        GenerationSseProperties.class,
+        UserEventProperties.class,
         OutboxCleanupProperties.class,
         GenerationAssetCleanupProperties.class,
         GenerationAssetUploadProperties.class,

@@ -5,7 +5,7 @@ import com.superz.aivista.generation.model.OutboxEventType;
 import com.superz.aivista.generation.model.OutboxStatus;
 import java.time.Instant;
 
-/** Creates publication SSE events on the shared reliable Outbox. */
+/** Creates publication WebSocket events on the shared reliable Outbox. */
 final class PublicationStatusOutboxEvent {
     private PublicationStatusOutboxEvent() {
     }

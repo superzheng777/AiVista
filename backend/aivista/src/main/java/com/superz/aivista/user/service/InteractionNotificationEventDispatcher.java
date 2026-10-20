@@ -2,11 +2,11 @@ package com.superz.aivista.user.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.superz.aivista.generation.config.GenerationSseProperties;
+import com.superz.aivista.generation.config.UserEventProperties;
 import com.superz.aivista.generation.entity.OutboxEvent;
 import com.superz.aivista.generation.mapper.OutboxEventMapper;
 import com.superz.aivista.generation.model.OutboxEventType;
-import com.superz.aivista.generation.service.GenerationSseConnectionService;
+import com.superz.aivista.generation.service.UserEventConnections;
 import com.superz.aivista.user.event.InteractionNotificationCreatedEvent;
 import java.time.Clock;
 import java.time.Instant;
@@ -18,13 +18,13 @@ import org.springframework.stereotype.Service;
 @Service
 public class InteractionNotificationEventDispatcher {
     private final OutboxEventMapper outboxEvents;
-    private final GenerationSseConnectionService connections;
-    private final GenerationSseProperties properties;
+    private final UserEventConnections connections;
+    private final UserEventProperties properties;
     private final Clock clock;
     private final ObjectMapper objectMapper;
 
-    public InteractionNotificationEventDispatcher(OutboxEventMapper outboxEvents, GenerationSseConnectionService connections,
-            GenerationSseProperties properties, Clock clock, ObjectMapper objectMapper) {
+    public InteractionNotificationEventDispatcher(OutboxEventMapper outboxEvents, UserEventConnections connections,
+            UserEventProperties properties, Clock clock, ObjectMapper objectMapper) {
         this.outboxEvents = outboxEvents;
         this.connections = connections;
         this.properties = properties;
@@ -32,7 +32,7 @@ public class InteractionNotificationEventDispatcher {
         this.objectMapper = objectMapper;
     }
 
-    @Scheduled(fixedDelayString = "${app.generation.sse.dispatcher-fixed-delay}")
+    @Scheduled(fixedDelayString = "${app.events.dispatcher-fixed-delay}")
     public void dispatchAvailableEvents() {
         Instant now = clock.instant();
         recoverExpiredProcessingEvents(now);
@@ -73,7 +73,7 @@ public class InteractionNotificationEventDispatcher {
                 event.setRetryCount(event.getRetryCount() + 1);
                 event.setAvailableAt(now);
             });
-            outboxEvents.rescheduleBatch(events, "SSE interaction notification processing lease expired");
+            outboxEvents.rescheduleBatch(events, "WebSocket interaction notification processing lease expired");
         }
     }
 }

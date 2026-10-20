@@ -12,12 +12,12 @@ import { CreationHttpService } from "./sessions/creation-http.service.js";
 import { GenerationQueueService } from "./sessions/generation-queue.service.js";
 import { GenerationTaskService } from "./sessions/generation-task.service.js";
 import { CreationDispatcherService } from "./sessions/creation-dispatcher.service.js";
-import { RuntimeEventClient } from "./sessions/runtime-event-client.js";
+import { RuntimeEventService } from "./sessions/runtime-event-service.js";
 
 import { AgentObservabilityService } from "./observability/agent-observability.service.js";
 
 @Module({ imports: [ConfigModule.forRoot({ isGlobal: true, validate: validateEnvironment }), DatabaseModule],
   providers: [GenerationImageUrlService, GenerationBailianClientService, GenerationRateLimiterService,
-    GenerationImageTransferService, AgentModelService, RuntimeEventClient, AgentObservabilityService,
+    GenerationImageTransferService, AgentModelService, RuntimeEventService, AgentObservabilityService,
     CreationRuntimeService, CreationHttpService, CreationDispatcherService, GenerationTaskService, GenerationQueueService] })
 export class GenerationWorkerModule {}

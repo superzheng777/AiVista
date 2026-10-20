@@ -12,21 +12,11 @@ import type { AgentModelBinding } from "./providers/bailian.js";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { AgentGenerationConstraints } from "./tools/generation.js";
 import { assistantItems, toolResultItems, toolSkillName } from "../sessions/message-items.js";
-import type { CreationItem } from "../sessions/session-contract.js";
+import type { CreationItem, TextDelta } from "../sessions/session-contract.js";
 import { inputRequestFromToolResult, REQUEST_USER_INPUT_TOOL_NAME,
   type AgentInputRequest } from "./tools/request-user-input.js";
 
 export const AGENT_PROJECT_ROOT = resolve(fileURLToPath(new URL("../../", import.meta.url)));
-
-export type AgentRuntimeEvent =
-  | { type: "agent_start" }
-  | { type: "turn_start"; turn: number }
-  | { type: "text_start"; contentIndex: number }
-  | { type: "text_delta"; contentIndex: number; delta: string }
-  | { type: "text_end"; contentIndex: number; text: string }
-  | { type: "tool_start"; toolCallId: string; toolName: string; args: unknown }
-  | { type: "tool_progress"; toolCallId: string; toolName: string; partialResult: unknown }
-  | { type: "tool_end"; toolCallId: string; toolName: string; result: unknown; isError: boolean };
 
 /** Optional side-channel for run diagnostics; implementations must remain fail-open. */
 export interface AgentRuntimeObserver {
@@ -47,8 +37,10 @@ export interface RunAgentPromptOptions {
   sessionManager?: SessionManager;
   adaptProviderRequest?: (payload: unknown) => unknown;
   onItem?: (item: CreationItem) => void;
+  onDelta?: (delta: TextDelta) => void;
+  onSnapshotSource?: (read: (() => CreationItem[]) | undefined) => void;
+  onMessagePersisted?: (itemIds: string[]) => void;
   signal?: AbortSignal;
-  onEvent?: (event: AgentRuntimeEvent) => void;
   observer?: AgentRuntimeObserver;
 }
 
@@ -67,10 +59,6 @@ export async function runAgentPrompt(options: RunAgentPromptOptions): Promise<Ag
   if (!Number.isInteger(options.maxTurns) || options.maxTurns < 1 || options.maxTurns > 20) {
     throw new RangeError("maxTurns must be an integer between 1 and 20");
   }
-  // Keep Pi project-resource discovery independent from the shell launch directory.
-  const emit = (event: AgentRuntimeEvent) => {
-    try { options.onEvent?.(event); } catch { /* Product projection failures must not break Pi's loop. */ }
-  };
   let turnLimitReached = false;
   let inputRequest: AgentInputRequest | undefined;
   const blockedToolCallIds = new Set<string>();
@@ -102,7 +90,6 @@ export async function runAgentPrompt(options: RunAgentPromptOptions): Promise<Ag
           context.abort();
           return;
         }
-        emit({ type: "turn_start", turn: event.turnIndex + 1 });
       });
       pi.on("turn_end", (event, context) => {
         if (event.turnIndex + 1 >= options.maxTurns && event.toolResults.length > 0) {
@@ -130,6 +117,7 @@ export async function runAgentPrompt(options: RunAgentPromptOptions): Promise<Ag
       });
     },
   };
+  // Keep Pi project-resource discovery independent from the shell launch directory.
   const resourceLoader = new DefaultResourceLoader({
     cwd: AGENT_PROJECT_ROOT,
     agentDir: resolve(AGENT_PROJECT_ROOT, ".pi"),
@@ -165,12 +153,27 @@ export async function runAgentPrompt(options: RunAgentPromptOptions): Promise<Ag
     sessionManager,
     settingsManager,
   });
+  const observedMessages = new Set<number>();
+  options.onSnapshotSource?.(() => {
+    const partial = session.state.streamingMessage;
+    return partial?.role === "assistant" && observedMessages.has(partial.timestamp) ? assistantItems(partial) : [];
+  });
   let resolveSettled!: () => void;
   const settled = new Promise<void>((resolvePromise) => { resolveSettled = resolvePromise; });
   const toolContexts = new Map<string, { skillName?: string | undefined; assistantMessageId?: string | undefined }>();
   const unsubscribe = session.subscribe((event) => {
-    if (event.type === "agent_start") emit({ type: "agent_start" });
     if (event.type === "agent_settled") resolveSettled();
+    if (event.type === "message_end") {
+      const message = event.message;
+      const items = message.role === "assistant" ? assistantItems(message)
+        : message.role === "toolResult" ? toolResultItems(message.toolCallId, message.toolName, message, message.isError,
+          toolContexts.get(message.toolCallId)?.skillName, toolContexts.get(message.toolCallId)?.assistantMessageId) : [];
+      // Pi appends synchronously immediately after notifying subscribers. Verify the append before releasing our bridge items.
+      queueMicrotask(() => {
+        const leaf = sessionManager.getLeafEntry();
+        if (leaf?.type === "message" && leaf.message === message) options.onMessagePersisted?.(items.map((item) => item.id));
+      });
+    }
     if (event.type === "message_end" && event.message.role === "assistant") {
       for (const item of assistantItems(event.message)) {
         if (item.kind === "tool") toolContexts.set(item.toolCallId, {
@@ -184,14 +187,6 @@ export async function runAgentPrompt(options: RunAgentPromptOptions): Promise<Ag
         skillName: toolSkillName(event.toolName, event.args) });
       options.observer?.startTool({ toolCallId: event.toolCallId,
         toolName: event.toolName, args: event.args });
-      if (blockedToolCallIds.has(event.toolCallId)) return;
-      emit({ type: "tool_start", toolCallId: event.toolCallId, toolName: event.toolName,
-        args: event.args });
-    }
-    if (event.type === "tool_execution_update") {
-      if (blockedToolCallIds.has(event.toolCallId)) return;
-      emit({ type: "tool_progress", toolCallId: event.toolCallId, toolName: event.toolName,
-        partialResult: event.partialResult });
     }
     if (event.type === "tool_execution_end") {
       options.observer?.finishTool({ toolCallId: event.toolCallId,
@@ -203,25 +198,22 @@ export async function runAgentPrompt(options: RunAgentPromptOptions): Promise<Ag
       if (!event.isError && event.toolName === REQUEST_USER_INPUT_TOOL_NAME) {
         inputRequest = inputRequestFromToolResult(event.toolCallId, event.result);
       }
-      emit({ type: "tool_end", toolCallId: event.toolCallId, toolName: event.toolName,
-        result: event.result, isError: event.isError });
     }
     if (event.type !== "message_update") return;
     const update = event.assistantMessageEvent;
+    observedMessages.add((event.message as AssistantMessage).timestamp);
     if (update.type === "text_delta" || update.type === "text_end") {
       const message = event.message as AssistantMessage;
       const block = message.content[update.contentIndex];
-      if (block?.type === "text") options.onItem?.({
+      if (block?.type === "text" && update.type === "text_delta" && options.onDelta) {
+        options.onDelta({ id: `text:${message.timestamp}:${update.contentIndex}`,
+          assistantMessageId: `assistant:${message.timestamp}`, delta: update.delta,
+          offset: block.text.length - update.delta.length });
+      }
+      if (block?.type === "text" && update.type === "text_end") options.onItem?.({
         id: `text:${message.timestamp}:${update.contentIndex}`, kind: "text",
         assistantMessageId: `assistant:${message.timestamp}`, text: block.text, phase: "process",
       });
-    }
-    if (update.type === "text_start") {
-      emit({ type: "text_start", contentIndex: update.contentIndex });
-    } else if (update.type === "text_delta") {
-      emit({ type: "text_delta", contentIndex: update.contentIndex, delta: update.delta });
-    } else if (update.type === "text_end") {
-      emit({ type: "text_end", contentIndex: update.contentIndex, text: update.content });
     }
   });
 
@@ -243,6 +235,7 @@ export async function runAgentPrompt(options: RunAgentPromptOptions): Promise<Ag
     options.signal?.removeEventListener("abort", abort);
     if (abortPromise) await abortPromise;
     unsubscribe();
+    options.onSnapshotSource?.(undefined);
     session.dispose();
   }
 }

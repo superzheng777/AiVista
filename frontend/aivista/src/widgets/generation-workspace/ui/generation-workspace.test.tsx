@@ -314,7 +314,7 @@ describe("GenerationWorkspace", () => {
     client.clear();
   });
 
-  it("renders history and SSE into the same turn without refetching history", async () => {
+  it("renders history and WebSocket into the same turn without refetching history", async () => {
     vi.mocked(getGenerationSession).mockResolvedValue(sessionFixture());
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
@@ -335,6 +335,80 @@ describe("GenerationWorkspace", () => {
     expect(getGenerationSession).toHaveBeenCalledOnce();
     client.clear();
   });
+  it("renders sequenced WS deltas while history is mounted and preserves them across a late HTTP response", async () => {
+    vi.mocked(getGenerationSession).mockResolvedValue(sessionFixture());
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <GenerationWorkspace />
+      </QueryClientProvider>,
+    );
+    await screen.findByText("制作海报");
+    const envelope = { sessionId: "1", creationId: "2", streamId: "live" };
+    await act(async () => {
+      receiveCreationEvent(client, {
+        ...envelope,
+        type: "creation.snapshot",
+        sequence: 0,
+        turn: sessionFixture().turns[0]!,
+      });
+      receiveCreationEvent(client, {
+        ...envelope,
+        type: "creation.text.delta",
+        sequence: 1,
+        itemId: "text",
+        assistantMessageId: "assistant",
+        offset: 0,
+        delta: "实时创作说明",
+      });
+    });
+    expect(await screen.findByText("实时创作说明")).toBeInTheDocument();
+    let finish!: (value: SessionDetail) => void;
+    vi.mocked(getGenerationSession).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    void client.invalidateQueries({ queryKey: generationQueryKeys.session("1") });
+    await waitFor(() => expect(getGenerationSession).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      receiveCreationEvent(client, {
+        ...envelope,
+        type: "creation.text.delta",
+        sequence: 2,
+        itemId: "text",
+        assistantMessageId: "assistant",
+        offset: 6,
+        delta: "，继续更新",
+      });
+      const snapshot = sessionFixture();
+      snapshot.turns[0]!.stream = { id: "live", sequence: 1 };
+      snapshot.turns[0]!.items = [{ id: "text", kind: "text", phase: "process", text: "实时创作说明" }];
+      finish(snapshot);
+    });
+    expect(await screen.findByText("实时创作说明，继续更新")).toBeInTheDocument();
+    await act(async () => {
+      receiveCreationEvent(client, {
+        ...envelope,
+        type: "creation.item.upserted",
+        sequence: 3,
+        item: { id: "text", kind: "text", assistantMessageId: "assistant", phase: "final", text: "实时创作完成" },
+      });
+      receiveCreationEvent(client, {
+        ...envelope,
+        type: "creation.updated",
+        sequence: 4,
+        status: "SUCCEEDED",
+        revision: 2,
+      });
+    });
+    expect(await screen.findByText("实时创作完成")).toBeInTheDocument();
+    expect(screen.getByText("创作完成")).toBeInTheDocument();
+    expect(getGenerationSession).toHaveBeenCalledTimes(2);
+    client.clear();
+  });
+
   it("disables new creation at the limit using a constructed session", async () => {
     const data = sessionFixture();
     data.creationCount = 30;

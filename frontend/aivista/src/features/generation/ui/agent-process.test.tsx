@@ -3,7 +3,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { generationQueryKeys } from "../api/generation-api";
-import { hydrateSession, receiveCreationEvent } from "../model/session-events";
+import { receiveCreationEvent } from "../model/session-events";
 import { sessionFixture } from "../model/session-events.test-fixture";
 import { AgentProcess } from "./agent-process";
 
@@ -96,7 +96,7 @@ describe("Agent process tool groups", () => {
     const snapshot = JSON.parse(JSON.stringify(client.getQueryData(key))) as SessionDetail;
     unmount();
     client.clear();
-    client.setQueryData(key, hydrateSession(client, snapshot));
+    client.setQueryData(key, snapshot);
     render(<AgentProcess active={false} items={items()} />);
     expect(screen.getByText("已完成")).toBeInTheDocument();
     fireEvent.click(screen.getByText("已完成"));
@@ -179,7 +179,7 @@ describe("Agent process tool groups", () => {
     const key = generationQueryKeys.session("1");
     const initial = sessionFixture();
     initial.turns[0]!.items = [tool("g1", "text_to_image")];
-    client.setQueryData(key, hydrateSession(client, initial));
+    client.setQueryData(key, initial);
     const items = () => client.getQueryData<SessionDetail>(key)!.turns[0]!.items;
     const { rerender, unmount } = render(<AgentProcess active items={items()} />);
     const firstRow = rows()[0];
@@ -197,14 +197,12 @@ describe("Agent process tool groups", () => {
     receive(tool("g2", "text_to_image", "RUNNING"));
     expect(firstRow).toHaveTextContent("图像生成（2/2）");
     expect(firstRow!.querySelector('[aria-busy="true"]')).toBeNull();
-    client.setQueryData(key, hydrateSession(client, initial));
-    rerender(<AgentProcess active items={items()} />);
     expect(firstRow).toHaveTextContent("图像生成（2/2）");
     const snapshot = JSON.parse(JSON.stringify(client.getQueryData<SessionDetail>(key))) as SessionDetail;
     expect(snapshot.turns[0]!.items).toHaveLength(2);
     unmount();
     client.clear();
-    client.setQueryData(key, hydrateSession(client, snapshot));
+    client.setQueryData(key, snapshot);
     render(<AgentProcess active items={items()} />);
     expect(rows()).toHaveLength(1);
     expect(rows()[0]).toHaveTextContent("图像生成（2/2）");

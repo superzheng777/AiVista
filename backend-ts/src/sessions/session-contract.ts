@@ -56,7 +56,9 @@ export type CreationItem =
   | { id: string; kind: "tool"; assistantMessageId?: string; toolCallId: string; name: string; skillName?: string;
       status: "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELLED" }
   | FormItem | GenerationItem;
+export type TextDelta = { id: string; assistantMessageId: string; delta: string; offset: number };
 export type CreationTurn = CreationStart & {
+  stream?: { id: string; sequence: number };
   status: ExecutionStatus; revision: number; items: CreationItem[];
   createdAt: string; completedAt: string | null; failureCode: string | null;
 };

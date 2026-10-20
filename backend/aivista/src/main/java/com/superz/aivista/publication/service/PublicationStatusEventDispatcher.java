@@ -2,13 +2,13 @@ package com.superz.aivista.publication.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.superz.aivista.generation.config.GenerationSseProperties;
+import com.superz.aivista.generation.config.UserEventProperties;
 import com.superz.aivista.generation.entity.ImageAsset;
 import com.superz.aivista.generation.entity.OutboxEvent;
 import com.superz.aivista.generation.mapper.ImageAssetMapper;
 import com.superz.aivista.generation.mapper.OutboxEventMapper;
 import com.superz.aivista.generation.model.OutboxEventType;
-import com.superz.aivista.generation.service.GenerationSseConnectionService;
+import com.superz.aivista.generation.service.UserEventConnections;
 import com.superz.aivista.publication.event.PublicationStatusEvent;
 import java.time.Clock;
 import java.time.Instant;
@@ -20,18 +20,18 @@ import java.util.stream.Collectors;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
-/** Delivers final publication states to a user's existing authenticated SSE stream. */
+/** Delivers final publication states to a user's existing authenticated WebSocket stream. */
 @Service
 public class PublicationStatusEventDispatcher {
     private final OutboxEventMapper outbox;
     private final ImageAssetMapper images;
-    private final GenerationSseConnectionService connections;
-    private final GenerationSseProperties properties;
+    private final UserEventConnections connections;
+    private final UserEventProperties properties;
     private final ObjectMapper objectMapper;
     private final Clock clock;
 
     public PublicationStatusEventDispatcher(OutboxEventMapper outbox, ImageAssetMapper images,
-            GenerationSseConnectionService connections, GenerationSseProperties properties,
+            UserEventConnections connections, UserEventProperties properties,
             ObjectMapper objectMapper, Clock clock) {
         this.outbox = outbox;
         this.images = images;
@@ -41,7 +41,7 @@ public class PublicationStatusEventDispatcher {
         this.clock = clock;
     }
 
-    @Scheduled(fixedDelayString = "${app.generation.sse.dispatcher-fixed-delay}")
+    @Scheduled(fixedDelayString = "${app.events.dispatcher-fixed-delay}")
     public void dispatchAvailableEvents() {
         Instant now = clock.instant();
         recoverExpiredProcessingEvents(now);
@@ -92,7 +92,7 @@ public class PublicationStatusEventDispatcher {
                 event.setRetryCount(event.getRetryCount() + 1);
                 event.setAvailableAt(now);
             });
-            outbox.rescheduleBatch(events, "SSE publication event processing lease expired");
+            outbox.rescheduleBatch(events, "WebSocket publication event processing lease expired");
         }
     }
 }

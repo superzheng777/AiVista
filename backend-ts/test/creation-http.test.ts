@@ -11,7 +11,7 @@ async function start() {
   const values: Record<string, unknown> = {
     AIVISTA_RUNTIME_HOST: "127.0.0.1", AIVISTA_RUNTIME_PORT: 0, AIVISTA_GENERATION_WORKER_TOKEN: "test-token",
   };
-  service = new CreationHttpService({ get: (key: string) => values[key] } as never, runtime as never);
+  service = new CreationHttpService({ get: (key: string) => values[key] } as never, runtime as never, { attach: vi.fn() } as never);
   await service.onModuleInit();
   const address = (service as unknown as { server: Server }).server.address();
   if (!address || typeof address === "string") throw new Error("Missing test listener");

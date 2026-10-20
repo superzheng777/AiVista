@@ -15,7 +15,7 @@ import java.util.List;
 import org.springframework.stereotype.Service;
 import com.superz.aivista.common.transaction.RetryingTransaction;
 
-/** Atomically records a final publication decision, notification, and SSE event. */
+/** Atomically records a final publication decision, notification, and WebSocket event. */
 @Service
 public class PublicationReviewOutcomeService {
     private final ImageAssetMapper images;

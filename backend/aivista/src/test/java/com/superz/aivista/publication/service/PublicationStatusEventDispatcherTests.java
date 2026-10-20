@@ -5,12 +5,12 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.superz.aivista.generation.config.GenerationSseProperties;
+import com.superz.aivista.generation.config.UserEventProperties;
 import com.superz.aivista.generation.entity.ImageAsset;
 import com.superz.aivista.generation.entity.OutboxEvent;
 import com.superz.aivista.generation.mapper.ImageAssetMapper;
 import com.superz.aivista.generation.mapper.OutboxEventMapper;
-import com.superz.aivista.generation.service.GenerationSseConnectionService;
+import com.superz.aivista.generation.service.UserEventConnections;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -48,18 +48,18 @@ class PublicationStatusEventDispatcherTests {
 
         dispatcher(outbox, mock(ImageAssetMapper.class)).dispatchAvailableEvents();
 
-        verify(outbox).rescheduleBatch(List.of(stale), "SSE publication event processing lease expired");
+        verify(outbox).rescheduleBatch(List.of(stale), "WebSocket publication event processing lease expired");
         org.assertj.core.api.Assertions.assertThat(stale.getRetryCount()).isEqualTo(3);
         org.assertj.core.api.Assertions.assertThat(stale.getAvailableAt()).isEqualTo(NOW);
     }
 
     private static PublicationStatusEventDispatcher dispatcher(OutboxEventMapper outbox, ImageAssetMapper images) {
-        return new PublicationStatusEventDispatcher(outbox, images, mock(GenerationSseConnectionService.class), properties(),
+        return new PublicationStatusEventDispatcher(outbox, images, mock(UserEventConnections.class), properties(),
                 new ObjectMapper(), Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
-    private static GenerationSseProperties properties() {
-        return new GenerationSseProperties(3, 1000, Duration.ofSeconds(15), Duration.ofSeconds(1), 100,
+    private static UserEventProperties properties() {
+        return new UserEventProperties(3, 1000, Duration.ofSeconds(15), Duration.ofSeconds(1), 100,
                 Duration.ofSeconds(30));
     }
 

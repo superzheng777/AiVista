@@ -1,6 +1,6 @@
 "use client";
 
-import { isActiveCreation, mergeSessionSnapshot, type SessionDetail } from "@/entities/creation-session/model/session";
+import { isActiveCreation, type SessionDetail } from "@/entities/creation-session/model/session";
 import type { GenerationAsset } from "@/entities/image-resource/model/image-resource";
 import { patchResource, removeResources } from "@/entities/image-resource/model/resource-cache";
 import { ImageDetailShell } from "@/entities/image-resource/ui/image-detail-shell";
@@ -18,7 +18,7 @@ import {
   getGenerationSession,
   resolveAgentForm,
 } from "@/features/generation/api/generation-api";
-import { hydrateSession, receiveCreationEvent } from "@/features/generation/model/session-events";
+import { loadSessionSnapshot, receiveCreationEvent } from "@/features/generation/model/session-events";
 import { GenerationComposer } from "@/features/generation/ui/generation-composer";
 import { PublicationFormDialog } from "@/features/publication/ui/publication-form-dialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -45,9 +45,8 @@ export function ConversationPanel({ sessionId, toolbar }: { sessionId: string; t
   const [notice, setNotice] = useState<string | null>(null);
   const session = useQuery({
     queryKey: generationQueryKeys.session(sessionId),
-    queryFn: async () => hydrateSession(client, await getGenerationSession(sessionId)),
-    structuralSharing: (current, incoming) =>
-      mergeSessionSnapshot(current as SessionDetail | undefined, incoming as SessionDetail),
+    // The HTTP snapshot is the baseline; replay only newer events received while it was in flight.
+    queryFn: ({ signal }) => loadSessionSnapshot(client, sessionId, () => getGenerationSession(sessionId, signal)),
     staleTime: Infinity,
   });
 

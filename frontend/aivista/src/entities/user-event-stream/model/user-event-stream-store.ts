@@ -11,15 +11,13 @@ type UserEventStreamState = {
   syncVersion: number;
   publicationRefreshVersion: number;
   notificationRefreshVersion: number;
-  ensureReady: () => Promise<boolean>;
-  retryNow: () => Promise<boolean>;
+  syncCreations: (ids: string[]) => void;
+  retryNow: () => void;
   acknowledgeSession: (sessionId: string) => void;
   acknowledgeCompletedResults: () => void;
 };
 
 // Connection actions are installed only while the authenticated initializer is mounted.
-const unavailable = async () => false;
-
 export const useUserEventStreamStore = create<UserEventStreamState>((set) => ({
   status: "DISCONNECTED",
   reconnectAttempt: 0,
@@ -28,8 +26,8 @@ export const useUserEventStreamStore = create<UserEventStreamState>((set) => ({
   syncVersion: 0,
   publicationRefreshVersion: 0,
   notificationRefreshVersion: 0,
-  ensureReady: unavailable,
-  retryNow: unavailable,
+  syncCreations: () => {},
+  retryNow: () => {},
   acknowledgeSession: (sessionId) =>
     set((state) => {
       if (!state.completedSessionIds.has(sessionId) && !state.attentionSessionIds.has(sessionId)) return state;

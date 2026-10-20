@@ -21,7 +21,7 @@ export function NewConversationPanel({ toolbar }: { toolbar: ReactNode }) {
             写下第一个想法，提交后会自动建立创作会话。
           </p>
         </div>
-        <div className="mt-10">
+        <div className="mx-auto mt-10 w-full max-w-[920px]">
           <GenerationComposer />
         </div>
       </div>

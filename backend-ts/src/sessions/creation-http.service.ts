@@ -7,12 +7,14 @@ import type { Environment } from "../config/environment.js";
 import { CreationRuntimeService } from "./creation-runtime.service.js";
 import { ExecutionConflict } from "./execution-repository.js";
 import { idSchema } from "./session-contract.js";
+import { RuntimeEventService } from "./runtime-event-service.js";
 
 @Injectable()
 export class CreationHttpService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(CreationHttpService.name);
   private server: Server | undefined;
-  constructor(private readonly config: ConfigService<Environment, true>, private readonly runtime: CreationRuntimeService) {}
+  constructor(private readonly config: ConfigService<Environment, true>, private readonly runtime: CreationRuntimeService,
+      private readonly events: RuntimeEventService) {}
 
   async onModuleInit(): Promise<void> {
     this.server = createServer((request, response) => {
@@ -23,6 +25,7 @@ export class CreationHttpService implements OnModuleInit, OnModuleDestroy {
         this.send(response, status, { code: error instanceof ExecutionConflict ? error.code : "RUNTIME_REQUEST_FAILED" });
       });
     });
+    this.events.attach(this.server);
     await new Promise<void>((resolve, reject) => {
       this.server!.once("error", reject);
       this.server!.listen(this.config.get("AIVISTA_RUNTIME_PORT", { infer: true }),

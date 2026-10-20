@@ -39,9 +39,9 @@ export async function listGenerationSessions(): Promise<SessionSummary[]> {
   return unwrapApiResponse((await browserApiClient.get<ApiResponse<SessionSummary[]>>("/generation-sessions")).data);
 }
 
-export async function getGenerationSession(sessionId: string): Promise<SessionDetail> {
+export async function getGenerationSession(sessionId: string, signal?: AbortSignal): Promise<SessionDetail> {
   return unwrapApiResponse(
-    (await browserApiClient.get<ApiResponse<SessionDetail>>(`/generation-sessions/${sessionId}`)).data,
+    (await browserApiClient.get<ApiResponse<SessionDetail>>(`/generation-sessions/${sessionId}`, { signal })).data,
   );
 }
 

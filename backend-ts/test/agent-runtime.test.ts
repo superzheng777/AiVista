@@ -3,10 +3,7 @@ import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/provid
 import { defineTool, ModelRuntime, SessionManager } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  runAgentPrompt,
-  type AgentRuntimeEvent,
-} from "../src/agent/agent-runtime.js";
+import { runAgentPrompt } from "../src/agent/agent-runtime.js";
 import { createAgentModelBinding, type AgentModelBinding } from "../src/agent/providers/bailian.js";
 import { createGenerationTools, createInspectImageTool,
   createRequestUserInputTool, type GenerationToolRequest } from "../src/agent/tools/index.js";
@@ -58,6 +55,32 @@ describe("Agent runtime", () => {
       { phase: "process", text: "开始生成" }, { phase: "final", text: "海报已完成" },
     ]);
   });
+  it("forwards Pi deltas immediately and releases its native snapshot reader after settling", async () => {
+    const { binding, faux } = await createFauxBinding();
+    faux.setResponses([fauxAssistantMessage("公开说明：开始创作。")]);
+    const deltas: Array<{ delta: string; offset: number }> = [];
+    const items: CreationItem[] = [];
+    const persisted: string[] = [];
+    let read: (() => CreationItem[]) | undefined;
+    await runAgentPrompt({ binding, prompt: "开始", maxTurns: 2,
+      onSnapshotSource: (source) => { read = source; },
+      onMessagePersisted: (ids) => persisted.push(...ids),
+      onDelta: (delta) => {
+        expect(read).toBeTypeOf("function");
+        deltas.push(delta);
+        expect(read!().some((item) => item.kind === "text" && item.text.includes(delta.delta))).toBe(true);
+      },
+      onItem: (item) => items.push(item),
+    });
+    expect(deltas.length).toBeGreaterThan(0);
+    expect(deltas.map((delta) => delta.delta).join("")).toBe("公开说明：开始创作。");
+    let length = 0;
+    for (const delta of deltas) { expect(delta.offset).toBe(length); length += delta.delta.length; }
+    expect(items.some((item) => item.kind === "text" && item.text === "公开说明：开始创作。")).toBe(true);
+    expect(read).toBeUndefined();
+    expect(persisted).toContain(items.find((item) => item.kind === "text")!.id);
+  });
+
   it("continues NORMAL history with a real Agent loop and saves each tool result only once", async () => {
     const { binding, faux } = await createFauxBinding();
     const manager = SessionManager.inMemory();
@@ -77,26 +100,6 @@ describe("Agent runtime", () => {
     expect(context.messages.filter((message) => message.role === "toolResult")).toHaveLength(2);
     expect(context.messages.at(-1)).toMatchObject({ role: "assistant", provider: binding.model.provider, model: binding.model.id });
     expect(JSON.stringify(manager.getBranch())).not.toMatch(/generation_completed|generation_result/);
-  });
-
-  it("runs one in-memory Pi loop and projects native lifecycle and text events", async () => {
-    const { binding, faux } = await createFauxBinding();
-    const sessionManager = SessionManager.inMemory();
-    faux.setResponses([fauxAssistantMessage("你好，我是 AiVista。")]);
-    const events: AgentRuntimeEvent[] = [];
-
-    const result = await runAgentPrompt({ sessionManager,
-      binding,
-      prompt: "你好",
-      maxTurns: 20,
-      onEvent: (event) => events.push(event),
-    });
-
-    expect(result).toMatchObject({ outcome: "COMPLETED", text: "你好，我是 AiVista。" });
-    expect(sessionManager.buildSessionContext().messages).toHaveLength(2);
-    expect(events[0]).toEqual({ type: "agent_start" });
-    expect(events).toContainEqual({ type: "turn_start", turn: 1 });
-    expect(events).toContainEqual({ type: "text_end", contentIndex: 0, text: "你好，我是 AiVista。" });
   });
 
   it("rejects a turn budget outside the configured product limit", async () => {
@@ -210,7 +213,6 @@ describe("Agent runtime", () => {
       fauxAssistantMessage("海报已经生成。"),
     ]);
     const requests: GenerationToolRequest[] = [];
-    const events: AgentRuntimeEvent[] = [];
     const traceRecorder = recorderSpy();
     const tools = createGenerationTools({
       constraints: { aspectRatio: "AUTO", imageCount: 0 },
@@ -229,19 +231,16 @@ describe("Agent runtime", () => {
       maxTurns: 20,
       tools,
       observer: traceRecorder as never,
-      onEvent: (event) => events.push(event),
     });
 
     expect(result.outcome).toBe("COMPLETED");
     if (result.outcome !== "COMPLETED") throw new Error("expected a completed run");
     expect(result.text).toBe("海报已经生成。");
     expect(requests).toHaveLength(1);
-    expect(events).toContainEqual(expect.objectContaining({
-      type: "tool_start", toolName: "text_to_image",
-    }));
-    expect(events).toContainEqual(expect.objectContaining({
-      type: "tool_end", toolName: "text_to_image", isError: false,
-    }));
+    expect(sessionManager.buildSessionContext().messages.filter((message) => message.role === "toolResult"))
+      .toMatchObject([{ toolName: "text_to_image", isError: false, details: {
+        status: "SUCCEEDED", generationId: "9001", assets: [{ assetId: "7001" }],
+      } }]);
     expect(requests[0]).toMatchObject({
       operation: "TEXT_TO_IMAGE",
       promptExtend: true,
@@ -331,20 +330,16 @@ describe("Agent runtime", () => {
           value: "深夜车站，等不到末班车的人" }],
       }), { stopReason: "toolUse" }),
     ]);
-    let settledCount = 0;
     const traceRecorder = recorderSpy();
 
     const result = await runAgentPrompt({ sessionManager, binding, prompt: "帮我生成电影剧照", maxTurns: 20,
-      tools: [createRequestUserInputTool()], observer: traceRecorder as never, onEvent: (event) => {
-        if (event.type === "agent_start") settledCount += 1;
-      } });
+      tools: [createRequestUserInputTool()], observer: traceRecorder as never });
 
     expect(result).toMatchObject({
       outcome: "WAITING_FOR_USER",
       request: { form: { schemaVersion: 2, title: "电影感摄影图定制" } },
     });
     expect(faux.state.callCount).toBe(1);
-    expect(settledCount).toBe(1);
     expect(sessionManager.buildSessionContext().messages.at(-1)).toMatchObject({
       role: "toolResult", toolName: "request_user_input", isError: false,
       details: { outcome: "WAITING_FOR_USER" },
@@ -359,7 +354,6 @@ describe("Agent runtime", () => {
     const { binding, faux } = await createFauxBinding();
     const sessionManager = SessionManager.inMemory();
     const requests: string[] = [];
-    const events: AgentRuntimeEvent[] = [];
     const call = (id: string) => fauxToolCall("text_to_image", {
       prompt: "测试海报", aspectRatio: "1:1", imageCount: 1,
     }, { id });
@@ -387,13 +381,10 @@ describe("Agent runtime", () => {
         ] };
       } } });
 
-    const result = await runAgentPrompt({ binding, sessionManager, prompt: "设计两个海报方向", maxTurns: 4, tools,
-      onEvent: (event) => events.push(event) });
+    const result = await runAgentPrompt({ binding, sessionManager, prompt: "设计两个海报方向", maxTurns: 4, tools });
 
     expect(result).toMatchObject({ outcome: "COMPLETED", text: "两个方向已经完成。" });
     expect(requests).toEqual(["allowed-1", "allowed-2"]);
-    expect(events.filter((event) => event.type === "tool_start").map((event) => event.toolCallId))
-      .toEqual(["allowed-1", "allowed-2"]);
   });
 
   it("blocks every tool in a mixed form batch before any side effect runs", async () => {
@@ -415,7 +406,6 @@ describe("Agent runtime", () => {
       }), { stopReason: "toolUse" }),
     ]);
     let generationCalls = 0;
-    const events: AgentRuntimeEvent[] = [];
     const traceRecorder = recorderSpy();
     const tools = [createRequestUserInputTool(), ...createGenerationTools({
       constraints: { aspectRatio: "AUTO", imageCount: 0 },
@@ -427,15 +417,11 @@ describe("Agent runtime", () => {
     })];
 
     const result = await runAgentPrompt({ sessionManager, binding, prompt: "做海报", maxTurns: 20, tools,
-      observer: traceRecorder as never,
-      onEvent: (event) => events.push(event) });
+      observer: traceRecorder as never });
 
     expect(generationCalls).toBe(0);
-    expect(events.filter((event) => event.type === "tool_start" || event.type === "tool_end"))
-      .toEqual([
-        expect.objectContaining({ type: "tool_start", toolName: "request_user_input" }),
-        expect.objectContaining({ type: "tool_end", toolName: "request_user_input" }),
-      ]);
+    expect(sessionManager.buildSessionContext().messages.filter((message) => message.role === "toolResult"))
+      .toMatchObject([{ isError: true }, { isError: true }, { toolName: "request_user_input", isError: false }]);
     expect(faux.state.callCount).toBe(2);
     expect(result).toMatchObject({ outcome: "WAITING_FOR_USER" });
     expect(traceRecorder.startTool.mock.calls.map(([call]) => call.toolName))
@@ -462,19 +448,15 @@ describe("Agent runtime", () => {
         fields: [{ id: "theme", type: "TEXT", label: "主题", required: true, value: "" }],
       }), { stopReason: "toolUse" }),
     ]);
-    const events: AgentRuntimeEvent[] = [];
 
     const result = await runAgentPrompt({ sessionManager, binding, prompt: "做海报", maxTurns: 20,
-      tools: [createRequestUserInputTool()], onEvent: (event) => events.push(event) });
+      tools: [createRequestUserInputTool()] });
 
     expect(result).toMatchObject({ outcome: "WAITING_FOR_USER",
       request: { form: { title: "唯一有效表单" } } });
     expect(faux.state.callCount).toBe(2);
-    expect(events.filter((event) => event.type === "tool_start" || event.type === "tool_end"))
-      .toEqual([
-        expect.objectContaining({ type: "tool_start", toolName: "request_user_input" }),
-        expect.objectContaining({ type: "tool_end", toolName: "request_user_input" }),
-      ]);
+    expect(sessionManager.buildSessionContext().messages.filter((message) => message.role === "toolResult"))
+      .toMatchObject([{ isError: true }, { isError: true }, { toolName: "request_user_input", isError: false }]);
     const waitingResults = sessionManager.buildSessionContext().messages.filter((message) => message.role === "toolResult"
       && message.details && typeof message.details === "object"
       && Reflect.get(message.details, "outcome") === "WAITING_FOR_USER");
@@ -519,19 +501,16 @@ describe("Agent runtime", () => {
         return { content: [{ type: "text" as const, text: "continue" }], details: {} };
       },
     });
-    const turns: number[] = [];
 
     await expect(runAgentPrompt({ sessionManager,
       binding,
       prompt: "continue",
       maxTurns: 20,
       tools: [tool],
-      onEvent: (event) => {
-        if (event.type === "turn_start") turns.push(event.turn);
-      },
     })).rejects.toMatchObject({ name: "AgentTurnLimitError", maxTurns: 20 });
     expect(calls).toBe(20);
-    expect(turns).toEqual(Array.from({ length: 20 }, (_, index) => index + 1));
+    expect(sessionManager.buildSessionContext().messages.filter((message) =>
+      message.role === "assistant" && message.stopReason === "toolUse")).toHaveLength(20);
   });
 
   it("awaits Pi cancellation and propagates the Tool AbortSignal", async () => {

@@ -10,10 +10,12 @@ Agent 每条模型回复最多调用一个工具，模型请求关闭并行工�
 
 - [运行、配置与验证](../docs/worker/AI-Runtime.md)
 - [会话架构](../docs/architecture/Agent模式.md)
-- [REST、SSE 与 MQ 协议](../docs/architecture/creation-protocol.md)
+- [REST、WebSocket 与 MQ 协议](../docs/architecture/creation-protocol.md)
 
 `var/sessions` 必须持久化并与 SQL 共同备份，不提交到 Git。两端连接同一个 `aivista` 库，OSS 默认前缀为 `users`。Java 用 Flyway 执行 V1 基础表、V2 图片任务及 V3 会话逻辑删除迁移。本轮用户统计与通知去重改造已更新 V1，旧开发库必须按已确认的数据重置方案重新初始化，不能直接升级或用 repair 绕过校验；需保留旧数据的环境必须另行提供增量迁移，见[用户统计与通知去重模块](../docs/java/modules/用户统计与通知去重模块.md)。确需重置开发数据时同步清理数据库、会话文件、队列、搜索文档和旧 OSS 图片，避免数字 ID 重用造成对象路径冲突。
 
 升级先停止 TS，再由 Java/Flyway 应用尚未执行的迁移，最后启动新 TS。V2 对既存 RUNNING 图片任务保守回填调用意图，恢复时不自动重复模型请求；未执行的 QUEUED 由新链路接管。V3 增加会话 `deleted_at` 及未删除会话列表索引，必须先迁移再运行新 TS。
 
 会话删除仅写逻辑删除标记，保留 JSONL、执行、图片、作品和额度；有活动创作或图片任务时返回冲突。已删除会话禁止读取和继续操作，协议见 [创作通信协议](../docs/architecture/creation-protocol.md)。前端侧栏删除入口已接入，成功后清理会话缓存和状态提示，删除当前会话返回新对话页。
+
+实时事件使用 `ws` 原生 WebSocket：Java 每活动用户连接一次 `/internal/events`，TS 直接适配 Pi text_delta，无时间批处理；结束完整项校正，sync 快照恢复。HTTP 历史和 WS 共用快照读取及游标校验，每轮返回 stream:{id,sequence}；浏览器只补入历史请求期间尚未被快照覆盖的事件。sequence 由 TS 维护，不来自 Pi，也不写入 JSONL。运行器直接消费 Pi 原生事件，经 onItem/onDelta 输出公开项与增量，observer 提供运行追踪，不维护额外的原生事件改名层。Pi 完成消息追加后释放临时展示项；SDK 会话状态、JSONL 和 SQL 继续各司其职。详见[实时协议与验收](../docs/architecture/creation-protocol.md)。

@@ -6,7 +6,7 @@
 
 | 部分 | 权威数据与职责 |
 | --- | --- |
-| Java | 登录鉴权、会话归属与提交图片授权、浏览器 REST/SSE、上传、资产查询与管理、社区和搜索 |
+| Java | 登录鉴权、会话归属与提交图片授权、浏览器 REST/WebSocket、上传、资产查询与管理、社区和搜索 |
 | TS | 创建会话与执行记录、Node 本地创作调度、Pi 运行、图片 MQ 派发和消费、额度预占、模型请求、图片转存、资产登记和生成结果结算 |
 | MySQL | `generation_sessions` 会话索引；`executions` 执行状态；资产、额度、用户与社区业务表 |
 | Pi JSONL | 用户消息、助手消息、工具调用与结果、表单回答、压缩记录，以及产品创作分轮标记 |
@@ -16,7 +16,7 @@
 
 每个逻辑会话使用一个原生文件：`AIVISTA_SESSION_DIRECTORY/{userId}/{sessionId}.jsonl`。SQL 中的用户与会话 ID 决定文件路径；浏览器不能指定路径。没有第二份消息表、上下文快照表、表单表或 Worker 交付账本。
 
-会话支持逻辑删除：`DELETE /api/generation-sessions/{sessionId}` 写入 `generation_sessions.deleted_at`，成功及本人重复删除返回 204；有活动创作或图片任务时返回 409。删除后禁止读取历史、改名、继续创作及访问其创作操作，保留 JSONL、图片、作品和额度记录。删除与新创作、改名通过会话行锁串行化；Java 过滤已删除会话的迟到 SSE 事件。前端侧栏删除入口已接入，成功后清理会话缓存和状态提示，删除当前会话返回新对话页，具体协议见 [创作通信协议](creation-protocol.md)。
+会话支持逻辑删除：`DELETE /api/generation-sessions/{sessionId}` 写入 `generation_sessions.deleted_at`，成功及本人重复删除返回 204；有活动创作或图片任务时返回 409。删除后禁止读取历史、改名、继续创作及访问其创作操作，保留 JSONL、图片、作品和额度记录。删除与新创作、改名通过会话行锁串行化；Java 过滤已删除会话的迟到 WebSocket 事件。前端侧栏删除入口已接入，成功后清理会话缓存和状态提示，删除当前会话返回新对话页，具体协议见 [创作通信协议](creation-protocol.md)。
 
 ## 提交与执行
 
@@ -28,7 +28,7 @@
 6. NORMAL 流程和 Agent 生图工具共用图片任务入口：按 `(parent_id,tool_call_id)` 幂等创建 GENERATION 子执行，随后异步等待数据库结果。
 7. 图片派发器扫描未投递的 QUEUED 子执行，通过 publisher confirm 向 `aivista.generation.execute.v1` 投递 `{generationId,expectedRevision}`，确认后写入 dispatched_at。消费者原子领取，在事务内检查额度与用户已预占任务上限并预占，再经过限速调用图片模型。
 8. 图片模型响应先持久化，再转存图片；TS 在同一个 Kysely 事务内登记资产、退还未交付额度并写入子执行终态，结果可靠保存后 ACK 并通知等待者。
-9. 等待者读取图片终态，将工具结果交回普通流程或 Pi；TS 写入 Pi 结果条目、继续 Agent 或收口创作状态，并将展示事件交给 Java 用户级 SSE。
+9. 等待者读取图片终态，将工具结果交回普通流程或 Pi；TS 写入 Pi 结果条目、继续 Agent 或收口创作状态，并将展示事件交给 Java 用户级 WebSocket。
 
 生成链路不需要跨 Java 提交结果。社区审核、搜索索引和通知仍使用 Java Outbox；它们的可靠待办职责不由创作执行表替代。
 
@@ -66,17 +66,17 @@ JSONL 在运行中按条目追加，助手流式 token 在前端实时显示，�
 
 本次选图由 Java 授权；TS 后续只从可信会话记录取图片引用。会话保存原图 URL，不保存预签名、AccessKey 或 Base64。提交给视觉模型前，Harness 将这些引用临时转换为 OpenAI 兼容请求的 image_url；图生图工具同样在请求前签名。inspect_image 读取会话中已有的可信引用，避免任意 URL 签名。
 
-Java 在会话展示响应和 SSE 的结构化图片数组内补签名和 expiresAt。会话归属已经校验，不为每张历史引用重新执行资产权限查询；资产删除后停止新资产接口访问，物理清理和既有签名自然到期，历史引用可能显示不可用。
+Java 在会话展示响应和 WebSocket 的结构化图片数组内补签名和 expiresAt。会话归属已经校验，不为每张历史引用重新执行资产权限查询；资产删除后停止新资产接口访问，物理清理和既有签名自然到期，历史引用可能显示不可用。
 
 ## 实时展示
 
-历史响应和 SSE 共用 creationId、item.id 及内容结构。前端先用 REST 初始化 QueryClient 中的 SessionDetail，随后用 creation.updated 更新轮次状态，用 creation.item.upserted 替换对应内容项。文本事件携带当前完整文本，重复事件不重复追加。message-items.ts 供 Pi 实时事件与 session-projector.ts 共用，最终回复由成功创作的末条无工具调用 assistant stop 消息确定。UI 固定为可折叠过程、表单操作、最终回复、图片四区；流式过程文字在确认完成时按原 ID 提升为 final。
+历史响应和 WebSocket 共用 creationId、item.id 及内容结构。前端先用 REST 初始化 QueryClient 中的 SessionDetail，随后用 creation.updated 更新轮次状态，用 creation.item.upserted 替换对应内容项。文字流使用 creation.text.delta，带 itemId、offset 和创作级 sequence；文字结束以完整项校正，重复事件不重复追加。message-items.ts 供 Pi 实时事件与 session-projector.ts 共用，最终回复由成功创作的末条无工具调用 assistant stop 消息确定。UI 固定为可折叠过程、表单操作、最终回复、图片四区；流式过程文字在确认完成时按原 ID 提升为 final。
 
 原生 Pi 和展示协议保留每次工具调用的独立身份与成功、失败、取消状态，不定义逻辑重试 ID。前端渲染时，将同一创作内连续同类的 text_to_image、image_to_image、inspect_image 分别合并为一行；过程文字、表单、final 文本或其他工具中断分组，generation 图片项不打断分组。read 与 request_user_input 保持逐次显示。多次调用的括号计数是“成功调用数/已发起调用总数”，不代表图片数量；单次不增加计数。工具行不显示右侧状态文字或图标；创作执行中且组内有 RUNNING 调用时，名称与计数轻微扫光，减少动态效果时使用静态主题色。状态仍用于计数，不删除失败或取消记录。该投影共用于实时缓存与历史展示，不修改或删除调用记录。工具状态由 TS 同时检查原生错误与结构化业务结果，避免业务失败被当作成功。
 
-Pi 将供应商文字增量累积成当前文本块，TS 每 100ms 对相同 item.id 只保留最新完整文本再发送；第二次发送的是前两段的累计内容，前端按 ID 更新而非拼接增量。100ms 是合并刷新间隔，不是固定字符长度或网络包边界；有更新即可逐步展示，无需等待整段回答结束。
+TS 直接适配 Pi text_delta，不做时间合并，不反复发送累计全文。运行器消费原生事件后直接生成公开项或文字增量，追踪由独立 observer 处理，不维护只改名的中间事件协议。Java 按用户复用内部 WebSocket，只路由和补图片签名，不累计文字。浏览器每个已登录标签页共用一条 WS，按 creationId、itemId、streamId、sequence 和 offset 合入 Query 缓存。
 
-SSE 早于 POST 响应时短暂缓冲；迟到的历史响应不能覆盖较新 revision、较完整文本、final 分类、工具终态或已提交表单。普通 SSE 帧不重新请求历史；重连时读取一次历史对账。新增结果使资产列表缓存失效，历史状态不靠资产列表拼装。
+WebSocket 快照可早于 POST 响应，先建立缓存；没有基线或发现序号缺口则请求 creation.snapshot。HTTP 历史携带每轮 stream:{id,sequence}；前端只暂存请求期间的事件，以快照为基线补入更高序号的更新，已覆盖的事件不重复追加；没有期间更新时直接使用快照。普通事件不逐帧请求历史；重连通过快照与后续增量恢复。新增结果使资产列表缓存失效，历史状态不靠资产列表拼装。
 
 ## 故障与边界
 
@@ -87,3 +87,5 @@ SSE 早于 POST 响应时短暂缓冲；迟到的历史响应不能覆盖较新 
 V2 增加 `provider_started_at` 和 `provider_response_json`。前者是限速前持久化的调用意图，不证明请求已经发到供应商；同进程用 `local.started` 确认实际发出，仍在限速等待的请求可取消或排队超时。进程退出丢失该内存信息后，只有调用意图、没有响应的任务按结果未知收口，即使实际尚未发出也不冒险重放。父创作因进程中断失败不会撤销已经接受的图片任务，图片继续执行或按自己的恢复状态收口。
 
 接口和事件字段见 [创作通信协议](creation-protocol.md)，运行与验证见 [AI Runtime](../worker/AI-Runtime.md)。
+
+实时链路复用 Pi 原生消息追加和 SDK 当前消息；额外内存仅保存游标和未被持久化投影覆盖的临时条目，创作结束释放。WAITING_INPUT 不占用 Agent Loop；断线不取消创作，HTTP 表单回答可独立继续。详见[创作通信协议](creation-protocol.md)。

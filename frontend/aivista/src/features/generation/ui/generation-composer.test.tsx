@@ -16,8 +16,7 @@ vi.mock("@/features/auth/model/auth-store", () => ({
 }));
 
 vi.mock("@/entities/user-event-stream/model/user-event-stream-store", () => ({
-  useUserEventStreamStore: (select: (state: { ensureReady: () => Promise<boolean> }) => unknown) =>
-    select({ ensureReady: vi.fn().mockResolvedValue(true) }),
+  useUserEventStreamStore: { getState: () => ({ syncCreations: vi.fn() }) },
 }));
 
 vi.mock("@/features/user-agreement/model/use-user-agreement-consent", () => ({

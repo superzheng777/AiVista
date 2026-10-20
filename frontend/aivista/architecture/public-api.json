@@ -10,8 +10,8 @@
     "SessionItem",
     "SessionSummary",
     "applyCreationEvent",
-    "isActiveCreation",
-    "mergeSessionSnapshot"
+    "creationEventNeedsSync",
+    "isActiveCreation"
   ],
   "entities/image-resource/lib/copy-generation-image": ["copyGenerationImage"],
   "entities/image-resource/model/image-resource": [
@@ -82,7 +82,7 @@
   "features/generation/model/session-events": [
     "clearSessionEvents",
     "forgetSessionEvents",
-    "hydrateSession",
+    "loadSessionSnapshot",
     "isSessionDeleted",
     "receiveCreationEvent"
   ],

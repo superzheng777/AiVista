@@ -57,13 +57,11 @@ export function GenerationComposer({
   const queryClient = useQueryClient();
   const status = useAuthStore((state) => state.status);
   const openAuthDialog = useAuthDialogStore((state) => state.open);
-  const ensureStreamReady = useUserEventStreamStore((state) => state.ensureReady);
   const [showOptions, setShowOptions] = useState(false);
   const [openSelect, setOpenSelect] = useState<"mode" | null>(null);
   const [referenceMenuOpen, setReferenceMenuOpen] = useState(false);
   const [showConsent, setShowConsent] = useState(false);
   const [submitFeedback, setSubmitFeedback] = useState<SubmissionFeedback | null>(null);
-  const [isPreparingStream, setIsPreparingStream] = useState(false);
   const [referenceImages, setReferenceImages] = useState<GenerationAsset[]>([]);
   const controlsRef = useRef<HTMLDivElement>(null);
   const optionsTriggerRef = useRef<HTMLButtonElement>(null);
@@ -108,6 +106,7 @@ export function GenerationComposer({
       setSubmitFeedback(null);
       setReferenceImages([]);
       insertCreatedTurn(queryClient, task);
+      useUserEventStreamStore.getState().syncCreations([task.turn.creationId]);
       void queryClient.invalidateQueries({ queryKey: generationQueryKeys.sessions() });
       router.push(`/generate?sessionId=${encodeURIComponent(task.sessionId)}`);
     },
@@ -201,21 +200,14 @@ export function GenerationComposer({
     const values = form.getValues();
     const inputAssetIds = referenceImages.map((image) => image.id);
     setSubmitFeedback(null);
-    setIsPreparingStream(true);
-    const streamReady = await ensureStreamReady();
-    setIsPreparingStream(false);
-    if (!streamReady) {
-      setSubmitFeedback({ message: "无法建立实时连接，本次生成尚未开始。", retryable: true });
-      return;
-    }
     const submission = submissionOf(values, inputAssetIds, sessionId);
     createTask.mutate(submission);
   }
 
   const isCheckingConsent = status === "authenticated" && consentQuery.isLoading;
-  const isSubmitting = createTask.isPending || confirmConsent.isPending || isPreparingStream;
+  const isSubmitting = createTask.isPending || confirmConsent.isPending;
   const isSubmitDisabled = isSubmitting || isCheckingConsent || hasActiveCreation;
-  const submitLabel = isPreparingStream ? "正在建立实时连接" : isSubmitting ? "正在创建生成任务" : "开始生成";
+  const submitLabel = isSubmitting ? "正在创建生成任务" : "开始生成";
 
   return (
     <>

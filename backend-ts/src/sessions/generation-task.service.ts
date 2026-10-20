@@ -12,7 +12,7 @@ import { GenerationRateLimiterService } from "../generation/generation-rate-limi
 import { BailianProviderError } from "../generation/generation-provider-error.js";
 import { ExecutionConflict, type ExecutionRow } from "./execution-repository.js";
 import { GenerationQuotaError, GenerationSettlement } from "./generation-settlement.js";
-import { RuntimeEventClient } from "./runtime-event-client.js";
+import { RuntimeEventService } from "./runtime-event-service.js";
 import type { AssetReference, CreationStart, ExecutionStatus, GenerationItem, GenerationResult } from "./session-contract.js";
 
 interface ImageTask extends GenerationExecution {
@@ -44,7 +44,7 @@ export class GenerationTaskService {
   constructor(private readonly config: ConfigService<Environment, true>, private readonly database: DatabaseService,
       private readonly provider: GenerationBailianClientService, private readonly transfer: GenerationImageTransferService,
       private readonly images: GenerationImageUrlService, private readonly limiter: GenerationRateLimiterService,
-      private readonly events: RuntimeEventClient) {
+      private readonly events: RuntimeEventService) {
     this.queueTimeoutMs = config.get("AIVISTA_GENERATION_QUEUE_TIMEOUT_MS", { infer: true });
     this.settlement = new GenerationSettlement(database.db, {
       daily: config.get("AIVISTA_GENERATION_DAILY_IMAGE_QUOTA", { infer: true }),

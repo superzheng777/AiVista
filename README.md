@@ -106,18 +106,18 @@ flowchart LR
     images -->|"图片请求 · 最多 2 次/秒"| bailian
     images -->|"资产、额度与终态事务"| business
     images -->|"私有对象"| oss["阿里云 OSS"]
-    runtime -. "HTTP 实时事件" .-> core
-    core -. "SSE" .-> browser
+    runtime <-->|"用户级 WebSocket 实时事件"| core
+    core <-->|"每标签页 WebSocket"| browser
 ```
 
-Java 与 TS 连接同一个 MySQL 库；生成结算由 TS 负责，资产管理和社区操作由 Java 负责。图中的 Runtime 和图片执行器运行在同一个 TS 进程。会话内容保存在持久化的 Pi JSONL 中，SQL 保存会话索引、执行状态和图片结果。浏览器直接把 SSE 事件合入当前会话缓存，断线后通过 REST 历史恢复。
+Java 与 TS 连接同一个 MySQL 库；生成结算由 TS 负责，资产管理和社区操作由 Java 负责。图中的 Runtime 和图片执行器运行在同一个 TS 进程。会话内容保存在持久化的 Pi JSONL 中，SQL 保存会话索引、执行状态和图片结果。浏览器把 WebSocket 增量合入当前会话缓存，断线后通过快照恢复；Pi 每条消息完成即追加 JSONL。
 
 ## 关键工程取舍
 
 - **创作本地调度：** 创作持久化或表单回答后唤醒 Node 调度器，启动与周期扫描补启动 QUEUED 创作，同一会话保持串行。
 - **图片削峰：** TS 扫描尚未派发的 QUEUED 图片任务，向 RabbitMQ quorum queue 发布，确认后记录派发时间。单消费者 `prefetch=200` 覆盖等待限速、模型调用、转存和结算；请求启动最多每秒 2 次，没有额外的模型并发门槛。
 - **消费与结算幂等：** 图片任务通过状态和 revision 原子领取，结果可靠落库后逐条 ACK；异步等待期间仍可处理其他消息。已持久化的模型响应用于重试转存，结果不确定的付费调用不自动重放。
-- **实时与历史共用协议：** TS 经内部 HTTP 将过程事件交给 Java，再由 SSE 更新浏览器的 turns/items；历史加载返回相同结构。
+- **实时与历史共用协议：** TS 经用户级 WebSocket 将 Pi 文字增量及过程事件交给 Java，再由标签页级 WebSocket 更新浏览器 turns/items；不做 100ms 合并，文字结束以完整项校正，重连以快照恢复。HTTP 与 WS 快照共用每轮游标，前端以历史快照为基线，仅补入请求期间未被覆盖的更新。创建、取消、表单与历史查询继续 HTTP，等待表单时断线不影响后续提交。
 - **受控的 Agent 执行：** 工具白名单、可信会话图片、轮数上限和取消信号限制执行范围。需要用户确认时保存原生表单记录并进入 WAITING_INPUT，本次 Pi 执行随即结束；回答追加到同一会话后恢复原创作。
 - **可选运行追踪：** Langfuse 与 OpenTelemetry 默认关闭。观测失败不会改变业务状态，记录内容会省略图片二进制、模型思考内容和签名信息。
 - **私有图片访问：** OSS 保存私有源文件和派生变体，浏览器只获得与当前用途匹配的短期签名 URL。前端按需提前 60 秒续签，两个 WebP 派生图使用一小时私有 HTTP 缓存；签名有效期不变，不引入签名缓存表。
@@ -236,7 +236,7 @@ pnpm build
 - [Java Core 后端项目开发文档](docs/java/后端项目开发文档.md)：领域模块、基础设施和实现索引。
 - [Agent 模式架构](docs/architecture/Agent模式.md)：会话、工具、事件投影、取消和一致性设计。
 - [TypeScript AI Runtime](docs/worker/AI-Runtime.md)：Worker 配置、Pi Runtime、执行流程和质量门。
-- [创作通信协议](docs/architecture/creation-protocol.md)：REST、SSE、内部 HTTP 与图片队列契约。
+- [创作通信协议](docs/architecture/creation-protocol.md)：REST、WebSocket、内部 HTTP 与图片队列契约。
 
 ## 参与贡献
 

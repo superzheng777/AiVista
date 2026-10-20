@@ -5,10 +5,10 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.superz.aivista.generation.config.GenerationSseProperties;
+import com.superz.aivista.generation.config.UserEventProperties;
 import com.superz.aivista.generation.entity.OutboxEvent;
 import com.superz.aivista.generation.mapper.OutboxEventMapper;
-import com.superz.aivista.generation.service.GenerationSseConnectionService;
+import com.superz.aivista.generation.service.UserEventConnections;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -44,18 +44,18 @@ class InteractionNotificationEventDispatcherTests {
 
         dispatcher(outbox).dispatchAvailableEvents();
 
-        verify(outbox).rescheduleBatch(List.of(stale), "SSE interaction notification processing lease expired");
+        verify(outbox).rescheduleBatch(List.of(stale), "WebSocket interaction notification processing lease expired");
         org.assertj.core.api.Assertions.assertThat(stale.getRetryCount()).isEqualTo(3);
         org.assertj.core.api.Assertions.assertThat(stale.getAvailableAt()).isEqualTo(NOW);
     }
 
     private static InteractionNotificationEventDispatcher dispatcher(OutboxEventMapper outbox) {
-        return new InteractionNotificationEventDispatcher(outbox, mock(GenerationSseConnectionService.class), properties(),
+        return new InteractionNotificationEventDispatcher(outbox, mock(UserEventConnections.class), properties(),
                 Clock.fixed(NOW, ZoneOffset.UTC), new ObjectMapper());
     }
 
-    private static GenerationSseProperties properties() {
-        return new GenerationSseProperties(3, 1000, Duration.ofSeconds(15), Duration.ofSeconds(1), 100,
+    private static UserEventProperties properties() {
+        return new UserEventProperties(3, 1000, Duration.ofSeconds(15), Duration.ofSeconds(1), 100,
                 Duration.ofSeconds(30));
     }
 

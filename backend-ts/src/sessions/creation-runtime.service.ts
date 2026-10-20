@@ -19,10 +19,9 @@ import { FORM_ANSWER, SessionStore } from "./session-store.js";
 import { runNormalGeneration } from "./normal-generation.js";
 import { projectSession } from "./session-projector.js";
 import { imageReferenceText, injectModelImages } from "./model-images.js";
-import { RuntimeEventClient } from "./runtime-event-client.js";
+import { RuntimeEventService } from "./runtime-event-service.js";
 import { GenerationTaskService, GenerationOutcomeUnknownError } from "./generation-task.service.js";
 import { ActiveExecutionTimeout } from "./active-execution-timeout.js";
-import { RuntimeEvents } from "./runtime-events.js";
 
 import { AgentObservabilityService } from "../observability/agent-observability.service.js";
 
@@ -38,12 +37,22 @@ export class CreationRuntimeService {
   private readonly running = new Map<string, AbortController>();
   private readonly activeSessions = new Set<string>();
   private readonly deliveries = new Map<string, Promise<void>>();
+  private readonly live = new Map<string, { read?: () => CreationItem[]; pending: Map<string, CreationItem> }>();
   constructor(private readonly config: ConfigService<Environment, true>, database: DatabaseService,
-      private readonly model: AgentModelService, private readonly eventClient: RuntimeEventClient,
+      private readonly model: AgentModelService, private readonly eventClient: RuntimeEventService,
       private readonly images: GenerationImageUrlService, private readonly tasks: GenerationTaskService,
       private readonly observability: AgentObservabilityService) {
     this.store = new SessionStore(config.get("AIVISTA_SESSION_DIRECTORY", { infer: true }), AGENT_PROJECT_ROOT);
     this.executions = new ExecutionRepository(database.db, this.store);
+    this.eventClient.activeIds = async (userId) => (await sql<{ id: string }>`SELECT e.id FROM executions e
+      JOIN generation_sessions s ON s.id = e.session_id WHERE e.user_id = ${userId} AND e.kind = 'CREATION'
+      AND (e.status IN ('QUEUED', 'RUNNING', 'WAITING_INPUT') OR EXISTS (SELECT 1 FROM executions child
+        WHERE child.parent_id = e.id AND child.status IN ('QUEUED', 'RUNNING'))) AND s.deleted_at IS NULL`.execute(database.db)).rows.map((row) => String(row.id));
+    this.eventClient.resolveTurn = async (userId, id) => {
+      const row = await this.executions.get(id);
+      const turn = await this.turn(userId, id);
+      return { ...turn, sessionId: String(row.session_id) };
+    };
   }
 
   async create(userId: string, body: unknown) {
@@ -69,10 +78,38 @@ export class CreationRuntimeService {
 
   async history(userId: string, sessionId: string) {
     const row = await this.executions.ownedSession(userId, sessionId);
-    const states = await this.executions.history(sessionId);
+    const ids = (await this.executions.history(sessionId)).map((state) => state.creationId);
+    const turns = await this.eventClient.snapshot(ids, async () => {
+      const states = await this.executions.history(sessionId);
+      const generations = await this.tasks.history(sessionId);
+      const turns = projectSession(this.store.open(userId, sessionId).getBranch(), states, generations);
+      for (const turn of turns) {
+        const live = this.live.get(turn.creationId);
+        if (!live) continue;
+        // Reuse Pi's current response, and release transient items once their persisted projection catches up.
+        for (const [id, item] of live.pending) {
+          const persisted = turn.items.find((value) => value.id === id);
+          if (persisted && JSON.stringify(persisted) === JSON.stringify(item)) live.pending.delete(id);
+        }
+        for (const item of [...(live.read?.() ?? []), ...live.pending.values()]) {
+          const index = turn.items.findIndex((value) => value.id === item.id);
+          if (index < 0) turn.items.push(item);
+          else if (item.kind === "text" || !turn.items[index] || JSON.stringify(item) !== JSON.stringify(turn.items[index])) {
+            // Pi's latest assistant contains the original tool call; never regress a persisted tool result.
+            if (item.kind === "tool" && item.status === "RUNNING" && turn.items[index]?.kind === "tool") continue;
+            const previous = turn.items[index];
+            if (item.kind === "generation" && previous?.kind === "generation"
+                && !["QUEUED", "RUNNING", "WAITING_INPUT"].includes(previous.status)) continue;
+            if (item.kind === "text" && previous?.kind === "text" && previous.phase === "final") continue;
+            turn.items[index] = item;
+          }
+        }
+      }
+      return turns;
+    });
     return { schemaVersion: 1, sessionId, title: row.title, lastMessageAt: row.last_message_at.toISOString(), creationCount: row.creation_count,
       creationLimit: CREATION_LIMIT,
-      turns: projectSession(this.store.open(userId, sessionId).getBranch(), states, await this.tasks.history(sessionId)) };
+      turns };
   }
 
   async turn(userId: string, creationId: string) {
@@ -163,15 +200,20 @@ export class CreationRuntimeService {
       ? new ActiveExecutionTimeout(this.config.get("AIVISTA_AGENT_LOOP_TIMEOUT_MS", { infer: true })) : undefined;
     const signal = budget ? AbortSignal.any([controller.signal, budget.signal]) : controller.signal;
     this.activeSessions.add(String(row.session_id));
-    const events = new RuntimeEvents(this.eventClient);
+    const events = this.eventClient;
+    const live: { read?: () => CreationItem[]; pending: Map<string, CreationItem> } = { pending: new Map() };
+    this.live.set(creationId, live);
     const envelope = { userId: String(row.user_id), sessionId: String(row.session_id), creationId };
-    const emit = (item: CreationItem) => events.push({ ...envelope, type: "creation.item.upserted", item });
+    const emit = (item: CreationItem) => {
+      live.pending.set(item.id, item);
+      void events.publish([{ ...envelope, type: "creation.item.upserted", item }]);
+    };
     const refresh = async (manager: SessionManager) => {
       const turns = projectSession(manager.getBranch(), await this.executions.history(envelope.sessionId),
         await this.tasks.history(envelope.sessionId));
       for (const item of turns.find((turn) => turn.creationId === creationId)?.items ?? []) emit(item);
     };
-    events.push({ ...envelope, type: "creation.updated", status: row.status, revision: row.revision });
+    void events.publish([{ ...envelope, type: "creation.updated", status: row.status, revision: row.revision }]);
     let manager: SessionManager | undefined;
     try {
       signal.throwIfAborted();
@@ -225,6 +267,10 @@ export class CreationRuntimeService {
           signal,
           adaptProviderRequest: (payload) => injectModelImages(payload, references, (url) => this.images.signReference(url)),
           onItem: emit,
+          onDelta: (delta) => { void events.publish([{ ...envelope, type: "creation.text.delta", itemId: delta.id,
+            assistantMessageId: delta.assistantMessageId, delta: delta.delta, offset: delta.offset }]); },
+          onSnapshotSource: (read) => { if (read) live.read = read; else delete live.read; },
+          onMessagePersisted: (ids) => { for (const id of ids) live.pending.delete(id); },
         }));
         if (result.outcome === "WAITING_FOR_USER") {
           await this.executions.transition(row, "WAITING_INPUT", { pendingToolCallId: result.request.toolCallId });
@@ -243,8 +289,8 @@ export class CreationRuntimeService {
       this.running.delete(creationId);
       this.activeSessions.delete(String(row.session_id));
       const current = await this.executions.get(creationId);
-      events.push({ ...envelope, type: "creation.updated", status: current.status, revision: current.revision });
-      await events.close();
+      await events.publish([{ ...envelope, type: "creation.updated", status: current.status, revision: current.revision }]);
+      this.live.delete(creationId);
     }
   }
 

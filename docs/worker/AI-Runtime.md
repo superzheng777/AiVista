@@ -32,9 +32,8 @@ pnpm worker
 
 | 配置 | 默认 / 作用 |
 | --- | --- |
-| AIVISTA_RUNTIME_HOST / PORT | 127.0.0.1 / 8890，内部 HTTP |
-| AIVISTA_JAVA_BASE_URL | http://127.0.0.1:8888/api，事件转发 |
-| AIVISTA_GENERATION_WORKER_TOKEN | 双向内部 HTTP 共享令牌，必须非空 |
+| AIVISTA_RUNTIME_HOST / PORT | 127.0.0.1 / 8890，内部 HTTP 与 WebSocket |
+| AIVISTA_GENERATION_WORKER_TOKEN | 内部 HTTP 与 WebSocket 共享令牌，必须非空 |
 | AIVISTA_SESSION_DIRECTORY | backend-ts/var/sessions，持久化 JSONL 根目录 |
 | AIVISTA_DB_* | 与 Java 相同的 aivista 库；连接时显式 SET time_zone='+00:00' |
 | AIVISTA_GENERATION_QUEUE_ENABLED | 是否启动图片任务派发与消费者；独立 TS 配置默认 false，复用 Java 基础配置时默认 true |
@@ -62,7 +61,7 @@ LLM 使用 AIVISTA_AGENT_BAILIAN_BASE_URL 与 AIVISTA_AGENT_BAILIAN_API_KEY；�
 
 Harness 使用固定项目根目录，加载 `.pi/SYSTEM.md` 与显式 Skill 目录。生产调用传入按用户/会话打开的 SessionManager；测试可使用内存 SessionManager。模型绑定跨执行复用，Pi session 对象每次执行后释放，JSONL 原始记录保留。
 
-每条 assistant 消息最多调用一个工具。有工具的模型请求在图片适配后设置 `parallel_tool_calls=false`；供应商返回多个工具时，Harness 在执行前整批阻止，让模型读取错误后改为单工具调用，不产生该批业务副作用。系统提示要求每次工具调用前在同一 assistant 消息中先输出一句公开操作说明，覆盖读取技能、表单、图片与失败后的再次调用；由模型根据上下文自行组织说明及失败后的解释和调整方向，不提供固定话术，不编造失败原因；所有公开文字（含最终回复）由系统提示要求模型自行脱敏，省略凭据、内部地址/标识、原始参数、堆栈及原始报错，不输出内部推理。公开 text 和工具调用记录保留，前端不显示工具行右侧状态，但状态继续传递用于计数，不过滤失败步骤，也不新增运行时文本脱敏或 SSE 移除协议。公开生图说明只写入 assistant text，工具参数只承载实际生成输入。系统提示词集中保留语言、用户约束、技能与确认、调用前说明、公开信息边界、图片查看及真实结果七类规则；字段格式由工具 Schema 说明。这是提示词约束，不增加强制重试或缺字兜底，不能承诺模型每次遵循。系统提示要求先判断现有 Skill 是否匹配并读取适用内容，再决定是否有必要发需求表单；不强制无关 Skill 或重复确认。Skill 选择属于模型遵循提示的行为，单工具数量限制则有代码校验。单次生图工具仍可生成 1–6 张，不同会话保持并发。
+每条 assistant 消息最多调用一个工具。有工具的模型请求在图片适配后设置 `parallel_tool_calls=false`；供应商返回多个工具时，Harness 在执行前整批阻止，让模型读取错误后改为单工具调用，不产生该批业务副作用。系统提示要求每次工具调用前在同一 assistant 消息中先输出一句公开操作说明，覆盖读取技能、表单、图片与失败后的再次调用；由模型根据上下文自行组织说明及失败后的解释和调整方向，不提供固定话术，不编造失败原因；所有公开文字（含最终回复）由系统提示要求模型自行脱敏，省略凭据、内部地址/标识、原始参数、堆栈及原始报错，不输出内部推理。公开 text 和工具调用记录保留，前端不显示工具行右侧状态，但状态继续传递用于计数，不过滤失败步骤，也不新增运行时文本脱敏或 WebSocket 移除协议。公开生图说明只写入 assistant text，工具参数只承载实际生成输入。系统提示词集中保留语言、用户约束、技能与确认、调用前说明、公开信息边界、图片查看及真实结果七类规则；字段格式由工具 Schema 说明。这是提示词约束，不增加强制重试或缺字兜底，不能承诺模型每次遵循。系统提示要求先判断现有 Skill 是否匹配并读取适用内容，再决定是否有必要发需求表单；不强制无关 Skill 或重复确认。Skill 选择属于模型遵循提示的行为，单工具数量限制则有代码校验。单次生图工具仍可生成 1–6 张，不同会话保持并发。
 
 Skill 描述限定任务触发边界：风格预设需用户明确选择或请求对应视觉结构；普通多张候选不触发系列导演，真人电影连续镜头优先使用 cinematic-still。人像仅在关键方向或结构有歧义时确认，用户明确要求分阶段引导时才分两阶段；跳过不表示接受表单建议。电影感设计不固定比较三个候选；系列固定数量不得缩减，自动数量才可按变量调整。系列的生成后回看与有界修正仍保留，PREVIEW_FIRST 仍尊重用户选择。已明确生成且信息充分时继续执行；只要方案或提示词时完整交付文字。以上是模型行为指引，不构成语义硬校验或稳定 text 输出保证。
 
@@ -74,7 +73,7 @@ Skill 描述限定任务触发边界：风格预设需用户明确选择或请�
 | text_to_image | 基于提示词执行图片生成 |
 | image_to_image | 使用可信会话中的图片生成 |
 
-CreationRuntimeService 由本地调度器领取执行后按本轮 mode 分流。NORMAL 使用 runNormalGeneration 写入原生调用与结果；AGENT 进入 runAgentPrompt，恢复上下文并执行 Pi Loop。两条路径共用图片任务创建和等待结果入口，模型调用、转存及结算由独立图片消费者完成。工具返回的 content 用于模型，details 用于历史投影，REST 与 SSE 复用同一内容项结构。
+CreationRuntimeService 由本地调度器领取执行后按本轮 mode 分流。NORMAL 使用 runNormalGeneration 写入原生调用与结果；AGENT 进入 runAgentPrompt，恢复上下文并执行 Pi Loop。运行器直接订阅 Pi 原生事件，通过 onItem 输出公开展示项、onDelta 输出文字增量，onItem 仅在文字结束或消息完成时输出完整文字，不在缺少 onDelta 时回退为逐 chunk 累计全文；onSnapshotSource/onMessagePersisted 衔接原生快照与持久化，observer 供 Langfuse 追踪。不另外维护只对原生事件改名的内部事件协议。两条路径共用图片任务创建和等待结果入口，模型调用、转存及结算由独立图片消费者完成。工具返回的 content 用于模型，details 用于历史投影，REST 与 WebSocket 复用同一内容项结构。
 
 生成工具受画幅、总数量和图片引用集合约束。输出提示词、真实生图执行和图片结果关联；失败工具结果供模型理解，但不自动重复不确定的付费生成。原生压缩保持默认语义，不要求按创作轮次切分。
 
@@ -82,11 +81,11 @@ CreationRuntimeService 由本地调度器领取执行后按本轮 mode 分流。
 
 ## 展示投影
 
-session-projector.ts 读取 SessionManager.getBranch() 的完整分支，按产品创作标记分轮；SQL 补创作状态，并按 toolCallId 合入图片执行状态与结算资产，压缩只影响模型上下文。图片已结算但 Pi 尚未写入结果时仍能恢复图片卡片。message-items.ts 统一转换原生 assistant/toolResult 与实时事件，避免历史和 SSE 使用两套分类。
+session-projector.ts 读取 SessionManager.getBranch() 的完整分支，按产品创作标记分轮；SQL 补创作状态，并按 toolCallId 合入图片执行状态与结算资产，压缩只影响模型上下文。图片已结算但 Pi 尚未写入结果时仍能恢复图片卡片。message-items.ts 统一转换原生 assistant/toolResult 与实时事件，避免历史和 WebSocket 使用两套分类。
 
-text.phase=process 保留各次模型调用的公开文字；成功创作末条 stop 回复且无 toolCall 时为 final。tool 展示项仅包含标识、名称、状态和可选技能名，通过 toolCallId 关联结果，通过 assistantMessageId 与同次模型回复的公开文字归组；调用参数、完整路径和返回正文仅保留在原生 Pi 历史，不进入 REST/SSE 展示数据。表单与生成图片从工具结果提取所需结构化字段，有自己的卡片 ID，不与工具项冲突。模型 thinking、工具图片字节及系统消息不输出。前端四区布局保留，整个过程和已处理表单可折叠，工具条目不可展开；字段见[创作通信协议](../architecture/creation-protocol.md)。
+text.phase=process 保留各次模型调用的公开文字；成功创作末条 stop 回复且无 toolCall 时为 final。tool 展示项仅包含标识、名称、状态和可选技能名，通过 toolCallId 关联结果，通过 assistantMessageId 与同次模型回复的公开文字归组；调用参数、完整路径和返回正文仅保留在原生 Pi 历史，不进入 REST/WebSocket 展示数据。表单与生成图片从工具结果提取所需结构化字段，有自己的卡片 ID，不与工具项冲突。模型 thinking、工具图片字节及系统消息不输出。前端四区布局保留，整个过程和已处理表单可折叠，工具条目不可展开；字段见[创作通信协议](../architecture/creation-protocol.md)。
 
-回复归属字段通过 message-items、session-store 与 agent-runtime 的 41 项针对性回归，覆盖公开文字与工具状态的实时/历史一致投影、工具详情不泄露和表单/图片分区。
+回复归属字段通过 message-items、session-store 与 agent-runtime 的针对性回归，覆盖公开文字与工具状态的实时/历史一致投影、工具详情不泄露和表单/图片分区。
 
 百炼模型的思考开关由 `AIVISTA_AGENT_THINKING_ENABLED` 控制，默认 false；配置桥可读取 Java YAML 的 `app.agent.model.thinking-enabled`。`agent-runtime.ts` 在 `before_provider_request` 的图片适配之后，针对 `aivista-bailian` 显式写入 `enable_thinking`，不只修改 Pi 的本地 reasoning 配置。关闭思考不禁止模型输出公开 text，前端仍显示公开过程与最终回复；原生 thinking 无论开关如何都不进入展示 DTO。
 
@@ -98,7 +97,7 @@ text.phase=process 保留各次模型调用的公开文字；成功创作末条 
 
 图片消费者在发模型请求前检查额度和每用户已预占未结算任务数，然后预占；尚未消费的排队记录不占预占额度。模型响应先保存，再转存及结算；`GenerationSettlement` 用一个 SQL 事务登记结果、退款和子执行终态，重复结果返回既有资产。图片任务终态可靠保存后 ACK 对应消息，释放一个名额；其他异步任务在此期间继续运行。额度按图片执行创建时的北京时间业务日记录，跨日完成不会误扣新一天。等待者使用数据库终态，内存通知与每两秒检查保证结果先完成或通知遗漏时也能结束等待。
 
-同次创作的实时过程事件按内容项合并，经有序 HTTP 发送链转发给 Java；图片任务独立发送状态和结果事件。两条链之间不保证全局顺序，前端按稳定条目 ID 和状态合并，客户端重连通过完整历史恢复。事件发送失败不影响生成，社区 Outbox 不参与逐 token 事件。
+RuntimeEventService 在内部 HTTP 服务的 /internal/events 接收 Java 原生 WebSocket 连接，每个活动用户一条。Pi text_delta 立即转为安全文字增量，工具、表单和图片事件共用创作级 streamId/sequence；文字结束以完整 item 校正，不做时间批处理。Java 不累计文本。HTTP 历史与重连 sync 共用 RuntimeEventService.snapshot：使用 projectSession、SQL 与 Pi SDK 的 streamingMessage/当前消息补全快照，读取前后游标一致才返回；每轮 turn 附带 stream:{id,sequence}，WS 外层游标与之一致。sequence 由应用发布事件时递增，Pi 不负责维护；游标释放或进程重启后更换 streamId。消息完成即由 SDK 追加 JSONL；仅游标和必要未落盘展示项留在额外内存，创作结束释放展示项。断线不改变业务执行，社区 Outbox 不参与逐 token 事件。
 
 未发出模型请求的图片任务可以取消并退款；已经发出的请求不因 Agent 取消而撤销，继续保存结果和结算。重启时补启动 QUEUED 创作，RUNNING 创作（普通和 Agent）统一以 `CREATION_INTERRUPTED` 失败收口；WAITING_INPUT 表单保留，用户回答后继续。图片已有持久化模型响应时继续转存和结算；请求可能发出但结果未知时明确失败，不自动重放付费调用。JSONL 与 SQL 不构成同一个事务，文件损坏或跨存储异常仍需要人工核对；会话目录必须使用持久卷，多实例共享目录与跨节点执行不在当前范围。
 
@@ -114,10 +113,16 @@ text.phase=process 保留各次模型调用的公开文字；成功创作末条 
 - `pnpm test:agent-smoke` 必须显式设置 RUN_AGENT_SMOKE=true 才调用真实模型。日常自动回归不启用。
 - 本地端到端验证使用专用测试账号，连接已配置的数据库、OSS 和远程基础服务，不额外创建持久化测试库或修改 OSS 前缀；限制生图次数。30 轮边界使用构造计数或 JSONL，不连续调用模型 30 次。
 
-本次队列验收覆盖超过四个创作并发启动、统一图片限速、未 ACK 上限、重复投递、排队取消、响应复用、结算幂等、表单恢复及历史/SSE 图片状态。真实供应商调用只能证明实际调用链路，不替代故障和速率边界的自动化验证；测试结果以当前命令输出为准，不沿用旧链路的通过数量。
+本次队列验收覆盖超过四个创作并发启动、统一图片限速、未 ACK 上限、重复投递、排队取消、响应复用、结算幂等、表单恢复及历史/WebSocket 图片状态。真实供应商调用只能证明实际调用链路，不替代故障和速率边界的自动化验证；测试结果以当前命令输出为准，不沿用旧链路的通过数量。
 
 协议见 [创作通信协议](../architecture/creation-protocol.md)，产品边界见 [Agent 与普通创作架构](../architecture/Agent模式.md)。
 
 ### 用户统计拆表后的联调
 
 Java 注册事务同时创建 `users` 和 `user_stats`，TS 不维护社交计数。TS 的执行、额度、会话 SQL 继续关联用户主表。会话用户预锁清理后，35 项真实 MySQL 测试、类型检查与编译通过；新增不存在用户校验及四类会话操作与用户共享锁并存的验证，同会话创建/删除、改名/删除、30 轮上限保护继续通过。当前开发库按[用户统计与通知去重方案](../java/modules/用户统计与通知去重模块.md)重置；旧本地用户会话文件一并清理，OSS 由用户后续处理，联调用户 ID 从 10 开始。
+
+Java 内部 REST 客户端显式使用 HTTP/1.1，与 Node 内部 HTTP 服务协议一致；WS 使用独立 Upgrade。等待表单时保留用户连接与 SQL/JSONL 状态，本次 Pi Loop 已结束，回答通过 HTTP 恢复；父创作终止后仍有已受理图片任务时，连接继续保留到图片结算。部署范围为单 Java/单 TS，无 Redis 或事件重放日志。完整帧与恢复边界见[创作通信协议](../architecture/creation-protocol.md)。
+
+2026-10-20：实时通信已迁移至原生 WebSocket，直接增量、结束校正、快照恢复及 HTTP 操作独立；本轮自动化与真实联调结果见[统一验收记录](../architecture/creation-protocol.md#2026-10-20-实时链路验收)。
+
+Pi 追加由 SDK 管理；新会话在首条 assistant 完成前可能尚未首次刷盘，不能把用户消息进入 SDK 等同于已落盘。首次刷盘后按已完成消息追加；不等待整次创作结束，也不逐 token 写 JSONL。

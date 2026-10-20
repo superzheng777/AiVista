@@ -21,7 +21,7 @@ type AuthStore = {
   logout: () => Promise<void>;
 };
 
-// Axios and SSE share an in-flight refresh within this browser tab.
+// Axios and WebSocket share an in-flight refresh within this browser tab.
 let refreshPromise: Promise<string> | null = null;
 
 function messageFrom(error: unknown, fallback: string): string {

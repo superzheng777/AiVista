@@ -26,6 +26,13 @@ server:
     context-path: /api
 
 app:
+  events:
+    max-connections-per-user: 3
+    max-connections: 1000
+    heartbeat-interval: 15s
+    dispatcher-fixed-delay: 1s
+    dispatcher-batch-size: 100
+    processing-lease: 30s
   creation-runtime:
     base-url: ${AIVISTA_CREATION_RUNTIME_URL:http://127.0.0.1:8890}
   agent:
@@ -88,15 +95,8 @@ app:
       fixed-delay: 1h
   generation:
     worker-api:
-      # Internal TS-to-Java calls are disabled until a non-empty shared token is configured.
+      # Internal runtime HTTP/WS access requires the same non-empty service token on both sides.
       token: ${AIVISTA_GENERATION_WORKER_TOKEN:}
-    sse:
-      max-connections-per-user: 3
-      max-connections: 1000
-      heartbeat-interval: 15s
-      dispatcher-fixed-delay: 1s
-      dispatcher-batch-size: 100
-      processing-lease: 30s
     queue:
       # TS publishes and consumes image tasks; Agent loops run directly in Node.
       enabled: ${AIVISTA_GENERATION_QUEUE_ENABLED:true}

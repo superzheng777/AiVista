@@ -19,7 +19,7 @@ import type { GenerationBailianClientService, BailianProviderResult } from "../s
 import type { GenerationImageTransferService } from "../src/generation/generation-image-transfer.service.js";
 import type { GenerationImageUrlService } from "../src/generation/generation-image-url.service.js";
 import type { GenerationRateLimiterService } from "../src/generation/generation-rate-limiter.service.js";
-import type { RuntimeEvent, RuntimeEventClient } from "../src/sessions/runtime-event-client.js";
+import { RuntimeEventService, type RuntimeEvent } from "../src/sessions/runtime-event-service.js";
 import type { GenerationToolRequest } from "../src/agent/tools/generation.js";
 import type { GenerationExecution } from "../src/database/database.types.js";
 import { creationStartSchema } from "../src/sessions/session-contract.js";
@@ -158,6 +158,23 @@ describe.skipIf(!enabled)("Unified execution SQL integration", () => {
     await expect(repository.create(userId, { ...request, sessionId: first.session_id }, []))
       .rejects.toMatchObject({ code: "SESSION_BUSY" });
     expect((await repository.list(userId)).length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("returns native session history with the same event cursor used by internal WS", async () => {
+    const created = await repository.create(userId, request, []);
+    const events = new RuntimeEventService({ get: () => root } as never);
+    try {
+      const runtime = new CreationRuntimeService({ get: () => root } as never, { db } as never,
+        {} as never, events, {} as never, { history: async () => [] } as never, {} as never);
+      const initial = (await runtime.history(userId, created.session_id)).turns[0]!;
+      expect(initial.stream.sequence).toBe(0);
+      await events.publish([{ userId, sessionId: created.session_id, creationId: created.id,
+        type: "creation.updated", status: "QUEUED", revision: 0 }]);
+      const updated = await runtime.turn(userId, created.id);
+      expect(updated.stream).toEqual({ id: initial.stream.id, sequence: 1 });
+      expect((await events.resolveTurn(userId, created.id)).stream).toEqual(updated.stream);
+    } finally { events.onModuleDestroy(); }
+    await repository.transition(created, "CANCELLED");
   });
 
   async function generation(count: number, createdAt = new Date(), ownerId = userId) {
@@ -314,7 +331,7 @@ describe.skipIf(!enabled)("Unified execution SQL integration", () => {
       { db } as DatabaseService, provider as unknown as GenerationBailianClientService,
       transfer as unknown as GenerationImageTransferService,
       { unsigned: (key: string) => `https://images.test/${key}` } as GenerationImageUrlService,
-      limiter as unknown as GenerationRateLimiterService, events as unknown as RuntimeEventClient);
+      limiter as unknown as GenerationRateLimiterService, events as unknown as RuntimeEventService);
     return { service, provider, transfer, limiter, events };
   }
 

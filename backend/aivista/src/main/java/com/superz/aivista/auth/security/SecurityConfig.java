@@ -51,7 +51,7 @@ public class SecurityConfig {
                                 "/auth/login",
                                 "/auth/refresh",
                                 "/auth/logout",
-                                "/internal/creation-runtime/**",
+                                "/ws/events",
                                 "/doc.html",
                                 "/swagger-ui.html",
                                 "/swagger-ui/**",
