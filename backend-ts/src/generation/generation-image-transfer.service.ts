@@ -45,7 +45,7 @@ export class GenerationImageTransferService {
   private async transferOne(task: Selectable<GenerationExecution>, sourceIndex: number, url: string): Promise<TransferredImage> {
     if (!this.client || !this.bucket) throw new Error("OSS transfer configuration is missing");
     const uri = new URL(url); if (uri.protocol !== "https:") throw new Error("Provider image URL must use HTTPS");
-    const objectKey = `${this.prefix}/${task.user_id}/tasks/${task.id}/${sourceIndex}`;
+    const objectKey = this.objectKey(task, sourceIndex);
     const original = `${objectKey}/original.png`;
     try {
       const response = await fetch(uri, { signal: AbortSignal.timeout(this.readTimeoutMs) });
@@ -70,13 +70,26 @@ export class GenerationImageTransferService {
         } });
       }
       return { sourceIndex, objectKey, fileSize: counter.bytes, width: task.width, height: task.height };
-    } catch (error) { await this.deleteGroup(objectKey); throw error; }
+    } catch (error) {
+      await this.deleteGroup(objectKey).catch(() => {
+        this.logger.warn(`Generation image cleanup failed for object group ${objectKey}`);
+      });
+      throw error;
+    }
   }
 
-  private async deleteGroup(prefix: string) {
-    if (!this.client) return;
+  objectKey(task: Selectable<GenerationExecution>, sourceIndex: number): string {
+    return `${this.prefix}/${task.user_id}/tasks/${task.id}/${sourceIndex}`;
+  }
+
+  /** Callers log failures and tolerate orphaned files without retrying generation. */
+  async deleteGroup(prefix: string): Promise<void> {
+    if (!this.client) throw new Error("OSS transfer configuration is missing");
     for (const key of [`${prefix}/original.png`, `${prefix}/card.webp`, `${prefix}/display.webp`]) {
-      try { await this.client.delete(key); } catch (error) { this.logger.warn(`Generation image cleanup failed for object ${key}: ${errorName(error)}`); }
+      try { await this.client.delete(key); } catch (error) {
+        const code = error && typeof error === "object" && "code" in error ? error.code : undefined;
+        if (code !== "NoSuchKey" && code !== "NoSuchObject") throw error;
+      }
     }
   }
 }

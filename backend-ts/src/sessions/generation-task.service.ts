@@ -68,6 +68,9 @@ export class GenerationTaskService {
     const id = await this.database.db.transaction().execute(async (transaction) => {
       const current = (await sql<ExecutionRow>`SELECT * FROM executions WHERE id = ${parent.id}
         AND kind = 'CREATION' FOR UPDATE`.execute(transaction)).rows[0];
+      if (!current || current.status !== "RUNNING" || current.revision !== parent.revision) {
+        throw new ExecutionConflict("REVISION_CONFLICT");
+      }
       const existing = (await sql<ImageTask>`SELECT * FROM executions
         WHERE parent_id = ${parent.id} AND tool_call_id = ${toolCallId}`.execute(transaction)).rows[0];
       if (existing) {
@@ -77,9 +80,6 @@ export class GenerationTaskService {
           throw new Error("A tool call cannot change its persisted image request");
         }
         return String(existing.id);
-      }
-      if (!current || current.status !== "RUNNING" || current.revision !== parent.revision) {
-        throw new ExecutionConflict("REVISION_CONFLICT");
       }
       if (start.settings.aspectRatio && request.aspectRatio !== start.settings.aspectRatio) throw new Error("Aspect ratio constraint mismatch");
       const used = (await sql<{ count: string }>`SELECT COALESCE(SUM(requested_image_count), 0) AS count
@@ -106,6 +106,7 @@ export class GenerationTaskService {
       const changed = this.waitForChange(id, signal);
       try {
         let task = await this.get(id);
+        signal?.throwIfAborted();
         if (await this.expire(task)) task = await this.get(id);
         const version = `${task.status}:${task.revision}`;
         let item: GenerationItem | undefined;
@@ -175,19 +176,18 @@ export class GenerationTaskService {
         if (!(error instanceof GenerationQuotaError)) throw error;
         await this.fail(task, error.code); return;
       }
-      const prepared = await sql`UPDATE executions SET provider_started_at = UTC_TIMESTAMP(3)
-        WHERE id = ${id} AND status = 'RUNNING' AND provider_started_at IS NULL`.execute(this.database.db);
-      if (prepared.numAffectedRows !== 1n) return;
       const remaining = this.queueTimeoutMs - (Date.now() - task.created_at.getTime());
       timeout = setTimeout(() => local.controller.abort("GENERATION_QUEUE_TIMEOUT"), Math.max(0, remaining));
       let result: BailianProviderResult;
       try {
-        result = await this.limiter.run(() => {
+        result = await this.limiter.run(async () => {
           local.controller.signal.throwIfAborted();
           if (Date.now() - task.created_at.getTime() >= this.queueTimeoutMs) {
             local.controller.abort("GENERATION_QUEUE_TIMEOUT");
             local.controller.signal.throwIfAborted();
           }
+          if (!await this.settlement.startProviderCall(id)) throw new Error("Generation dispatch was cancelled");
+          local.controller.signal.throwIfAborted();
           local.started = true;
           clearTimeout(timeout);
           return this.provider.generate(task, parseJson(task.request_json).assets);
@@ -265,8 +265,20 @@ export class GenerationTaskService {
   }
 
   private async finish(task: ImageTask, result: BailianProviderResult): Promise<void> {
-    const completed = await this.transfer.transfer(task, result.imageUrls);
-    await this.settlement.settle(String(task.id), completed, result.requestId);
+    const parent = (await sql<{ status: string }>`SELECT status FROM executions WHERE id = ${task.parent_id}`.execute(this.database.db)).rows[0];
+    let completed: Awaited<ReturnType<GenerationImageTransferService["transfer"]>> = [];
+    if (parent?.status !== "CANCELLED") {
+      completed = await this.transfer.transfer(task, result.imageUrls);
+    }
+    const settled = await this.settlement.settle(String(task.id), completed, result.requestId);
+    if (settled.status === "CANCELLED") {
+      // Best effort only: cleanup must not undo settlement or retry the paid request.
+      for (let index = 0; index < result.imageUrls.length; index++) {
+        await this.transfer.deleteGroup(this.transfer.objectKey(task, index)).catch(() => {
+          this.logger.warn(`Cancelled generation ${task.id} source ${index} may have orphaned OSS objects`);
+        });
+      }
+    }
     await this.publish(await this.get(String(task.id)));
   }
 
@@ -284,7 +296,9 @@ export class GenerationTaskService {
   private async item(task: ImageTask): Promise<GenerationItem> {
     const assets = (await sql<{ id: string; original_object_key: string }>`SELECT id, original_object_key
       FROM image_assets WHERE origin_task_id = ${task.id} ORDER BY source_index`.execute(this.database.db)).rows;
-    return { id: task.tool_call_id, kind: "generation", generationId: String(task.id), status: task.status,
+    const parent = (await sql<{ status: string }>`SELECT status FROM executions WHERE id = ${task.parent_id}`.execute(this.database.db)).rows[0];
+    const status = parent?.status === "CANCELLED" && !terminal.has(task.status) ? "CANCELLED" : task.status;
+    return { id: task.tool_call_id, kind: "generation", generationId: String(task.id), status,
       assets: assets.map((asset) => ({ assetId: String(asset.id), url: this.images.unsigned(asset.original_object_key) })) };
   }
 

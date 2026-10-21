@@ -24,6 +24,8 @@ import type { GenerationToolRequest } from "../src/agent/tools/generation.js";
 import type { GenerationExecution } from "../src/database/database.types.js";
 import { creationStartSchema } from "../src/sessions/session-contract.js";
 import { BailianProviderError, BailianTransportError } from "../src/generation/generation-provider-error.js";
+import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
+import { createFauxBinding } from "./helpers/faux-agent.js";
 
 const enabled = process.env.AIVISTA_NATIVE_SCHEMA_TEST === "true";
 describe.skipIf(!enabled)("Unified execution SQL integration", () => {
@@ -177,6 +179,69 @@ describe.skipIf(!enabled)("Unified execution SQL integration", () => {
     await repository.transition(created, "CANCELLED");
   });
 
+  it("shares the active Pi manager for snapshots and answers, then releases it before resuming", async () => {
+    const { binding, faux } = await createFauxBinding();
+    const events = new RuntimeEventService({ get: () => root } as never);
+    const values = { AIVISTA_SESSION_DIRECTORY: root, AIVISTA_AGENT_LOOP_TIMEOUT_MS: 30_000, AIVISTA_AGENT_MAX_TURNS: 4 };
+    const runtime = new CreationRuntimeService({ get: (key: keyof typeof values) => values[key] } as never,
+      { db } as never, { get: async () => binding } as never, events, {} as never,
+      { history: async () => [] } as never,
+      { traceAgentRun: async (_input: unknown, run: () => Promise<unknown>) => run() } as never);
+    const created = await repository.create(userId, request, []);
+    const waiting = deferred<void>();
+    const release = deferred<void>();
+    const transition = runtime.executions.transition.bind(runtime.executions);
+    const transitionSpy = vi.spyOn(runtime.executions, "transition").mockImplementation(async (...args) => {
+      const changed = await transition(...args);
+      if (args[1] === "WAITING_INPUT") { waiting.resolve(); await release.promise; }
+      return changed;
+    });
+    const open = vi.spyOn(runtime.store, "open");
+    const publish = vi.spyOn(events, "publish");
+    faux.setResponses([
+      fauxAssistantMessage([{ type: "text", text: "先确认主题。" }, fauxToolCall("request_user_input", {
+        title: "确认主题", fields: [{ id: "theme", type: "TEXT", label: "主题", required: true, value: "" }],
+      }, { id: "shared-form" })], { stopReason: "toolUse" }),
+      (context) => {
+        expect(JSON.stringify(context.messages)).toContain("咖啡");
+        return fauxAssistantMessage("已根据咖啡主题继续。");
+      },
+    ]);
+    const executing = runtime.execute(created.id, 0);
+    try {
+      await waiting.promise;
+      const turn = await runtime.turn(userId, created.id);
+      expect(turn.status).toBe("WAITING_INPUT");
+      expect(turn.items).toContainEqual(expect.objectContaining({ kind: "form", status: "PENDING" }));
+      await expect(runtime.history("999999", created.session_id)).rejects.toMatchObject({ code: "NOT_FOUND" });
+      await expect(runtime.deleteSession(userId, created.session_id)).rejects.toMatchObject({ code: "SESSION_BUSY" });
+      const answer = await runtime.answer(userId, created.id, "shared-form", {
+        expectedRevision: turn.revision, action: "SUBMITTED", values: { theme: "咖啡" },
+      });
+      expect(answer.item).toMatchObject({ kind: "form", status: "SUBMITTED", fields: [expect.objectContaining({ value: "咖啡" })] });
+      expect(open).toHaveBeenCalledTimes(1);
+      release.resolve();
+      await executing;
+      transitionSpy.mockRestore();
+      const persisted = await runtime.turn(userId, created.id);
+      expect(open).toHaveBeenCalledTimes(2);
+      expect(persisted.items).toContainEqual(expect.objectContaining({ kind: "form", status: "SUBMITTED" }));
+      await runtime.execute(created.id, answer.revision);
+      expect((await runtime.turn(userId, created.id)).status).toBe("SUCCEEDED");
+      expect(faux.state.callCount).toBe(2);
+      expect(publish.mock.calls.flatMap(([events]) => events).filter((event) =>
+        event.item?.kind === "text" && event.item.text === "先确认主题。")).toHaveLength(1);
+    } finally {
+      release.resolve();
+      await executing;
+      transitionSpy.mockRestore();
+      open.mockRestore();
+      publish.mockRestore();
+      events.onModuleDestroy();
+      faux.unregister();
+    }
+  });
+
   async function generation(count: number, createdAt = new Date(), ownerId = userId) {
     const parent = await repository.create(ownerId, request, []);
     const inserted = await sql`INSERT INTO executions (user_id, session_id, parent_id, kind, mode,
@@ -224,19 +289,19 @@ describe.skipIf(!enabled)("Unified execution SQL integration", () => {
     expect((await repository.ownedSession(userId, created.session_id)).deleted_at).toBeNull();
   });
 
-  it("waits for image settlement after parent cancellation and preserves images, publications and quota", async () => {
+  it("preserves already-delivered images, publications and quota after parent cancellation", async () => {
     const owner = await sql`INSERT INTO users (login_name, nickname, password_hash)
       VALUES ('delete_images_test', 'Delete test', 'not-a-login-hash')`.execute(db);
     const ownerId = owner.insertId!.toString();
     const id = await generation(1, new Date(), ownerId);
     const imageTask = await repository.get(id);
-    await sql`UPDATE executions SET status = 'CANCELLED' WHERE id = ${imageTask.parent_id}`.execute(db);
     await expect(repository.deleteSession(ownerId, imageTask.session_id)).rejects.toMatchObject({ code: "SESSION_BUSY" });
     const settlement = new GenerationSettlement(db, { daily: 12, concurrent: 4 }, key => `https://images.test/${key}`);
     await settlement.reserve(id);
     const result = await settlement.settle(id, [{ sourceIndex: 0, objectKey: `users/${ownerId}/tasks/${id}/0`,
       fileSize: 100n, width: 2048, height: 2048 }]);
     const assetId = result!.assets[0]!.assetId;
+    await sql`UPDATE executions SET status = 'CANCELLED' WHERE id = ${imageTask.parent_id}`.execute(db);
     await sql`INSERT INTO image_publications (asset_id, title, review_status, public_at)
       VALUES (${assetId}, '保留的作品', 'APPROVED', UTC_TIMESTAMP(3))`.execute(db);
     const assetsBefore = (await sql`SELECT * FROM image_assets WHERE id = ${assetId}`.execute(db)).rows;
@@ -322,7 +387,9 @@ describe.skipIf(!enabled)("Unified execution SQL integration", () => {
       AIVISTA_GENERATION_MAX_ACTIVE_PER_USER: 200, AIVISTA_GENERATION_MODEL: "bailian/test" };
     const provider = { generate: vi.fn(async (_task: GenerationExecution) => providerResult) };
     const transfer = { transfer: vi.fn(async (task: GenerationExecution) => [{ sourceIndex: 0,
-      objectKey: `users/${task.user_id}/tasks/${task.id}/0`, fileSize: 100n, width: task.width, height: task.height }]) };
+      objectKey: `users/${task.user_id}/tasks/${task.id}/0`, fileSize: 100n, width: task.width, height: task.height }]),
+      objectKey: (task: GenerationExecution, index: number) => `users/${task.user_id}/tasks/${task.id}/${index}`,
+      deleteGroup: vi.fn(async (_key: string) => undefined) };
     const limiter = { run: vi.fn(async (call: () => Promise<BailianProviderResult>, signal?: AbortSignal) => {
       signal?.throwIfAborted(); return call();
     }) };
@@ -342,6 +409,23 @@ describe.skipIf(!enabled)("Unified execution SQL integration", () => {
     const item = await service.create(parent, start, "image-call", imageRequest, new Map());
     return { id: item.generationId!, parent, start, item };
   }
+
+  it("accepts repeated cancellation but rejects cancellation of completed creations", async () => {
+    const { service } = taskService();
+    const events = new RuntimeEventService({ get: () => root } as never);
+    const runtime = new CreationRuntimeService({ get: () => root } as never, { db } as never,
+      {} as never, events, {} as never, service, {} as never);
+    try {
+      const pending = await repository.create(userId, request, []);
+      const first = await runtime.cancel(userId, pending.id);
+      expect(await runtime.cancel(userId, pending.id)).toEqual(first);
+      for (const status of ["SUCCEEDED", "PARTIALLY_SUCCEEDED", "FAILED"] as const) {
+        const done = await repository.create(userId, request, []);
+        await repository.transition(done, status);
+        await expect(runtime.cancel(userId, done.id)).rejects.toMatchObject({ code: "REVISION_CONFLICT" });
+      }
+    } finally { events.onModuleDestroy(); }
+  });
 
   it("deduplicates a tool request before image-count checks and rejects changed request payloads", async () => {
     const { service } = taskService();
@@ -407,8 +491,8 @@ describe.skipIf(!enabled)("Unified execution SQL integration", () => {
     expect(provider.generate).not.toHaveBeenCalled();
   });
 
-  it("finishes already-started requests after cancellation and publishes the settled image", async () => {
-    const { service, provider, events } = taskService();
+  it("settles an in-flight cancelled request without transfer, new assets or a consumption refund", async () => {
+    const { service, provider, transfer } = taskService();
     const { id, parent } = await imageTask(service);
     const ready = deferred<void>();
     const response = deferred<BailianProviderResult>();
@@ -421,11 +505,94 @@ describe.skipIf(!enabled)("Unified execution SQL integration", () => {
     const waiting = service.waitForResult(id, undefined, (item) => { updates.push(item.status); });
     response.resolve(providerResult);
     await running;
-    expect((await waiting).status).toBe("SUCCEEDED");
-    expect(updates.at(-1)).toBe("SUCCEEDED");
-    expect(events.publish.mock.calls.at(-1)?.[0]).toEqual(expect.arrayContaining([
-      expect.objectContaining({ creationId: String(parent.id), item: expect.objectContaining({ status: "SUCCEEDED" }) }),
-    ]));
+    expect(await waiting).toMatchObject({ status: "FAILED", assets: [], code: "USER_CANCELLED" });
+    expect(updates.at(-1)).toBe("CANCELLED");
+    expect(transfer.transfer).not.toHaveBeenCalled();
+    const state = (await sql<{ quota_refunded_at: Date | null; status: string }>`SELECT * FROM executions WHERE id = ${id}`.execute(db)).rows[0]!;
+    expect(state).toMatchObject({ status: "CANCELLED", quota_refunded_at: null });
+    await service.execute(id, 0);
+    expect(provider.generate).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([false, true])("arbitrates cancellation during transfer and tolerates cleanup failure=%s", async (cleanupFails: boolean) => {
+    const { service, transfer, provider } = taskService();
+    const { id, parent } = await imageTask(service);
+    const ready = deferred<void>();
+    const release = deferred<void>();
+    const upload = transfer.transfer.getMockImplementation()!;
+    transfer.transfer.mockImplementationOnce(async (task: GenerationExecution) => {
+      ready.resolve();
+      await release.promise;
+      return upload(task);
+    });
+    const running = service.execute(id, 0);
+    await ready.promise;
+    await repository.transition(parent, "CANCELLED");
+    if (cleanupFails) transfer.deleteGroup.mockRejectedValueOnce(new Error("OSS unavailable"));
+    release.resolve();
+    await running;
+    expect((await repository.get(id)).status).toBe("CANCELLED");
+    expect((await sql`SELECT * FROM image_assets WHERE origin_task_id = ${id}`.execute(db)).rows).toHaveLength(0);
+    expect((await sql<{ quota_refunded_at: unknown }>`SELECT quota_refunded_at FROM executions WHERE id = ${id}`.execute(db)).rows[0]!.quota_refunded_at).toBeNull();
+    expect(transfer.deleteGroup).toHaveBeenCalledWith(`users/${parent.user_id}/tasks/${id}/0`);
+    await service.execute(id, 0);
+    expect(transfer.deleteGroup).toHaveBeenCalledTimes(1);
+    expect(provider.generate).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves delivery committed before cancellation and rejects later tool creation", async () => {
+    const { service, transfer, provider } = taskService();
+    const { id, parent, start } = await imageTask(service);
+    await service.execute(id, 0);
+    const delivered = await service.waitForResult(id);
+    const second = await service.create(parent, start, "second-call", imageRequest, new Map());
+    const ready = deferred<void>();
+    const response = deferred<BailianProviderResult>();
+    provider.generate.mockImplementationOnce(() => { ready.resolve(); return response.promise; });
+    const running = service.execute(second.generationId!, 0);
+    await ready.promise;
+    await repository.transition(parent, "CANCELLED");
+    await service.cancelPending(parent.id);
+    response.resolve(providerResult);
+    await running;
+    expect(await service.waitForResult(id)).toEqual(delivered);
+    expect(await service.waitForResult(second.generationId!)).toMatchObject({ assets: [], code: "USER_CANCELLED" });
+    await expect(service.create(parent, start, "late-call", imageRequest, new Map()))
+      .rejects.toMatchObject({ code: "REVISION_CONFLICT" });
+    expect(transfer.deleteGroup).not.toHaveBeenCalledWith(`users/${parent.user_id}/tasks/${id}/0`);
+    expect(transfer.transfer).toHaveBeenCalledTimes(1);
+  });
+
+  it("recovers cancelled uploads after an interrupted transfer without repeating a paid request", async () => {
+    const { service, transfer, provider } = taskService();
+    const { id, parent } = await imageTask(service);
+    transfer.transfer.mockRejectedValueOnce(new Error("process interrupted"));
+    await expect(service.execute(id, 0)).rejects.toThrow("process interrupted");
+    await repository.transition(parent, "CANCELLED");
+    const restarted = taskService();
+    await restarted.service.recover();
+    const recovered = await repository.get(id);
+    await restarted.service.execute(id, recovered.revision);
+    expect((await repository.get(id)).status).toBe("CANCELLED");
+    expect(restarted.provider.generate).not.toHaveBeenCalled();
+    expect(restarted.transfer.transfer).not.toHaveBeenCalled();
+    expect(provider.generate).toHaveBeenCalledTimes(1);
+    expect(restarted.transfer.deleteGroup).toHaveBeenCalledWith(`users/${parent.user_id}/tasks/${id}/0`);
+  });
+
+  it("rechecks parent cancellation after rate waiting, before sending the paid request", async () => {
+    const { service, limiter, provider } = taskService();
+    const { id, parent } = await imageTask(service);
+    limiter.run.mockImplementationOnce(async (call: () => Promise<BailianProviderResult>) => {
+      await repository.transition(parent, "CANCELLED");
+      return call();
+    });
+    await service.execute(id, 0);
+    expect(provider.generate).not.toHaveBeenCalled();
+    expect((await repository.get(id)).status).toBe("CANCELLED");
+    const state = (await sql<{ quota_refunded_at: unknown; provider_started_at: unknown }>`SELECT * FROM executions WHERE id = ${id}`.execute(db)).rows[0]!;
+    expect(state.provider_started_at).toBeNull();
+    expect(state.quota_refunded_at).toBeTruthy();
   });
 
   it("expires undispatched work even when no consumer is available", async () => {

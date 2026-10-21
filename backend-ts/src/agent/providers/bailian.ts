@@ -6,6 +6,7 @@ const PROVIDER_ID = "aivista-bailian";
 export interface AgentModelBinding {
   modelRuntime: ModelRuntime;
   model: NonNullable<ReturnType<ModelRuntime["getModel"]>>;
+  thinkingLevel: "off" | "medium";
 }
 
 export type AgentModelConfig = Pick<Environment,
@@ -29,7 +30,8 @@ export async function createAgentModelBinding(environment: AgentModelConfig): Pr
       id: environment.AIVISTA_AGENT_MODEL,
       name: environment.AIVISTA_AGENT_MODEL,
       api: "openai-completions",
-      reasoning: environment.AIVISTA_AGENT_THINKING_ENABLED,
+      reasoning: true,
+      compat: { thinkingFormat: "qwen", supportsReasoningEffort: false, supportsDeveloperRole: false },
       input: ["text", "image"],
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       contextWindow: 1_000_000,
@@ -39,7 +41,7 @@ export async function createAgentModelBinding(environment: AgentModelConfig): Pr
 
   const model = modelRuntime.getModel(PROVIDER_ID, environment.AIVISTA_AGENT_MODEL);
   if (!model) throw new Error(`Agent model was not registered: ${environment.AIVISTA_AGENT_MODEL}`);
-  return { modelRuntime, model };
+  return { modelRuntime, model, thinkingLevel: environment.AIVISTA_AGENT_THINKING_ENABLED ? "medium" : "off" };
 }
 
 function required(value: string | undefined, property: string): string {

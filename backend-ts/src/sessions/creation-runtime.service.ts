@@ -35,7 +35,7 @@ export class CreationRuntimeService {
   readonly executions: ExecutionRepository;
   onQueued: (() => void) | undefined;
   private readonly running = new Map<string, AbortController>();
-  private readonly activeSessions = new Set<string>();
+  private readonly activeSessions = new Map<string, SessionManager | undefined>();
   private readonly deliveries = new Map<string, Promise<void>>();
   private readonly live = new Map<string, { read?: () => CreationItem[]; pending: Map<string, CreationItem> }>();
   constructor(private readonly config: ConfigService<Environment, true>, database: DatabaseService,
@@ -82,10 +82,10 @@ export class CreationRuntimeService {
     const turns = await this.eventClient.snapshot(ids, async () => {
       const states = await this.executions.history(sessionId);
       const generations = await this.tasks.history(sessionId);
-      const turns = projectSession(this.store.open(userId, sessionId).getBranch(), states, generations);
+      const turns = projectSession(this.sessionManager(userId, sessionId).getBranch(), states, generations);
       for (const turn of turns) {
         const live = this.live.get(turn.creationId);
-        if (!live) continue;
+        if (!live || turn.status === "CANCELLED") continue;
         // Reuse Pi's current response, and release transient items once their persisted projection catches up.
         for (const [id, item] of live.pending) {
           const persisted = turn.items.find((value) => value.id === id);
@@ -149,7 +149,7 @@ export class CreationRuntimeService {
           || row.pending_tool_call_id !== toolCallId || item.status !== "PENDING") {
         throw new ExecutionConflict("REVISION_CONFLICT");
       }
-      this.store.open(userId, String(row.session_id))
+      this.sessionManager(userId, String(row.session_id))
         .appendCustomMessageEntry(FORM_ANSWER, JSON.stringify(answer), false);
       await sql`UPDATE executions SET status = 'QUEUED', revision = revision + 1
         WHERE id = ${creationId}`.execute(transaction);
@@ -199,19 +199,23 @@ export class CreationRuntimeService {
     const budget = row.mode === "AGENT"
       ? new ActiveExecutionTimeout(this.config.get("AIVISTA_AGENT_LOOP_TIMEOUT_MS", { infer: true })) : undefined;
     const signal = budget ? AbortSignal.any([controller.signal, budget.signal]) : controller.signal;
-    this.activeSessions.add(String(row.session_id));
+    this.activeSessions.set(String(row.session_id), undefined);
     const events = this.eventClient;
     const live: { read?: () => CreationItem[]; pending: Map<string, CreationItem> } = { pending: new Map() };
     this.live.set(creationId, live);
     const envelope = { userId: String(row.user_id), sessionId: String(row.session_id), creationId };
     const emit = (item: CreationItem) => {
+      if (signal.aborted) return;
       live.pending.set(item.id, item);
       void events.publish([{ ...envelope, type: "creation.item.upserted", item }]);
     };
     const refresh = async (manager: SessionManager) => {
       const turns = projectSession(manager.getBranch(), await this.executions.history(envelope.sessionId),
         await this.tasks.history(envelope.sessionId));
-      for (const item of turns.find((turn) => turn.creationId === creationId)?.items ?? []) emit(item);
+      for (const item of turns.find((turn) => turn.creationId === creationId)?.items ?? []) {
+        // Process text was sent at message_end; only final text needs reclassification here.
+        if (item.kind !== "text" || item.phase === "final") emit(item);
+      }
     };
     void events.publish([{ ...envelope, type: "creation.updated", status: row.status, revision: row.revision }]);
     let manager: SessionManager | undefined;
@@ -219,6 +223,7 @@ export class CreationRuntimeService {
       signal.throwIfAborted();
       const start = creationStartSchema.parse(typeof row.request_json === "string" ? JSON.parse(row.request_json) : row.request_json);
       manager = this.store.open(envelope.userId, envelope.sessionId);
+      this.activeSessions.set(envelope.sessionId, manager);
       const activeManager = manager;
       const references = new Map<string, AssetReference>();
       for (const turn of (await this.history(envelope.userId, envelope.sessionId)).turns) {
@@ -267,7 +272,7 @@ export class CreationRuntimeService {
           signal,
           adaptProviderRequest: (payload) => injectModelImages(payload, references, (url) => this.images.signReference(url)),
           onItem: emit,
-          onDelta: (delta) => { void events.publish([{ ...envelope, type: "creation.text.delta", itemId: delta.id,
+          onDelta: (delta) => { if (signal.aborted) return; void events.publish([{ ...envelope, type: "creation.text.delta", itemId: delta.id,
             assistantMessageId: delta.assistantMessageId, delta: delta.delta, offset: delta.offset }]); },
           onSnapshotSource: (read) => { if (read) live.read = read; else delete live.read; },
           onMessagePersisted: (ids) => { for (const id of ids) live.pending.delete(id); },
@@ -288,10 +293,14 @@ export class CreationRuntimeService {
       });
       this.running.delete(creationId);
       this.activeSessions.delete(String(row.session_id));
-      const current = await this.executions.get(creationId);
-      await events.publish([{ ...envelope, type: "creation.updated", status: current.status, revision: current.revision }]);
-      this.live.delete(creationId);
+      try {
+        const current = await this.executions.get(creationId);
+        await events.publish([{ ...envelope, type: "creation.updated", status: current.status, revision: current.revision }]);
+      } finally { this.live.delete(creationId); }
     }
   }
 
+  private sessionManager(userId: string, sessionId: string): SessionManager {
+    return this.activeSessions.get(sessionId) ?? this.store.open(userId, sessionId);
+  }
 }

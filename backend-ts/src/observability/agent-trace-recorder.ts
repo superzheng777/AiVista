@@ -1,6 +1,7 @@
 import type { AssistantMessage, Usage } from "@earendil-works/pi-ai";
 import type { LangfuseAgent, LangfuseGeneration, LangfuseTool } from "@langfuse/tracing";
 import type { AgentPromptResult, AgentRuntimeObserver } from "../agent/agent-runtime.js";
+import { isToolFailure } from "../agent/tool-failure.js";
 
 type TraceErrorReporter = (error: unknown) => void;
 
@@ -77,7 +78,7 @@ export class AgentTraceRecorder implements AgentRuntimeObserver {
     const tool = this.tools.get(input.toolCallId);
     if (!tool) return;
     this.tools.delete(input.toolCallId);
-    const failed = input.isError || hasFailedOutcome(input.result);
+    const failed = isToolFailure(input.result, input.isError);
     this.attempt(() => tool.update({
       output: sanitizeTraceValue(input.result),
       ...(failed
@@ -200,12 +201,4 @@ function errorSummary(error: unknown): { name: string; message: string } {
 
 function safeStatusMessage(message: string | undefined): string {
   return message?.slice(0, 1_000) || "Model generation failed";
-}
-
-function hasFailedOutcome(result: unknown): boolean {
-  if (!result || typeof result !== "object") return false;
-  const details = Reflect.get(result, "details");
-  return details !== null
-    && typeof details === "object"
-    && Reflect.get(details, "outcome") === "FAILED";
 }

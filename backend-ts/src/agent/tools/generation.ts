@@ -172,7 +172,7 @@ function invalidPromptResult() {
 /** The same result supplies model text and the persisted UI projection. */
 export function generationToolResult(result: GenerationResult) {
   const text = result.status === "FAILED"
-    ? `图片生成失败（${result.code ?? "GENERATION_FAILED"}）：${result.message ?? "本次未交付的图片不会扣除额度。"}`
+    ? `图片生成失败（${result.code ?? "GENERATION_FAILED"}）：${result.message ?? "本次生成未交付图片。"}`
     : `图片生成${result.status === "PARTIALLY_SUCCEEDED" ? "部分成功" : "成功"}。任务 ID：${result.generationId}；已交付 ${result.assets.length} 张，图片资产 ID：${result.assets.map((asset) => asset.assetId).join(", ")}。`;
   return { content: [{ type: "text" as const, text }], details: result };
 }

@@ -212,7 +212,7 @@ describe("session snapshots and WebSocket", () => {
     ).toBe(true);
     client.clear();
   });
-  it("keeps sent image work live after cancelling the parent and accepts its later assets", () => {
+  it("stops image activity after cancelling and accepts assets committed before cancellation", () => {
     const client = new QueryClient();
     client.setQueryData(generationQueryKeys.session("1"), sessionFixture());
     const image = {
@@ -231,7 +231,7 @@ describe("session snapshots and WebSocket", () => {
       revision: 2,
     });
     let value = client.getQueryData<SessionDetail>(generationQueryKeys.session("1"))!;
-    expect(value.turns[0]?.items[0]).toMatchObject({ status: "RUNNING" });
+    expect(value.turns[0]?.items[0]).toMatchObject({ status: "CANCELLED" });
     const completed = {
       ...image,
       status: "SUCCEEDED" as const,

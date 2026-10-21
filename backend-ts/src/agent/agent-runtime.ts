@@ -70,13 +70,9 @@ export async function runAgentPrompt(options: RunAgentPromptOptions): Promise<Ag
         const adapted = await options.adaptProviderRequest?.(event.payload);
         const payload = adapted === undefined ? event.payload : adapted;
         if (!payload || typeof payload !== "object") return payload;
-        // Pi's custom OpenAI provider does not serialize Bailian's thinking switch.
-        const request = options.binding.model.provider === "aivista-bailian"
-          ? { ...payload, enable_thinking: options.binding.model.reasoning }
-          : payload;
-        const tools = Reflect.get(request, "tools");
-        if (!Array.isArray(tools) || tools.length === 0) return request;
-        return { ...request, parallel_tool_calls: false };
+        const tools = Reflect.get(payload, "tools");
+        if (!Array.isArray(tools) || tools.length === 0) return payload;
+        return { ...payload, parallel_tool_calls: false };
       });
       pi.on("before_agent_start", (event) => {
         options.observer?.captureSystemPrompt(event.systemPrompt);
@@ -117,8 +113,12 @@ export async function runAgentPrompt(options: RunAgentPromptOptions): Promise<Ag
       });
     },
   };
+  const settingsManager = SettingsManager.inMemory({
+    compaction: { enabled: true, reserveTokens: 16_384, keepRecentTokens: 20_000 },
+  });
   // Keep Pi project-resource discovery independent from the shell launch directory.
   const resourceLoader = new DefaultResourceLoader({
+    settingsManager,
     cwd: AGENT_PROJECT_ROOT,
     agentDir: resolve(AGENT_PROJECT_ROOT, ".pi"),
     extensionFactories: [extension],
@@ -138,14 +138,11 @@ export async function runAgentPrompt(options: RunAgentPromptOptions): Promise<Ag
   await resourceLoader.reload();
   const tools = options.tools ?? [];
   const sessionManager = options.sessionManager ?? SessionManager.inMemory(AGENT_PROJECT_ROOT);
-  const settingsManager = SettingsManager.inMemory({
-    compaction: { enabled: true, reserveTokens: 16_384, keepRecentTokens: 20_000 },
-  });
   const { session } = await createAgentSession({
     cwd: AGENT_PROJECT_ROOT,
     modelRuntime: options.binding.modelRuntime,
     model: options.binding.model,
-    thinkingLevel: "off",
+    thinkingLevel: options.binding.thinkingLevel,
     ...(tools.length === 0
       ? { noTools: "all" as const }
       : { tools: tools.map((tool) => tool.name), customTools: tools }),
@@ -158,29 +155,25 @@ export async function runAgentPrompt(options: RunAgentPromptOptions): Promise<Ag
     const partial = session.state.streamingMessage;
     return partial?.role === "assistant" && observedMessages.has(partial.timestamp) ? assistantItems(partial) : [];
   });
-  let resolveSettled!: () => void;
-  const settled = new Promise<void>((resolvePromise) => { resolveSettled = resolvePromise; });
   const toolContexts = new Map<string, { skillName?: string | undefined; assistantMessageId?: string | undefined }>();
   const unsubscribe = session.subscribe((event) => {
-    if (event.type === "agent_settled") resolveSettled();
     if (event.type === "message_end") {
       const message = event.message;
       const items = message.role === "assistant" ? assistantItems(message)
         : message.role === "toolResult" ? toolResultItems(message.toolCallId, message.toolName, message, message.isError,
           toolContexts.get(message.toolCallId)?.skillName, toolContexts.get(message.toolCallId)?.assistantMessageId) : [];
+      for (const item of items) {
+        if (message.role === "assistant" && item.kind === "tool") toolContexts.set(item.toolCallId, {
+          skillName: item.skillName, assistantMessageId: item.assistantMessageId,
+        });
+        options.onItem?.(item);
+      }
+      if (message.role === "toolResult") toolContexts.delete(message.toolCallId);
       // Pi appends synchronously immediately after notifying subscribers. Verify the append before releasing our bridge items.
       queueMicrotask(() => {
         const leaf = sessionManager.getLeafEntry();
         if (leaf?.type === "message" && leaf.message === message) options.onMessagePersisted?.(items.map((item) => item.id));
       });
-    }
-    if (event.type === "message_end" && event.message.role === "assistant") {
-      for (const item of assistantItems(event.message)) {
-        if (item.kind === "tool") toolContexts.set(item.toolCallId, {
-          skillName: item.skillName, assistantMessageId: item.assistantMessageId,
-        });
-        options.onItem?.(item);
-      }
     }
     if (event.type === "tool_execution_start") {
       toolContexts.set(event.toolCallId, { ...toolContexts.get(event.toolCallId),
@@ -191,9 +184,6 @@ export async function runAgentPrompt(options: RunAgentPromptOptions): Promise<Ag
     if (event.type === "tool_execution_end") {
       options.observer?.finishTool({ toolCallId: event.toolCallId,
         result: event.result, isError: event.isError });
-      for (const item of toolResultItems(event.toolCallId, event.toolName, event.result, event.isError,
-          toolContexts.get(event.toolCallId)?.skillName,
-          toolContexts.get(event.toolCallId)?.assistantMessageId)) options.onItem?.(item);
       if (blockedToolCallIds.has(event.toolCallId)) return;
       if (!event.isError && event.toolName === REQUEST_USER_INPUT_TOOL_NAME) {
         inputRequest = inputRequestFromToolResult(event.toolCallId, event.result);
@@ -202,18 +192,14 @@ export async function runAgentPrompt(options: RunAgentPromptOptions): Promise<Ag
     if (event.type !== "message_update") return;
     const update = event.assistantMessageEvent;
     observedMessages.add((event.message as AssistantMessage).timestamp);
-    if (update.type === "text_delta" || update.type === "text_end") {
+    if (update.type === "text_delta") {
       const message = event.message as AssistantMessage;
       const block = message.content[update.contentIndex];
-      if (block?.type === "text" && update.type === "text_delta" && options.onDelta) {
-        options.onDelta({ id: `text:${message.timestamp}:${update.contentIndex}`,
+      if (block?.type === "text") {
+        options.onDelta?.({ id: `text:${message.timestamp}:${update.contentIndex}`,
           assistantMessageId: `assistant:${message.timestamp}`, delta: update.delta,
           offset: block.text.length - update.delta.length });
       }
-      if (block?.type === "text" && update.type === "text_end") options.onItem?.({
-        id: `text:${message.timestamp}:${update.contentIndex}`, kind: "text",
-        assistantMessageId: `assistant:${message.timestamp}`, text: block.text, phase: "process",
-      });
     }
   });
 
@@ -223,7 +209,6 @@ export async function runAgentPrompt(options: RunAgentPromptOptions): Promise<Ag
     options.signal?.throwIfAborted();
     options.signal?.addEventListener("abort", abort, { once: true });
     await session.prompt(options.prompt);
-    await settled;
     if (abortPromise) await abortPromise;
     options.signal?.throwIfAborted();
     if (turnLimitReached) throw new AgentTurnLimitError(options.maxTurns);

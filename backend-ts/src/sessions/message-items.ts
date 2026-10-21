@@ -1,5 +1,6 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { agentInputFormSchema } from "../agent/agent-form-contract.js";
+import { isToolFailure } from "../agent/tool-failure.js";
 import { generationResultSchema, type CreationItem } from "./session-contract.js";
 
 export function assistantItems(message: AssistantMessage, phase: "process" | "final" = "process"): CreationItem[] {
@@ -23,8 +24,7 @@ export function toolResultItems(toolCallId: string, name: string, result: unknow
     skillName?: string, assistantMessageId?: string): CreationItem[] {
   const value = object(result);
   const details = object(value.details);
-  const failed = isError || (name === "inspect_image" && details.outcome === "FAILED")
-    || (isGeneration(name) && details.status === "FAILED");
+  const failed = isToolFailure(result, isError);
   const items: CreationItem[] = [{ id: `tool:${toolCallId}`, kind: "tool", toolCallId, name,
     ...(assistantMessageId ? { assistantMessageId } : {}),
     ...(skillName ? { skillName } : {}), status: failed ? "FAILED" : "SUCCEEDED" }];

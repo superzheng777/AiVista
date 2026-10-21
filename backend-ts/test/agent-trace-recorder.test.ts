@@ -1,6 +1,7 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { describe, expect, it, vi } from "vitest";
 import { AgentTraceRecorder } from "../src/observability/agent-trace-recorder.js";
+import { toolResultItems } from "../src/sessions/message-items.js";
 
 describe("AgentTraceRecorder", () => {
   it("records the prompt, system prompt, and sanitized messages without image or thinking payloads", () => {
@@ -114,19 +115,24 @@ describe("AgentTraceRecorder", () => {
     expect(toolB.end).toHaveBeenCalledTimes(1);
   });
 
-  it("marks a business-level Tool failure as an error observation", () => {
+  it.each([
+    ["inspect_image", { details: { outcome: "FAILED" } }, false, true],
+    ["text_to_image", { details: { status: "FAILED", generationId: null, assets: [] } }, false, true],
+    ["image_to_image", { details: { status: "PARTIALLY_SUCCEEDED", generationId: "901", assets: [] } }, false, false],
+    ["read", { content: [{ type: "text", text: "Tool execution failed" }] }, true, true],
+  ])("agrees with the display projection on %s failures (%j)", (toolName, result, isError, failed) => {
     const root = new FakeObservation("AGENT_RUN", "agent");
     const recorder = new AgentTraceRecorder(root as never, "生成图片");
 
-    recorder.startTool({ toolCallId: "call-failed", toolName: "text_to_image", args: {} });
-    recorder.finishTool({ toolCallId: "call-failed", isError: false,
-      result: { details: { outcome: "FAILED", code: "GENERATION_FAILED" } } });
+    recorder.startTool({ toolCallId: "call-failed", toolName, args: {} });
+    recorder.finishTool({ toolCallId: "call-failed", isError, result });
 
     expect(root.children[0]!.updates[0]).toEqual({
-      output: { details: { outcome: "FAILED", code: "GENERATION_FAILED" } },
-      level: "ERROR",
-      statusMessage: "Tool execution failed",
+      output: result,
+      ...(failed ? { level: "ERROR", statusMessage: "Tool execution failed" } : {}),
     });
+    expect(toolResultItems("call-failed", toolName, result, isError)[0])
+      .toMatchObject({ status: failed ? "FAILED" : "SUCCEEDED" });
   });
 
   it("keeps identical toolCallIds isolated between recorder instances", () => {

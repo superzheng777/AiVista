@@ -86,15 +86,22 @@ export function applyCreationEvent(session: SessionDetail, event: CreationEvent)
         if (turn.stream?.id === event.streamId && event.sequence <= turn.stream.sequence) return turn;
         if (creationEventNeedsSync(session, event)) return turn;
       }
-      if (event.type === "creation.snapshot")
+      if (event.type === "creation.snapshot") {
+        if (turn.status === "CANCELLED" && event.turn.status !== "CANCELLED") return turn;
         return {
           ...event.turn,
           ...(event.streamId && event.sequence !== undefined
             ? { stream: { id: event.streamId, sequence: event.sequence } }
             : {}),
         };
+      }
       const stream =
         event.streamId && event.sequence !== undefined ? { id: event.streamId, sequence: event.sequence } : turn.stream;
+      // Keep consuming cursors after cancellation, but never resume text or tool/form activity.
+      // A generation asset may have committed before cancellation and arrived on the wire later.
+      if (turn.status === "CANCELLED" && (event.type === "creation.text.delta"
+          || event.type === "creation.item.upserted" && event.item.kind !== "generation"
+          || event.type === "creation.updated" && event.status !== "CANCELLED")) return { ...turn, stream };
       if (event.type === "creation.text.delta") {
         const index = turn.items.findIndex((item) => item.id === event.itemId);
         const prior = turn.items[index];
@@ -130,20 +137,27 @@ export function applyCreationEvent(session: SessionDetail, event: CreationEvent)
                     return { ...item, status: "CANCELLED" as const };
                   if (item.kind === "tool" && item.status === "RUNNING")
                     return { ...item, status: event.status as "CANCELLED" | "FAILED" };
+                  if (event.status === "CANCELLED" && item.kind === "generation" && isActiveCreation(item.status))
+                    return { ...item, status: "CANCELLED" as const };
                   return item;
                 })
               : turn.items,
         };
       }
-      const index = turn.items.findIndex((item) => item.id === event.item.id);
+      const incoming = turn.status === "CANCELLED" && event.item.kind === "generation" && isActiveCreation(event.item.status)
+        ? { ...event.item, status: "CANCELLED" as const } : event.item;
+      const index = turn.items.findIndex((item) => item.id === incoming.id);
+      const previous = turn.items[index];
+      if (turn.status === "CANCELLED" && previous?.kind === "generation" && previous.assets.length
+          && incoming.kind === "generation" && !incoming.assets.length) return { ...turn, stream };
       return {
         ...turn,
         stream,
         items:
           index < 0
-            ? [...turn.items, event.item]
+            ? [...turn.items, incoming]
             : turn.items.map((item, position) =>
-                position === index ? (event.streamId ? event.item : mergeItem(item, event.item)) : item,
+                position === index ? (event.streamId ? incoming : mergeItem(item, incoming)) : item,
               ),
       };
     }),

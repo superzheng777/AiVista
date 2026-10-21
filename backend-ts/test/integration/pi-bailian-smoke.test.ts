@@ -11,6 +11,8 @@ import { Type } from "typebox";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createAgentModelBinding, type AgentModelBinding } from "../../src/agent/providers/bailian.js";
 import { validateEnvironment, type Environment } from "../../src/config/environment.js";
+import { loadJavaLocalEnvironment } from "../../src/config/java-local-environment.js";
+import { runAgentPrompt } from "../../src/agent/agent-runtime.js";
 
 const enabled = process.env.RUN_AGENT_SMOKE === "true";
 const smoke = describe.runIf(enabled);
@@ -21,7 +23,9 @@ smoke.sequential("Pi + Bailian qwen3.8-flash smoke", () => {
   const sessions: Array<{ dispose(): void }> = [];
 
   beforeAll(async () => {
-    environment = validateEnvironment(process.env);
+    environment = validateEnvironment({
+      ...loadJavaLocalEnvironment(process.env.AIVISTA_JAVA_LOCAL_YAML, process.env), ...process.env,
+    });
     binding = await createAgentModelBinding(environment);
   });
 
@@ -29,16 +33,32 @@ smoke.sequential("Pi + Bailian qwen3.8-flash smoke", () => {
     for (const session of sessions) session.dispose();
   });
 
-  it("streams a final text response and settles once", async () => {
-    const session = await createSmokeSession(binding, []);
-    sessions.push(session);
-    let settled = 0;
-    session.subscribe((event) => { if (event.type === "agent_settled") settled += 1; });
-
-    await session.prompt("请只用一句中文回答：你是一个图像创作助手。你是谁？");
-
-    expect(session.getLastAssistantText()?.trim()).toBeTruthy();
-    expect(settled).toBe(1);
+  it("streams a final text response with thinking disabled", async () => {
+    expect(binding.thinkingLevel).toBe("off");
+    let requests = 0;
+    let deltaCount = 0;
+    const manager = SessionManager.inMemory(process.cwd());
+    const result = await runAgentPrompt({ binding, maxTurns: 2, sessionManager: manager,
+      prompt: "请只用一句简短中文回答：你是谁？",
+      signal: AbortSignal.timeout(90_000),
+      adaptProviderRequest: (payload) => {
+        expect(payload).toHaveProperty("enable_thinking", false);
+        expect(payload).not.toHaveProperty("reasoning_effort");
+        expect((payload as { messages: Array<{ role: string }> }).messages[0]?.role).toBe("system");
+        requests += 1;
+        return payload;
+      },
+      onDelta: () => { deltaCount += 1; },
+    }).catch((error: unknown) => {
+      const last = manager.getBranch().findLast((entry) => entry.type === "message" && entry.message.role === "assistant");
+      if (last?.type === "message" && last.message.role === "assistant") {
+        expect(last.message.stopReason, last.message.errorMessage).not.toBe("error");
+      }
+      throw error;
+    });
+    expect(requests).toBe(1);
+    expect(deltaCount).toBeGreaterThan(0);
+    expect(result).toMatchObject({ outcome: "COMPLETED", text: expect.any(String) });
   }, 120_000);
 
   it("executes a tool result and continues to a final response", async () => {
@@ -104,7 +124,7 @@ async function createSmokeSession(binding: AgentModelBinding, customTools: ToolD
     cwd,
     modelRuntime: binding.modelRuntime,
     model: binding.model,
-    thinkingLevel: "off",
+    thinkingLevel: binding.thinkingLevel,
     tools: customTools.length > 0 ? customTools.map((tool) => tool.name) : [],
     customTools,
     resourceLoader,

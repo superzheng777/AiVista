@@ -1,10 +1,10 @@
-import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
-import { defineTool, ModelRuntime, SessionManager } from "@earendil-works/pi-coding-agent";
+import { defineTool, SessionManager } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runAgentPrompt } from "../src/agent/agent-runtime.js";
-import { createAgentModelBinding, type AgentModelBinding } from "../src/agent/providers/bailian.js";
+import { createAgentModelBinding } from "../src/agent/providers/bailian.js";
+import { createFauxBinding as createBinding } from "./helpers/faux-agent.js";
 import { createGenerationTools, createInspectImageTool,
   createRequestUserInputTool, type GenerationToolRequest } from "../src/agent/tools/index.js";
 import { CREATION_STARTED, FORM_ANSWER } from "../src/sessions/session-store.js";
@@ -76,7 +76,9 @@ describe("Agent runtime", () => {
     expect(deltas.map((delta) => delta.delta).join("")).toBe("公开说明：开始创作。");
     let length = 0;
     for (const delta of deltas) { expect(delta.offset).toBe(length); length += delta.delta.length; }
-    expect(items.some((item) => item.kind === "text" && item.text === "公开说明：开始创作。")).toBe(true);
+    expect(items.filter((item) => item.kind === "text")).toEqual([
+      expect.objectContaining({ text: "公开说明：开始创作。", phase: "process" }),
+    ]);
     expect(read).toBeUndefined();
     expect(persisted).toContain(items.find((item) => item.kind === "text")!.id);
   });
@@ -140,6 +142,8 @@ describe("Agent runtime", () => {
     expect(fetchMock).toHaveBeenCalledOnce();
     const payload = JSON.parse(String(fetchMock.mock.calls[0]![1]?.body));
     expect(payload.enable_thinking).toBe(false);
+    expect(payload).not.toHaveProperty("reasoning_effort");
+    expect(payload.messages[0].role).toBe("system");
     if (withTools) expect(payload.parallel_tool_calls).toBe(false);
     else expect(payload).not.toHaveProperty("parallel_tool_calls");
     expect(payload.messages).toContainEqual(expect.objectContaining({ role: "user", content: [
@@ -546,33 +550,10 @@ describe("Agent runtime", () => {
   });
 });
 
-async function createFauxBinding(): Promise<{
-  binding: AgentModelBinding;
-  faux: ReturnType<typeof registerFauxProvider>;
-}> {
-  const faux = registerFauxProvider();
-  cleanup.push(() => faux.unregister());
-  const model = faux.getModel();
-  const modelRuntime = await ModelRuntime.create({ modelsPath: null, allowModelNetwork: false });
-  modelRuntime.registerProvider(model.provider, {
-    baseUrl: model.baseUrl,
-    apiKey: "faux-key",
-    api: faux.api,
-    models: [{
-      id: model.id,
-      name: model.name,
-      api: model.api,
-      reasoning: model.reasoning,
-      input: model.input,
-      cost: model.cost,
-      contextWindow: model.contextWindow,
-      maxTokens: model.maxTokens,
-      baseUrl: model.baseUrl,
-    }],
-  });
-  const registered = modelRuntime.getModel(model.provider, model.id);
-  if (!registered) throw new Error("Faux model registration failed");
-  return { binding: { modelRuntime, model: registered }, faux };
+async function createFauxBinding() {
+  const result = await createBinding();
+  cleanup.push(() => result.faux.unregister());
+  return result;
 }
 
 function recorderSpy() {

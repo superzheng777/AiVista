@@ -48,7 +48,7 @@
 
 模型上下文由 Pi SessionManager 恢复。默认 compaction 保留完整日志，在有效上下文中使用摘要和被保留的近期消息；不按产品创作轮次强制对齐压缩边界。展示历史读取完整分支，不能把 buildSessionContext 的压缩结果当聊天记录。
 
-JSONL 在运行中按条目追加，助手流式 token 在前端实时显示，完成消息由 Pi 落盘。展示 DTO 是请求临时对象；运行期间 SessionManager 保持自身条目和模型上下文，运行结束 dispose 后解除引用，内存由运行时回收。
+JSONL 在运行中按条目追加，助手流式 token 在前端实时显示，完成消息由 Pi 落盘。展示 DTO 是请求临时对象；运行期间 SessionManager 保持自身条目和模型上下文，历史快照和表单回答复用当前管理器，避免反复读取文件或写入另一份分支。运行结束 dispose 后解除引用，非活跃会话按需读文件，不增加长期完整历史缓存。资源加载和 Agent 共用一个内存 SettingsManager；运行器直接等待 session.prompt() 的稳定完成，不另设结束事件 Promise。
 
 ## 表单与继续执行
 
@@ -74,7 +74,7 @@ Java 在会话展示响应和 WebSocket 的结构化图片数组内补签名和 
 
 原生 Pi 和展示协议保留每次工具调用的独立身份与成功、失败、取消状态，不定义逻辑重试 ID。前端渲染时，将同一创作内连续同类的 text_to_image、image_to_image、inspect_image 分别合并为一行；过程文字、表单、final 文本或其他工具中断分组，generation 图片项不打断分组。read 与 request_user_input 保持逐次显示。多次调用的括号计数是“成功调用数/已发起调用总数”，不代表图片数量；单次不增加计数。工具行不显示右侧状态文字或图标；创作执行中且组内有 RUNNING 调用时，名称与计数轻微扫光，减少动态效果时使用静态主题色。状态仍用于计数，不删除失败或取消记录。该投影共用于实时缓存与历史展示，不修改或删除调用记录。工具状态由 TS 同时检查原生错误与结构化业务结果，避免业务失败被当作成功。
 
-TS 直接适配 Pi text_delta，不做时间合并，不反复发送累计全文。运行器消费原生事件后直接生成公开项或文字增量，追踪由独立 observer 处理，不维护只改名的中间事件协议。Java 按用户复用内部 WebSocket，只路由和补图片签名，不累计文字。浏览器每个已登录标签页共用一条 WS，按 creationId、itemId、streamId、sequence 和 offset 合入 Query 缓存。
+TS 直接适配 Pi text_delta，不做时间合并，不反复发送累计全文。assistant/toolResult 在 message_end 各投影一次，公开项与持久化释放通知共用结果，不在 text_end 重发全文；创作收尾只校正最终文字分类及结构化状态，不重发过程文字。运行追踪由独立 observer 处理，与展示共用 isToolFailure 判定，统一检查 isError、details.outcome=FAILED 和 details.status=FAILED，部分成功保留交付资产。不维护只改名的中间事件协议。Java 按用户复用内部 WebSocket，只路由和补图片签名，不累计文字。浏览器每个已登录标签页共用一条 WS，按 creationId、itemId、streamId、sequence 和 offset 合入 Query 缓存。
 
 WebSocket 快照可早于 POST 响应，先建立缓存；没有基线或发现序号缺口则请求 creation.snapshot。HTTP 历史携带每轮 stream:{id,sequence}；前端只暂存请求期间的事件，以快照为基线补入更高序号的更新，已覆盖的事件不重复追加；没有期间更新时直接使用快照。普通事件不逐帧请求历史；重连通过快照与后续增量恢复。新增结果使资产列表缓存失效，历史状态不靠资产列表拼装。
 

@@ -12,6 +12,19 @@ describe("Agent model runtime", () => {
     const binding = await createAgentModelBinding(environment);
 
     expect(binding.model.id).toBe("qwen3.8-flash");
+    expect(binding.model.reasoning).toBe(true);
+    expect(binding.model.compat).toMatchObject({ thinkingFormat: "qwen", supportsReasoningEffort: false, supportsDeveloperRole: false });
+    expect(binding.thinkingLevel).toBe("off");
+  });
+
+  it("keeps model capability separate from the configured thinking mode", async () => {
+    const binding = await createAgentModelBinding(validateEnvironment({
+      AIVISTA_AGENT_BAILIAN_BASE_URL: "https://workspace.example/compatible-mode/v1",
+      AIVISTA_BAILIAN_API_KEY: "shared-key",
+      AIVISTA_AGENT_THINKING_ENABLED: "true",
+    }));
+    expect(binding.model.reasoning).toBe(true);
+    expect(binding.thinkingLevel).toBe("medium");
   });
 
   it("requires at least one Bailian API key", async () => {

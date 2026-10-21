@@ -39,7 +39,7 @@ describe("Native session storage and projection", () => {
     const pending = { creationId: "20", item: { id: "image-1", kind: "generation" as const,
       generationId: "21", status: "RUNNING" as const, assets: [] } };
     expect(projectSession(manager.getBranch(), [snapshot], [pending])[0]?.items)
-      .toContainEqual(pending.item);
+      .toContainEqual({ ...pending.item, status: "CANCELLED" });
     const done = { ...pending, item: { ...pending.item, status: "SUCCEEDED" as const,
       assets: [{ assetId: "31", url: "https://oss.example/31.png" }] } };
     const projected = projectSession(store.open("1", "10").getBranch(), [snapshot], [done])[0]!;

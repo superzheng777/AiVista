@@ -110,7 +110,7 @@ flowchart LR
     core <-->|"每标签页 WebSocket"| browser
 ```
 
-Java 与 TS 连接同一个 MySQL 库；生成结算由 TS 负责，资产管理和社区操作由 Java 负责。图中的 Runtime 和图片执行器运行在同一个 TS 进程。会话内容保存在持久化的 Pi JSONL 中，SQL 保存会话索引、执行状态和图片结果。浏览器把 WebSocket 增量合入当前会话缓存，断线后通过快照恢复；Pi 每条消息完成即追加 JSONL。
+Java 与 TS 连接同一个 MySQL 库；生成结算由 TS 负责，资产管理和社区操作由 Java 负责。图中的 Runtime 和图片执行器运行在同一个 TS 进程。会话内容保存在持久化的 Pi JSONL 中，SQL 保存会话索引、执行状态和图片结果。浏览器把 WebSocket 增量合入当前会话缓存，断线后通过快照恢复；Pi 每条消息完成即追加 JSONL。活跃执行的历史查询与表单写入复用同一原生 SessionManager，结束后释放引用，不另建长期完整历史缓存。
 
 ## 关键工程取舍
 

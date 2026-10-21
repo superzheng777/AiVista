@@ -66,6 +66,8 @@ export function projectSession(entries: SessionEntry[], executions: ExecutionSna
       for (const item of turn.items) {
         if (item.kind === "form" && item.status === "PENDING") item.status = "CANCELLED";
         if (item.kind === "tool" && item.status === "RUNNING") item.status = turn.status;
+        if (turn.status === "CANCELLED" && item.kind === "generation"
+            && ["QUEUED", "RUNNING", "WAITING_INPUT"].includes(item.status)) item.status = "CANCELLED";
       }
     }
   }

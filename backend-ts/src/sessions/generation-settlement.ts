@@ -4,9 +4,9 @@ import type { TransferredImage } from "../generation/generation-image-transfer.s
 import type { AssetReference, ExecutionStatus } from "./session-contract.js";
 
 interface GenerationRow {
-  id: string; user_id: string; status: ExecutionStatus; revision: number;
+  id: string; user_id: string; parent_id: string; status: ExecutionStatus; revision: number;
   requested_image_count: number; width: number; height: number; created_at: Date;
-  quota_reserved_at: Date | null; settled_at: Date | null;
+  quota_reserved_at: Date | null; settled_at: Date | null; provider_started_at: Date | null;
 }
 export class GenerationQuotaError extends Error {
   constructor(readonly code: "DAILY_GENERATION_QUOTA_EXCEEDED" | "USER_GENERATION_CONCURRENCY_LIMIT") { super(code); }
@@ -61,13 +61,36 @@ export class GenerationSettlement {
     });
   }
 
-  async settle(generationId: string, completed: TransferredImage[], providerRequestId: string | null = null,
-      failureCode = "GENERATION_FAILED"): Promise<{ status: "SUCCEEDED" | "PARTIALLY_SUCCEEDED" | "FAILED"; assets: AssetReference[] }> {
+  /** Serializes the dispatch boundary with parent cancellation, after rate permission. */
+  async startProviderCall(generationId: string): Promise<boolean> {
     return this.db.transaction().execute(async (transaction) => {
+      const identity = (await sql<{ parent_id: string }>`SELECT parent_id FROM executions WHERE id = ${generationId}`.execute(transaction)).rows[0];
+      if (!identity) return false;
+      const parent = (await sql<{ status: string }>`SELECT status FROM executions
+        WHERE id = ${identity.parent_id} FOR UPDATE`.execute(transaction)).rows[0];
+      if (parent?.status !== "RUNNING") return false;
+      const result = await sql`UPDATE executions SET provider_started_at = UTC_TIMESTAMP(3)
+        WHERE id = ${generationId} AND kind = 'GENERATION' AND status = 'RUNNING'
+          AND quota_reserved_at IS NOT NULL AND provider_started_at IS NULL`.execute(transaction);
+      return result.numAffectedRows === 1n;
+    });
+  }
+
+  async settle(generationId: string, completed: TransferredImage[], providerRequestId: string | null = null,
+      failureCode = "GENERATION_FAILED"): Promise<{ status: "SUCCEEDED" | "PARTIALLY_SUCCEEDED" | "FAILED" | "CANCELLED"; assets: AssetReference[] }> {
+    return this.db.transaction().execute(async (transaction) => {
+      const identity = (await sql<{ parent_id: string }>`SELECT parent_id FROM executions WHERE id = ${generationId}`.execute(transaction)).rows[0];
+      if (!identity) throw new Error("Generation is missing");
+      // Cancellation takes this same parent lock. Whichever commits first owns the delivery decision.
+      const parent = (await sql<{ status: string }>`SELECT status FROM executions
+        WHERE id = ${identity.parent_id} FOR UPDATE`.execute(transaction)).rows[0];
       const task = (await sql<GenerationRow>`SELECT * FROM executions WHERE id = ${generationId}
         AND kind = 'GENERATION' FOR UPDATE`.execute(transaction)).rows[0];
       if (!task) throw new Error("Generation is missing");
+      let status = task.status;
       if (!task.settled_at) {
+        const cancelled = parent?.status === "CANCELLED";
+        if (cancelled) completed = [];
         if (task.status !== "RUNNING" || completed.length > task.requested_image_count
             || completed.length > 0 && !task.quota_reserved_at) throw new Error("Invalid generation settlement");
         const indexes = new Set<number>();
@@ -84,7 +107,8 @@ export class GenerationSettlement {
               ${image.objectKey}, ${image.objectKey + "/original.png"}, 'image/png', ${image.fileSize.toString()},
               ${image.width}, ${image.height})`.execute(transaction);
         }
-        const refund = task.requested_image_count - completed.length;
+        // Once dispatch has started, cancellation and discarded output do not reverse consumption.
+        const refund = task.provider_started_at ? 0 : task.requested_image_count - completed.length;
         if (refund && task.quota_reserved_at) {
           const refunded = await sql`UPDATE user_generation_daily_usage
             SET requested_image_count = requested_image_count - ${refund}
@@ -92,17 +116,17 @@ export class GenerationSettlement {
               AND requested_image_count >= ${refund}`.execute(transaction);
           if (refunded.numAffectedRows !== 1n) throw new Error("Generation quota reservation is missing");
         }
-        const status = completed.length === task.requested_image_count ? "SUCCEEDED" : completed.length ? "PARTIALLY_SUCCEEDED" : "FAILED";
+        status = cancelled ? "CANCELLED" : completed.length === task.requested_image_count ? "SUCCEEDED" : completed.length ? "PARTIALLY_SUCCEEDED" : "FAILED";
         await sql`UPDATE executions SET status = ${status}, revision = revision + 1,
           completed_image_count = ${completed.length}, settled_at = UTC_TIMESTAMP(3), completed_at = UTC_TIMESTAMP(3),
           quota_refunded_at = ${refund && task.quota_reserved_at ? new Date() : null},
-          provider_request_id = ${providerRequestId}, failure_code = ${completed.length ? null : failureCode}
+          provider_request_id = ${providerRequestId}, failure_code = ${cancelled ? "USER_CANCELLED" : completed.length ? null : failureCode}
           WHERE id = ${generationId}`.execute(transaction);
       }
       const assets = (await sql<{ id: string; original_object_key: string }>`SELECT id, original_object_key
-        FROM image_assets WHERE origin_task_id = ${generationId} ORDER BY source_index`.execute(transaction)).rows
+        FROM image_assets WHERE origin_task_id = ${generationId} ORDER BY source_index FOR SHARE`.execute(transaction)).rows
         .map((asset) => ({ assetId: String(asset.id), url: this.unsigned(asset.original_object_key) }));
-      return { status: assets.length === task.requested_image_count ? "SUCCEEDED" : assets.length ? "PARTIALLY_SUCCEEDED" : "FAILED", assets };
+      return { status: status as "SUCCEEDED" | "PARTIALLY_SUCCEEDED" | "FAILED" | "CANCELLED", assets };
     });
   }
 }

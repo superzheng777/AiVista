@@ -59,7 +59,9 @@ LLM 使用 AIVISTA_AGENT_BAILIAN_BASE_URL 与 AIVISTA_AGENT_BAILIAN_API_KEY；�
 
 ## Pi 与工具
 
-Harness 使用固定项目根目录，加载 `.pi/SYSTEM.md` 与显式 Skill 目录。生产调用传入按用户/会话打开的 SessionManager；测试可使用内存 SessionManager。模型绑定跨执行复用，Pi session 对象每次执行后释放，JSONL 原始记录保留。
+Harness 使用固定项目根目录，加载 `.pi/SYSTEM.md` 与显式 Skill 目录。生产调用传入按用户/会话打开的 SessionManager；活跃执行中的历史查询和表单回答写入复用这个管理器，避免反复解析文件和读写两份分支；执行结束解除引用，非活跃会话按需打开文件。测试可使用内存 SessionManager。模型绑定跨执行复用，Pi session 对象每次执行后释放，JSONL 原始记录保留。DefaultResourceLoader 与 createAgentSession 共用一个内存 SettingsManager，压缩配置不再分成磁盘与内存两套。
+
+运行器直接 await session.prompt()：Pi 0.83.0 会在重试、自动压缩及稳定收尾完成后返回，不额外包装 agent_settled Promise。agent_settled 仍是 SDK 可订阅的稳定完成事件，不能将中途 agent_end 当成整次创作成功；产品终态仍由 SQL 的状态与 revision 条件更新决定。
 
 每条 assistant 消息最多调用一个工具。有工具的模型请求在图片适配后设置 `parallel_tool_calls=false`；供应商返回多个工具时，Harness 在执行前整批阻止，让模型读取错误后改为单工具调用，不产生该批业务副作用。系统提示要求每次工具调用前在同一 assistant 消息中先输出一句公开操作说明，覆盖读取技能、表单、图片与失败后的再次调用；由模型根据上下文自行组织说明及失败后的解释和调整方向，不提供固定话术，不编造失败原因；所有公开文字（含最终回复）由系统提示要求模型自行脱敏，省略凭据、内部地址/标识、原始参数、堆栈及原始报错，不输出内部推理。公开 text 和工具调用记录保留，前端不显示工具行右侧状态，但状态继续传递用于计数，不过滤失败步骤，也不新增运行时文本脱敏或 WebSocket 移除协议。公开生图说明只写入 assistant text，工具参数只承载实际生成输入。系统提示词集中保留语言、用户约束、技能与确认、调用前说明、公开信息边界、图片查看及真实结果七类规则；字段格式由工具 Schema 说明。这是提示词约束，不增加强制重试或缺字兜底，不能承诺模型每次遵循。系统提示要求先判断现有 Skill 是否匹配并读取适用内容，再决定是否有必要发需求表单；不强制无关 Skill 或重复确认。Skill 选择属于模型遵循提示的行为，单工具数量限制则有代码校验。单次生图工具仍可生成 1–6 张，不同会话保持并发。
 
@@ -73,7 +75,7 @@ Skill 描述限定任务触发边界：风格预设需用户明确选择或请�
 | text_to_image | 基于提示词执行图片生成 |
 | image_to_image | 使用可信会话中的图片生成 |
 
-CreationRuntimeService 由本地调度器领取执行后按本轮 mode 分流。NORMAL 使用 runNormalGeneration 写入原生调用与结果；AGENT 进入 runAgentPrompt，恢复上下文并执行 Pi Loop。运行器直接订阅 Pi 原生事件，通过 onItem 输出公开展示项、onDelta 输出文字增量，onItem 仅在文字结束或消息完成时输出完整文字，不在缺少 onDelta 时回退为逐 chunk 累计全文；onSnapshotSource/onMessagePersisted 衔接原生快照与持久化，observer 供 Langfuse 追踪。不另外维护只对原生事件改名的内部事件协议。两条路径共用图片任务创建和等待结果入口，模型调用、转存及结算由独立图片消费者完成。工具返回的 content 用于模型，details 用于历史投影，REST 与 WebSocket 复用同一内容项结构。
+CreationRuntimeService 由本地调度器领取执行后按本轮 mode 分流。NORMAL 使用 runNormalGeneration 写入原生调用与结果；AGENT 进入 runAgentPrompt，恢复上下文并执行 Pi Loop。运行器直接订阅 Pi 原生事件，通过 onItem 输出公开展示项、onDelta 输出文字增量。assistant/toolResult 在 message_end 各转换一次，同一转换结果用于公开项和持久化释放通知；不在 text_end 重复发送全文，也不在缺少 onDelta 时回退为逐 chunk 累计全文。创作收尾保留最终文字分类和结构化状态校正，不重发过程文字。onSnapshotSource/onMessagePersisted 衔接原生快照与持久化，observer 供 Langfuse 追踪。不另外维护只对原生事件改名的内部事件协议。两条路径共用图片任务创建和等待结果入口，模型调用、转存及结算由独立图片消费者完成。工具返回的 content 用于模型，details 用于历史投影，REST 与 WebSocket 复用同一内容项结构。
 
 生成工具受画幅、总数量和图片引用集合约束。输出提示词、真实生图执行和图片结果关联；失败工具结果供模型理解，但不自动重复不确定的付费生成。原生压缩保持默认语义，不要求按创作轮次切分。
 
@@ -83,11 +85,13 @@ CreationRuntimeService 由本地调度器领取执行后按本轮 mode 分流。
 
 session-projector.ts 读取 SessionManager.getBranch() 的完整分支，按产品创作标记分轮；SQL 补创作状态，并按 toolCallId 合入图片执行状态与结算资产，压缩只影响模型上下文。图片已结算但 Pi 尚未写入结果时仍能恢复图片卡片。message-items.ts 统一转换原生 assistant/toolResult 与实时事件，避免历史和 WebSocket 使用两套分类。
 
+工具展示与 Langfuse 使用同一 isToolFailure 判定：原生 isError=true、details.outcome=FAILED 或 details.status=FAILED 均为失败；PARTIALLY_SUCCEEDED 不标为整次工具失败，已交付资产继续展示。工具调用身份和失败记录仍保留。
+
 text.phase=process 保留各次模型调用的公开文字；成功创作末条 stop 回复且无 toolCall 时为 final。tool 展示项仅包含标识、名称、状态和可选技能名，通过 toolCallId 关联结果，通过 assistantMessageId 与同次模型回复的公开文字归组；调用参数、完整路径和返回正文仅保留在原生 Pi 历史，不进入 REST/WebSocket 展示数据。表单与生成图片从工具结果提取所需结构化字段，有自己的卡片 ID，不与工具项冲突。模型 thinking、工具图片字节及系统消息不输出。前端四区布局保留，整个过程和已处理表单可折叠，工具条目不可展开；字段见[创作通信协议](../architecture/creation-protocol.md)。
 
 回复归属字段通过 message-items、session-store 与 agent-runtime 的针对性回归，覆盖公开文字与工具状态的实时/历史一致投影、工具详情不泄露和表单/图片分区。
 
-百炼模型的思考开关由 `AIVISTA_AGENT_THINKING_ENABLED` 控制，默认 false；配置桥可读取 Java YAML 的 `app.agent.model.thinking-enabled`。`agent-runtime.ts` 在 `before_provider_request` 的图片适配之后，针对 `aivista-bailian` 显式写入 `enable_thinking`，不只修改 Pi 的本地 reasoning 配置。关闭思考不禁止模型输出公开 text，前端仍显示公开过程与最终回复；原生 thinking 无论开关如何都不进入展示 DTO。
+百炼模型的思考开关由 `AIVISTA_AGENT_THINKING_ENABLED` 控制，默认及当前本地配置均为 false；配置桥可读取 Java YAML 的 `app.agent.model.thinking-enabled`。模型绑定声明 reasoning=true 表示支持思考，实际开关映射为 thinkingLevel=off/medium。Pi 原生兼容项 thinkingFormat=qwen、supportsReasoningEffort=false 负责生成 enable_thinking，不发送 reasoning_effort；supportsDeveloperRole=false 保持使用百炼支持的 system 角色。运行器不再手工注入思考字段，before_provider_request 仅保留可信图片适配和单工具策略。关闭思考不禁止模型输出公开 text，前端仍显示公开过程与最终回复；原生 thinking 无论开关如何都不进入展示 DTO。
 
 ## 可靠性
 
@@ -109,8 +113,8 @@ RuntimeEventService 在内部 HTTP 服务的 /internal/events 接收 Java 原生
 
 - `pnpm typecheck`：源码及测试类型。
 - `pnpm test`：使用 forks 单进程工作池，覆盖 Faux Pi、工具约束、表单恢复、原生文件、压缩、四区投影、实时/历史一致性、请求 URL 适配和外部 I/O；不付费调用模型。
-- 设置 `AIVISTA_NATIVE_SCHEMA_TEST=true` 后 `pnpm test:schema`：创建独立临时库，验证 CAS、30 轮上限、归属、重复结算、部分成功和跨日退款；结束删除该临时库。
-- `pnpm test:agent-smoke` 必须显式设置 RUN_AGENT_SMOKE=true 才调用真实模型。日常自动回归不启用。
+- 设置 `AIVISTA_NATIVE_SCHEMA_TEST=true` 后 `pnpm test:schema`：创建独立临时库，验证 CAS、30 轮上限、归属、重复结算、部分成功、跨日退款，以及活跃管理器的历史/表单读写复用与释放；结束删除该临时库。
+- `pnpm test:agent-smoke` 必须显式设置 RUN_AGENT_SMOKE=true 才调用真实模型。可通过 AIVISTA_JAVA_LOCAL_YAML 读取本地配置桥；日常自动回归不启用。仅验证关闭思考的文字请求时，使用 `-t 'streams a final text response with thinking disabled'`，覆盖实际请求字段、system 角色及文字增量，不触发生图。
 - 本地端到端验证使用专用测试账号，连接已配置的数据库、OSS 和远程基础服务，不额外创建持久化测试库或修改 OSS 前缀；限制生图次数。30 轮边界使用构造计数或 JSONL，不连续调用模型 30 次。
 
 本次队列验收覆盖超过四个创作并发启动、统一图片限速、未 ACK 上限、重复投递、排队取消、响应复用、结算幂等、表单恢复及历史/WebSocket 图片状态。真实供应商调用只能证明实际调用链路，不替代故障和速率边界的自动化验证；测试结果以当前命令输出为准，不沿用旧链路的通过数量。
@@ -119,7 +123,7 @@ RuntimeEventService 在内部 HTTP 服务的 /internal/events 接收 Java 原生
 
 ### 用户统计拆表后的联调
 
-Java 注册事务同时创建 `users` 和 `user_stats`，TS 不维护社交计数。TS 的执行、额度、会话 SQL 继续关联用户主表。会话用户预锁清理后，35 项真实 MySQL 测试、类型检查与编译通过；新增不存在用户校验及四类会话操作与用户共享锁并存的验证，同会话创建/删除、改名/删除、30 轮上限保护继续通过。当前开发库按[用户统计与通知去重方案](../java/modules/用户统计与通知去重模块.md)重置；旧本地用户会话文件一并清理，OSS 由用户后续处理，联调用户 ID 从 10 开始。
+Java 注册事务同时创建 `users` 和 `user_stats`，TS 不维护社交计数。TS 的执行、额度、会话 SQL 继续关联用户主表。当前 SQL 集成回归保留不存在用户校验、四类会话操作与用户共享锁并存、同会话创建/删除、改名/删除及 30 轮上限保护；最新执行结果见[统一验收记录](../architecture/creation-protocol.md#agent-运行器精简验收)。当前开发库按[用户统计与通知去重方案](../java/modules/用户统计与通知去重模块.md)重置；旧本地用户会话文件一并清理，OSS 由用户后续处理，联调用户 ID 从 10 开始。
 
 Java 内部 REST 客户端显式使用 HTTP/1.1，与 Node 内部 HTTP 服务协议一致；WS 使用独立 Upgrade。等待表单时保留用户连接与 SQL/JSONL 状态，本次 Pi Loop 已结束，回答通过 HTTP 恢复；父创作终止后仍有已受理图片任务时，连接继续保留到图片结算。部署范围为单 Java/单 TS，无 Redis 或事件重放日志。完整帧与恢复边界见[创作通信协议](../architecture/creation-protocol.md)。
 

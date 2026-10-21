@@ -92,12 +92,12 @@ Java 每 15 秒发送 `ping`，浏览器回复 `pong`，45 秒无有效响应判
 创作事件均包含 sessionId、creationId、streamId、sequence；内部事件另有 userId，Java 仅向该用户广播。sequence 由 TS RuntimeEventService 在每次公开创作事件发布时递增，不是 Pi 提供的字段；同一创作的 streamId 内独立排序。游标只在 TS 内存中保留，释放或进程重启后生成新的 streamId，不写入 Pi JSONL。
 
 - `creation.text.delta`：`{sessionId,creationId,streamId,sequence,itemId,assistantMessageId,delta,offset}`。直接转发 Pi 每个公开 `text_delta`，不做 100ms 合并；offset 是该文本项中 UTF-16 字符偏移，前端只追加尚未覆盖的部分。
-- `creation.item.upserted`：同样的路由与游标字段，加完整 `item`；用于工具、表单、图片及文字结束时的全文校正。text_end/message_end 使用原文本项 ID，最终回复分类仍以历史投影为准。
+- `creation.item.upserted`：同样的路由与游标字段，加完整 `item`；工具结果、表单和完整文字由 message_end 统一投影，文字使用原文本项 ID，不在 text_end 重发全文。创作收尾保留最终文字分类与结构化状态校正，不重发过程文字；最终回复分类仍以历史投影为准。
 - `creation.updated`：同样的路由与游标字段，加 status、revision。
 - `creation.snapshot`：同样的路由与游标字段，加完整 `turn`。用于首次订阅、重连及缺口修复，不逐条重放旧事件。
 - `publication.updated`、`interaction.notification.created` 保留原社区载荷与 eventId，触发相应 REST 缓存失效，不承载完整消息列表。
 
-浏览器通过 `{"type":"sync","creationIds":["2001"]}` 请求快照。Java 校验归属后订阅内部用户通道；内部重连也自动查询该用户未结束创作。TS 在读取前后核对游标，期间有事件则重新读取，使快照与其 sequence 对齐。快照来自 Pi 已持久化分支 + SQL 状态/图片结果 + Pi SDK 当前未落盘消息及必要临时条目；不维护另一份长期完整创作缓存。SDK 在每条消息完成时追加原生 JSONL，不等整次创作结束。
+浏览器通过 `{"type":"sync","creationIds":["2001"]}` 请求快照。Java 校验归属后订阅内部用户通道；内部重连也自动查询该用户未结束创作。TS 在读取前后核对游标，期间有事件则重新读取，使快照与其 sequence 对齐。快照来自 Pi 已持久化分支 + SQL 状态/图片结果 + Pi SDK 当前未落盘消息及必要临时条目；活跃执行直接读取当前 SessionManager 分支，表单回答也写入同一个管理器，执行结束解除引用，非活跃会话按需打开文件。不维护另一份长期完整创作缓存。SDK 在每条消息完成时追加原生 JSONL，不等整次创作结束。
 
 前端收到重复/旧 sequence 忽略，遇到 streamId 变化、序号缺口或文字 offset 缺口请求新快照；未知创作先通过快照建立会话缓存，再继续增量。快照可先于 POST 响应，创建响应不会覆盖已存在的该轮创作。HTTP 历史的每个 turn 携带 stream:{id,sequence}，与 WS 快照共用读取前后游标校验。前端 loadSessionSnapshot 在发起历史请求前开启临时事件缓冲，以 HTTP 快照为基线，按原顺序补入请求期间收到、且尚未被快照覆盖的事件；同流 sequence 不大于快照的事件忽略，文字仍按 offset 去重。请求结束或失败即释放缓冲，不再按“缓存已有 stream”保留整轮旧内容。普通事件不会逐帧请求历史；连接恢复时还使通知未读数、相关资源和会话摘要失效，以 REST 补齐遗漏的社区变化。这里没有事件持久化队列、ACK 或无限重传承诺。
 
@@ -128,15 +128,23 @@ MQ 仅承载图片生成：`aivista.generation.execute.v1` 为 durable quorum，
 | 自动化验证 | 结果与范围 |
 | --- | --- |
 | Java `mvnw clean test` | 146 项；首帧鉴权、用户协议、隔离与连接上限，Node HTTP/1.1 兼容，父终态前不释放图片路由，删除会话解除路由并拒绝迟到消息 |
-| TS `AIVISTA_NATIVE_SCHEMA_TEST=true pnpm test` | 163 项，含 36 项专属临时数据库集成、18 项 Agent 运行器测试；另通过 typecheck/build |
+| TS `AIVISTA_NATIVE_SCHEMA_TEST=true pnpm test` | Agent 精简后复验 168 项，含 37 项专属临时数据库集成、18 项 Agent 运行器测试；另通过 typecheck/build |
 | 前端 `pnpm test` / `pnpm test:architecture` | 193 项回归与 14 项架构检查；另通过 typecheck/lint/format:check/build |
 | 快照边界 | 读取期间事件变化时重读；HTTP/WS 共用游标，覆盖快照不含/已含部分/已含全部增量、首次 HTTP 基线、请求失败释放缓冲、签名续期和已挂载查询的迟到响应 |
 | 运行器精简 | 直接消费 Pi 原生事件，公开项、增量、快照通知与 observer 各有实际消费者；测试验证工具执行、原生结果、表单等待和预算，不维护改名事件协议 |
 
 真实 API/WS 联调经过 Next 同源 Upgrade：普通与 Agent 生图成功并收到最终成功事件，两张图片 GET Range 均返回 206；并行表单等待、浏览器重连、内部 WS 中断恢复、断线期间 HTTP 跳过续执行及独立取消通过。更新后的 HTTP 历史与 WS sync 已验证同一轮游标一致。Chrome 隔离浏览器通过实际输入器发起文本创作，收到 77 个增量并观察到文字逐步增长，最终完成，提交后整页重载次数为 0。这些结果不代表已完成压力、多实例、生产代理或真机验收。
 
-HTTP 请求期缓冲只位于 queryFn 的 loadSessionSnapshot，Query 使用默认 structuralSharing；已挂载查询的 WS 写入不会被历史规则拦截。原有通用历史合并、累计全文回退、未消费的同步完成帧、旧回调配置、事件代理路由和文本分帧实现均已清理。仅在文字结束或原生消息完成时推送完整文字项，逐 chunk 内容只走 onDelta。
+HTTP 请求期缓冲只位于 queryFn 的 loadSessionSnapshot，Query 使用默认 structuralSharing；已挂载查询的 WS 写入不会被历史规则拦截。原有通用历史合并、累计全文回退、未消费的同步完成帧、旧回调配置、事件代理路由和文本分帧实现均已清理。完整文字项统一在原生 message_end 推送，逐 chunk 内容只走 onDelta；创作收尾只对文字做 final 分类校正，不重发过程文字。
 
 Pi 沿用原生消息追加：新会话可能在第一条 assistant 完成时才首次刷盘，之后逐消息追加，未完成 token 不保证跨进程恢复。生产环境与重要数据的操作限制、资产保留和付费执行语义保持原约束。
 
 文档核对涵盖项目自有 Markdown、配置样例及 Git 忽略的面试资料；普通文档、源码目录树、当前配置和相对链接同步检查。一次性迁移核对脚本、快照及联调输出已清理，保留正式测试和当前服务日志。面试资料沿用既有 Git 忽略规则。
+
+## Agent 运行器精简验收
+
+已统一工具展示与 Langfuse 的失败判定，移除额外 agent_settled 等待，改用 Pi 原生 Qwen 思考配置，统一资源加载与运行器的内存设置，并复用活跃 SessionManager 读写历史和表单。消息投影集中在 message_end；创作收尾不重发过程文字，最终文字分类和结构化状态校正保留。
+
+`AIVISTA_NATIVE_SCHEMA_TEST=true pnpm test`：22 个文件、168 项全部通过，包含 37 项隔离 MySQL 集成。新增交错验证覆盖 WAITING_INPUT 已提交、前次执行尚未退出时的历史读取和表单写入，确认只打开一次会话、归属与活动删除保护仍生效、执行结束释放管理器、回答落盘并能恢复执行；同时确认过程全文不在收尾重复发布。typecheck、build 通过。
+
+真实百炼文字冒烟通过：生产 runAgentPrompt 请求包含 enable_thinking=false，使用 system 角色且不发送 reasoning_effort，收到文字增量与最终回复。该测试通过显式 RUN_AGENT_SMOKE 开关启用；没有调用图片模型。Java 与前端本轮未修改，上表相应结果沿用实时链路验收记录。
