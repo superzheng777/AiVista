@@ -1,9 +1,9 @@
-import { sql, type Kysely, type Transaction } from "kysely";
+import { Prisma, queryRows, type PrismaClient, type TransactionClient } from "../database/prisma.js";
 import { z } from "zod";
-import type { DatabaseSchema } from "../database/database.types.js";
 import { CREATION_LIMIT, creationSettingsSchema, idSchema, type CreationStart,
   type ExecutionSnapshot, type ExecutionStatus, type AssetReference } from "./session-contract.js";
 import { SessionStore } from "./session-store.js";
+import type { executions, generation_sessions } from "../generated/prisma/client.js";
 
 export const createCreationSchema = z.object({
   sessionId: idSchema.optional(),
@@ -23,7 +23,7 @@ export type CreateCreation = z.infer<typeof createCreationSchema>;
 export interface ExecutionRow {
   id: string; user_id: string; session_id: string; parent_id: string | null;
   kind: "CREATION" | "GENERATION"; mode: "NORMAL" | "AGENT";
-  status: ExecutionStatus; revision: number; request_json: string | CreationStart;
+  status: ExecutionStatus; revision: number; request_json: Prisma.JsonValue;
   pending_tool_call_id: string | null; created_at: Date; completed_at: Date | null; failure_code: string | null;
 }
 export interface SessionRow {
@@ -36,97 +36,115 @@ export class ExecutionConflict extends Error {
   }
 }
 
+export function executionRow(row: executions): ExecutionRow {
+  return { ...row, id: row.id.toString(), user_id: row.user_id.toString(), session_id: row.session_id.toString(),
+    parent_id: row.parent_id?.toString() ?? null,
+    kind: z.enum(["CREATION", "GENERATION"]).parse(row.kind), mode: z.enum(["NORMAL", "AGENT"]).parse(row.mode),
+    status: z.enum(["QUEUED", "RUNNING", "WAITING_INPUT", "SUCCEEDED", "PARTIALLY_SUCCEEDED", "FAILED", "CANCELLED"]).parse(row.status) };
+}
+
+function sessionRow(row: generation_sessions): SessionRow {
+  return { ...row, id: row.id.toString(), user_id: row.user_id.toString() };
+}
+
 /** SQL owns execution identity and transitions. The native file owns conversational content. */
 export class ExecutionRepository {
-  constructor(private readonly db: Kysely<DatabaseSchema>, private readonly sessions: SessionStore) {}
+  constructor(private readonly db: PrismaClient, private readonly sessions: SessionStore) {}
 
   async create(userId: string, request: CreateCreation, assets: AssetReference[]): Promise<ExecutionRow> {
-    return this.db.transaction().execute(async (transaction) => {
+    return this.db.$transaction(async (transaction) => {
       let sessionId = request.sessionId;
       let isNew = false;
       if (!sessionId) {
-        const user = await sql`SELECT id FROM users WHERE id = ${userId}`.execute(transaction);
-        if (!user.rows.length) throw new ExecutionConflict("NOT_FOUND");
-        const inserted = await sql`INSERT INTO generation_sessions
-          (user_id, title, creation_count, last_message_at) VALUES
-          (${userId}, ${Array.from(request.input.prompt).slice(0, 40).join("")}, 0, UTC_TIMESTAMP(3))`.execute(transaction);
-        sessionId = inserted.insertId!.toString();
+        const user = await transaction.users.findUnique({ where: { id: BigInt(userId) }, select: { id: true } });
+        if (!user) throw new ExecutionConflict("NOT_FOUND");
+        const inserted = await transaction.generation_sessions.create({ data: {
+          user_id: BigInt(userId), title: Array.from(request.input.prompt).slice(0, 40).join(""),
+          creation_count: 0, last_message_at: new Date(),
+        }, select: { id: true } });
+        sessionId = inserted.id.toString();
         isNew = true;
       }
       // Existing sessions are locked before the first snapshot read of active executions.
       const session = await this.ownedSession(userId, sessionId, transaction, true);
       if (session.creation_count >= CREATION_LIMIT) throw new ExecutionConflict("SESSION_CREATION_LIMIT");
-      const active = await sql`SELECT id FROM executions WHERE session_id = ${sessionId}
-        AND status IN ('QUEUED', 'RUNNING', 'WAITING_INPUT') LIMIT 1`.execute(transaction);
-      if (active.rows.length) throw new ExecutionConflict("SESSION_BUSY");
-      const inserted = await sql`INSERT INTO executions
-        (user_id, session_id, kind, mode, status, request_json) VALUES
-        (${userId}, ${sessionId}, 'CREATION', ${request.mode}, 'QUEUED', '{}')`.execute(transaction);
-      const creationId = inserted.insertId!.toString();
+      const active = await transaction.executions.findFirst({ where: { session_id: BigInt(sessionId),
+        status: { in: ["QUEUED", "RUNNING", "WAITING_INPUT"] } }, select: { id: true } });
+      if (active) throw new ExecutionConflict("SESSION_BUSY");
+      const inserted = await transaction.executions.create({ data: {
+        user_id: BigInt(userId), session_id: BigInt(sessionId), kind: "CREATION", mode: request.mode,
+        status: "QUEUED", request_json: {},
+      }, select: { id: true } });
+      const creationId = inserted.id.toString();
       const start: CreationStart = { creationId, mode: request.mode,
         input: { prompt: request.input.prompt, assets }, settings: request.settings };
-      await sql`UPDATE executions SET request_json = ${JSON.stringify(start)} WHERE id = ${creationId}`.execute(transaction);
+      await transaction.executions.update({ where: { id: inserted.id }, data: { request_json: start } });
       const manager = isNew ? this.sessions.create(userId, sessionId) : this.sessions.open(userId, sessionId);
       this.sessions.start(manager, start);
-      await sql`UPDATE generation_sessions SET creation_count = creation_count + 1,
-        last_message_at = UTC_TIMESTAMP(3) WHERE id = ${sessionId}`.execute(transaction);
+      await transaction.generation_sessions.update({ where: { id: BigInt(sessionId) },
+        data: { creation_count: { increment: 1 }, last_message_at: new Date() } });
       return this.get(creationId, transaction);
     });
   }
 
-  async ownedSession(userId: string, sessionId: string, db: Kysely<DatabaseSchema> = this.db,
+  async ownedSession(userId: string, sessionId: string, db: TransactionClient = this.db,
       lock = false): Promise<SessionRow> {
-    const query = sql<SessionRow>`SELECT * FROM generation_sessions
-      WHERE id = ${sessionId} AND user_id = ${userId} AND deleted_at IS NULL`;
-    const result = await (lock ? sql<SessionRow>`${query} FOR UPDATE` : query).execute(db);
-    if (!result.rows[0]) throw new ExecutionConflict("NOT_FOUND");
-    return result.rows[0];
+    if (!lock) {
+      const row = await db.generation_sessions.findFirst({ where: {
+        id: BigInt(sessionId), user_id: BigInt(userId), deleted_at: null,
+      } });
+      if (!row) throw new ExecutionConflict("NOT_FOUND");
+      return sessionRow(row);
+    }
+    const result = await queryRows<SessionRow>(db, Prisma.sql`SELECT * FROM generation_sessions
+      WHERE id = ${sessionId} AND user_id = ${userId} AND deleted_at IS NULL FOR UPDATE`);
+    if (!result[0]) throw new ExecutionConflict("NOT_FOUND");
+    return result[0];
   }
 
   async list(userId: string): Promise<SessionRow[]> {
-    return (await sql<SessionRow>`SELECT * FROM generation_sessions WHERE user_id = ${userId} AND deleted_at IS NULL
-      ORDER BY last_message_at DESC, id DESC`.execute(this.db)).rows;
+    return (await this.db.generation_sessions.findMany({ where: { user_id: BigInt(userId), deleted_at: null },
+      orderBy: [{ last_message_at: "desc" }, { id: "desc" }] })).map(sessionRow);
   }
 
   async deleteSession(userId: string, sessionId: string): Promise<void> {
-    await this.db.transaction().execute(async (transaction) => {
-      const session = (await sql<SessionRow>`SELECT * FROM generation_sessions
-        WHERE id = ${sessionId} AND user_id = ${userId} FOR UPDATE`.execute(transaction)).rows[0];
+    await this.db.$transaction(async (transaction) => {
+      const session = (await queryRows<SessionRow>(transaction, Prisma.sql`SELECT * FROM generation_sessions
+        WHERE id = ${sessionId} AND user_id = ${userId} FOR UPDATE`))[0];
       if (!session) throw new ExecutionConflict("NOT_FOUND");
       if (session.deleted_at) return;
       // A cancelled parent may still have an accepted image request being settled.
-      const active = await sql`SELECT id FROM executions WHERE session_id = ${sessionId}
-        AND status IN ('QUEUED', 'RUNNING', 'WAITING_INPUT') LIMIT 1`.execute(transaction);
-      if (active.rows.length) throw new ExecutionConflict("SESSION_BUSY");
-      await sql`UPDATE generation_sessions SET deleted_at = UTC_TIMESTAMP(3)
-        WHERE id = ${sessionId}`.execute(transaction);
+      const active = await transaction.executions.findFirst({ where: { session_id: BigInt(sessionId),
+        status: { in: ["QUEUED", "RUNNING", "WAITING_INPUT"] } }, select: { id: true } });
+      if (active) throw new ExecutionConflict("SESSION_BUSY");
+      await transaction.generation_sessions.update({ where: { id: BigInt(sessionId) }, data: { deleted_at: new Date() } });
     });
   }
 
   async renameSession(userId: string, sessionId: string, title: string): Promise<void> {
-    await this.db.transaction().execute(async (transaction) => {
+    await this.db.$transaction(async (transaction) => {
       await this.ownedSession(userId, sessionId, transaction, true);
-      await sql`UPDATE generation_sessions SET title = ${title} WHERE id = ${sessionId}`.execute(transaction);
+      await transaction.generation_sessions.update({ where: { id: BigInt(sessionId) }, data: { title } });
     });
   }
 
-  async get(id: string, db: Kysely<DatabaseSchema> = this.db): Promise<ExecutionRow> {
-    const result = await sql<ExecutionRow>`SELECT * FROM executions WHERE id = ${id}`.execute(db);
-    if (!result.rows[0]) throw new ExecutionConflict("NOT_FOUND");
-    return result.rows[0];
+  async get(id: string, db: TransactionClient = this.db): Promise<ExecutionRow> {
+    const row = await db.executions.findUnique({ where: { id: BigInt(id) } });
+    if (!row) throw new ExecutionConflict("NOT_FOUND");
+    return executionRow(row);
   }
 
   async history(sessionId: string): Promise<ExecutionSnapshot[]> {
-    const rows = (await sql<ExecutionRow>`SELECT * FROM executions WHERE session_id = ${sessionId}
-      AND kind = 'CREATION' ORDER BY id`.execute(this.db)).rows;
+    const rows = (await this.db.executions.findMany({ where: { session_id: BigInt(sessionId), kind: "CREATION" },
+      orderBy: { id: "asc" } })).map(executionRow);
     return rows.map((row) => ({ creationId: String(row.id), status: row.status, revision: row.revision,
       failureCode: row.failure_code, completedAt: row.completed_at?.toISOString() ?? null }));
   }
 
   async claim(id: string, expectedRevision: number): Promise<ExecutionRow | null> {
-    const result = await sql`UPDATE executions SET status = 'RUNNING', revision = revision + 1
-      WHERE id = ${id} AND status = 'QUEUED' AND revision = ${expectedRevision}`.execute(this.db);
-    if (result.numAffectedRows !== 1n) return null;
+    const result = await this.db.executions.updateMany({ where: { id: BigInt(id), status: "QUEUED", revision: expectedRevision },
+      data: { status: "RUNNING", revision: { increment: 1 } } });
+    if (result.count !== 1) return null;
     const row = await this.get(id);
     return row.status === "RUNNING" && row.revision === expectedRevision + 1 ? row : null;
   }
@@ -135,30 +153,27 @@ export class ExecutionRepository {
     failureCode?: string; pendingToolCallId?: string;
   } = {}): Promise<boolean> {
     const terminal = ["SUCCEEDED", "PARTIALLY_SUCCEEDED", "FAILED", "CANCELLED"].includes(status);
-    const result = await sql`UPDATE executions SET status = ${status}, revision = revision + 1,
-      failure_code = ${options.failureCode ?? null}, pending_tool_call_id = ${options.pendingToolCallId ?? null},
-      completed_at = ${terminal ? new Date() : null}
-      WHERE id = ${row.id} AND status = ${row.status} AND revision = ${row.revision}`.execute(this.db);
-    return result.numAffectedRows === 1n;
+    const result = await this.db.executions.updateMany({ where: { id: BigInt(row.id), status: row.status, revision: row.revision },
+      data: { status, revision: { increment: 1 }, failure_code: options.failureCode ?? null,
+        pending_tool_call_id: options.pendingToolCallId ?? null, completed_at: terminal ? new Date() : null } });
+    return result.count === 1;
   }
 
   async queued(): Promise<ExecutionRow[]> {
-    return (await sql<ExecutionRow>`SELECT * FROM executions WHERE kind = 'CREATION'
-      AND status = 'QUEUED' ORDER BY id LIMIT 100`
-      .execute(this.db)).rows;
+    return (await this.db.executions.findMany({ where: { kind: "CREATION", status: "QUEUED" },
+      orderBy: { id: "asc" }, take: 100 })).map(executionRow);
   }
 
   async recoverInterrupted(): Promise<void> {
-    await sql`UPDATE executions SET status = 'FAILED', revision = revision + 1,
-      failure_code = 'CREATION_INTERRUPTED', completed_at = UTC_TIMESTAMP(3)
-      WHERE kind = 'CREATION' AND status = 'RUNNING'`.execute(this.db);
+    await this.db.executions.updateMany({ where: { kind: "CREATION", status: "RUNNING" },
+      data: { status: "FAILED", revision: { increment: 1 }, failure_code: "CREATION_INTERRUPTED", completed_at: new Date() } });
   }
 
-  async locked<T>(id: string, action: (row: ExecutionRow, transaction: Transaction<DatabaseSchema>) => Promise<T>): Promise<T> {
-    return this.db.transaction().execute(async (transaction) => {
-      const result = await sql<ExecutionRow>`SELECT * FROM executions WHERE id = ${id} FOR UPDATE`.execute(transaction);
-      if (!result.rows[0]) throw new ExecutionConflict("NOT_FOUND");
-      return action(result.rows[0], transaction);
+  async locked<T>(id: string, action: (row: ExecutionRow, transaction: TransactionClient) => Promise<T>): Promise<T> {
+    return this.db.$transaction(async (transaction) => {
+      const result = await queryRows<ExecutionRow>(transaction, Prisma.sql`SELECT * FROM executions WHERE id = ${id} FOR UPDATE`);
+      if (!result[0]) throw new ExecutionConflict("NOT_FOUND");
+      return action(result[0], transaction);
     });
   }
 }

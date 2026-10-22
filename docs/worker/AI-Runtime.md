@@ -8,6 +8,21 @@
 
 `CreationDispatcherService` 在创建、表单回答及周期扫描时本地调度；`GenerationTaskService` 统一图片创建、等待和执行；`GenerationQueueService` 负责图片可靠发布与消费；`GenerationRateLimiterService` 只约束请求启动时刻。
 
+## 数据库访问与模型同步
+
+Node 侧统一使用 Prisma 7.10.1，通过官方 `@prisma/adapter-mariadb` 连接 MySQL。`DatabaseService` 在 Nest 容器中单例管理客户端，退出时断开连接；连接池上限为 10，连接会话使用 UTC。模型位于 `backend-ts/prisma/schema.prisma`，CLI 配置为 `backend-ts/prisma7.config.ts`，复用下文的 Java YAML 配置桥和 `AIVISTA_DB_*` 环境变量。
+
+常规增删改查、计数和聚合使用 Prisma 模型 API。额度、结算及状态操作使用交互事务；状态竞争以状态、revision 条件和原子更新控制。`FOR UPDATE` / `FOR SHARE` 行锁使用 `Prisma.sql` 和 `$queryRaw` 参数化执行，不使用 Unsafe SQL API。Prisma 返回的 JSON 字段在内部保留对象；业务 ID 对外保持字符串，锁查询的 BIGINT 和无符号整数在数据访问边界统一转换，避免精度丢失和类型差异。
+
+Flyway 是唯一 DDL 入口，不执行 Prisma Migrate、`db push` 或 reset。引入 Prisma 本身不要求重建表或清空数据。后续修改表结构时，在开发或验证库完成以下流程，再随代码发布模型：
+
+1. 编写并由 Java/Flyway 应用数据库迁移。
+2. 在 `backend-ts` 目录设置连接配置，执行 `pnpm prisma:introspect`，从已迁移的库同步模型。
+3. 检查 `prisma/schema.prisma` 差异，确认与迁移一致。CHECK 约束等由数据库/Flyway 维护，不能仅用 Prisma schema 判断数据库全部约束。
+4. 执行 `pnpm prisma:generate`、`pnpm typecheck`、`pnpm test`、隔离库 `pnpm test:schema` 和 `pnpm build`，提交模型与业务代码。
+
+`prisma:generate` 不需要连接数据库。生成目录 `src/generated/prisma` 不提交 Git；`build`、`typecheck`、`test`、`test:schema` 会显式先生成客户端。生产运行使用构建产物，不在启动时 introspect 或修改数据库。隔离库测试保留 `mysql2` 开发依赖，仅负责建库、执行 Flyway SQL 和清理临时库；应用数据访问仍通过 Prisma。
+
 ## 本地启动
 
 要求 Node.js 22.19+、pnpm、MySQL 8.4、RabbitMQ，以及百炼和 OSS 配置。
@@ -113,7 +128,7 @@ RuntimeEventService 在内部 HTTP 服务的 /internal/events 接收 Java 原生
 
 - `pnpm typecheck`：源码及测试类型。
 - `pnpm test`：使用 forks 单进程工作池，覆盖 Faux Pi、工具约束、表单恢复、原生文件、压缩、四区投影、实时/历史一致性、请求 URL 适配和外部 I/O；不付费调用模型。
-- 设置 `AIVISTA_NATIVE_SCHEMA_TEST=true` 后 `pnpm test:schema`：创建独立临时库，验证 CAS、30 轮上限、归属、重复结算、部分成功、跨日退款，以及活跃管理器的历史/表单读写复用与释放；结束删除该临时库。
+- 设置 `AIVISTA_NATIVE_SCHEMA_TEST=true` 后 `pnpm test:schema`：创建独立临时库，验证大整数 ID、UTC 时间、JSON 对象在模型 API 与原生锁查询中的一致性，以及 CAS、30 轮上限、归属、重复结算、部分成功、跨日退款、活跃管理器的历史/表单读写复用与释放；结束删除该临时库。
 - `pnpm test:agent-smoke` 必须显式设置 RUN_AGENT_SMOKE=true 才调用真实模型。可通过 AIVISTA_JAVA_LOCAL_YAML 读取本地配置桥；日常自动回归不启用。仅验证关闭思考的文字请求时，使用 `-t 'streams a final text response with thinking disabled'`，覆盖实际请求字段、system 角色及文字增量，不触发生图。
 - 本地端到端验证使用专用测试账号，连接已配置的数据库、OSS 和远程基础服务，不额外创建持久化测试库或修改 OSS 前缀；限制生图次数。30 轮边界使用构造计数或 JSONL，不连续调用模型 30 次。
 

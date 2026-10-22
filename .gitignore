@@ -29,3 +29,4 @@ backend/aivista/src/main/resources/application-local.yaml
 # Local verification output and native conversation files
 .runlogs/
 backend-ts/var/
+backend-ts/src/generated/prisma/

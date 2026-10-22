@@ -27,7 +27,7 @@
 5. 两种模式都打开同一会话的 SessionManager；NORMAL 运行固定生图流程，AGENT 创建 AgentSession，注入 Skill、工具和约束，执行模型循环。创作不投递 MQ。
 6. NORMAL 流程和 Agent 生图工具共用图片任务入口：按 `(parent_id,tool_call_id)` 幂等创建 GENERATION 子执行，随后异步等待数据库结果。
 7. 图片派发器扫描未投递的 QUEUED 子执行，通过 publisher confirm 向 `aivista.generation.execute.v1` 投递 `{generationId,expectedRevision}`，确认后写入 dispatched_at。消费者原子领取，在事务内检查额度与用户已预占任务上限并预占，再经过限速调用图片模型。
-8. 图片模型响应先持久化，再转存图片；TS 在同一个 Kysely 事务内登记资产、退还未交付额度并写入子执行终态，结果可靠保存后 ACK 并通知等待者。
+8. 图片模型响应先持久化，再转存图片；TS 在同一个 Prisma 交互事务内登记资产、按结算规则处理额度并写入子执行终态，结果可靠保存后 ACK 并通知等待者。
 9. 等待者读取图片终态，将工具结果交回普通流程或 Pi；TS 写入 Pi 结果条目、继续 Agent 或收口创作状态，并将展示事件交给 Java 用户级 WebSocket。
 
 生成链路不需要跨 Java 提交结果。社区审核、搜索索引和通知仍使用 Java Outbox；它们的可靠待办职责不由创作执行表替代。

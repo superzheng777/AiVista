@@ -6,6 +6,8 @@ Agent 每条模型回复最多调用一个工具，模型请求关闭并行工�
 
 安装依赖后运行 `pnpm typecheck`、`pnpm test`、`pnpm build`、`pnpm worker`。默认测试不调用真实模型；隔离数据库测试使用 `AIVISTA_NATIVE_SCHEMA_TEST=true pnpm test:schema`（PowerShell 中先设置环境变量）。
 
+MySQL 访问统一使用 Prisma 7，Nest 单例 `DatabaseService` 管理客户端与连接池。常规 CRUD 使用模型 API，行锁使用参数化 SQL；JSON 字段在内部保留对象，业务 ID 在边界转换为字符串。构建、类型检查和常规测试会先生成 Prisma Client。表结构继续由 Java/Flyway 管理，变更后需同步 `prisma/schema.prisma` 并重新生成客户端，具体流程见[数据库访问与模型同步](../docs/worker/AI-Runtime.md#数据库访问与模型同步)。
+
 图片转存后为 `card.webp`、`display.webp` 补写一小时私有 HTTP 缓存，元数据失败沿用清理重试；原图默认缓存 600 秒，签名有效期不变。已有对象补写及验证范围见[图像访问与分发优化模块](../docs/java/modules/图像访问与分发优化模块.md)，不引入签名缓存表或 Redis。
 
 - [运行、配置与验证](../docs/worker/AI-Runtime.md)

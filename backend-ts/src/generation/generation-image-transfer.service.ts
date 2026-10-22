@@ -4,7 +4,6 @@ import OSS from "ali-oss";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { setTimeout as delay } from "node:timers/promises";
-import type { Selectable } from "kysely";
 import type { Environment } from "../config/environment.js";
 import type { GenerationExecution } from "../database/database.types.js";
 
@@ -28,7 +27,7 @@ export class GenerationImageTransferService {
     this.readTimeoutMs = config.get("AIVISTA_TRANSFER_SOURCE_READ_TIMEOUT_MS", { infer: true });
   }
 
-  async transfer(task: Selectable<GenerationExecution>, urls: string[]): Promise<TransferredImage[]> {
+  async transfer(task: GenerationExecution, urls: string[]): Promise<TransferredImage[]> {
     const images: TransferredImage[] = [];
     for (let index = 0; index < urls.length; index++) {
       for (let attempt = 0; attempt < 3; attempt++) {
@@ -42,7 +41,7 @@ export class GenerationImageTransferService {
     return images;
   }
 
-  private async transferOne(task: Selectable<GenerationExecution>, sourceIndex: number, url: string): Promise<TransferredImage> {
+  private async transferOne(task: GenerationExecution, sourceIndex: number, url: string): Promise<TransferredImage> {
     if (!this.client || !this.bucket) throw new Error("OSS transfer configuration is missing");
     const uri = new URL(url); if (uri.protocol !== "https:") throw new Error("Provider image URL must use HTTPS");
     const objectKey = this.objectKey(task, sourceIndex);
@@ -78,7 +77,7 @@ export class GenerationImageTransferService {
     }
   }
 
-  objectKey(task: Selectable<GenerationExecution>, sourceIndex: number): string {
+  objectKey(task: GenerationExecution, sourceIndex: number): string {
     return `${this.prefix}/${task.user_id}/tasks/${task.id}/${sourceIndex}`;
   }
 

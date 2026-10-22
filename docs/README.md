@@ -9,6 +9,7 @@
 | 资源列表缓存 | [资源列表缓存模块](frontend/modules/资源列表缓存模块.md) | 各列表策略、局部更新、事件失效、URL 复用、按需提前 60 秒续签及测试边界 |
 | 图片分发与 HTTP 缓存 | [图像访问与分发优化模块](java/modules/图像访问与分发优化模块.md) | 两个压缩图一小时私有缓存、签名时效、既有对象补写及 CDN 待实施边界 |
 | Java Core | [后端项目开发文档](java/后端项目开发文档.md) | 业务规则、数据库、对外 API 与权威状态 |
+| Java 架构与跨端链路 | [Java 架构与跨端运行链路](architecture/Java架构与跨端运行链路.md) | Java 全模块架构、前端与 Node 接入、图片 MQ、共享存储和社区 Outbox 时序 |
 | 用户统计与通知去重 | [用户统计与通知去重模块](java/modules/用户统计与通知去重模块.md) | 用户统计拆表、通知去重、锁顺序与并发验收 |
 | TypeScript AI Runtime | [AI Runtime](worker/AI-Runtime.md) | Node 本地创作调度、Pi Runtime、图片 MQ、限速与执行结算 |
 | Agent 跨服务链路 | [Agent 模式](architecture/Agent模式.md) | Java、TS、Pi 与浏览器的协作边界 |

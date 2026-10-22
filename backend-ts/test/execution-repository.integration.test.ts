@@ -1,13 +1,12 @@
+import { Prisma, queryRows, createDatabaseClient, type PrismaClient } from "../src/database/prisma.js";
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createConnection } from "mysql2/promise";
-import { createPool, type ResultSetHeader } from "mysql2";
-import { Kysely, MysqlDialect, sql } from "kysely";
+import type { ResultSetHeader } from "mysql2";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { ConfigService } from "@nestjs/config";
 import { loadJavaLocalEnvironment } from "../src/config/java-local-environment.js";
-import type { DatabaseSchema } from "../src/database/database.types.js";
 import { ExecutionRepository, type CreateCreation } from "../src/sessions/execution-repository.js";
 import { CreationRuntimeService } from "../src/sessions/creation-runtime.service.js";
 import { SessionStore } from "../src/sessions/session-store.js";
@@ -29,7 +28,7 @@ import { createFauxBinding } from "./helpers/faux-agent.js";
 
 const enabled = process.env.AIVISTA_NATIVE_SCHEMA_TEST === "true";
 describe.skipIf(!enabled)("Unified execution SQL integration", () => {
-  let db: Kysely<DatabaseSchema>;
+  let db: PrismaClient;
   let repository: ExecutionRepository;
   let root: string;
   let userId: string;
@@ -63,18 +62,18 @@ describe.skipIf(!enabled)("Unified execution SQL integration", () => {
       await admin.query(readFileSync(join(migrations, name), "utf8"));
     }
     await admin.end();
-    db = new Kysely<DatabaseSchema>({ dialect: new MysqlDialect({ pool: createPool({ ...connection,
-      database, supportBigNumbers: true, bigNumberStrings: true }) }) });
-    const user = await sql`INSERT INTO users (login_name, nickname, password_hash)
-      VALUES ('native_test', 'Native test', 'not-a-login-hash')`.execute(db);
-    userId = user.insertId!.toString();
+    db = createDatabaseClient({ ...connection, database });
+    const user = await db.users.create({ data: {
+      login_name: "native_test", nickname: "Native test", password_hash: "not-a-login-hash",
+    }, select: { id: true } });
+    userId = user.id.toString();
     root = mkdtempSync(join(tmpdir(), "aivista-native-test-"));
     repository = new ExecutionRepository(db, new SessionStore(root, process.cwd()));
   });
 
   afterAll(async () => {
     if (db) {
-      await db.destroy();
+      await db.$disconnect();
       const admin = await createConnection(connection);
       await admin.query(`DROP DATABASE \`${database}\``);
       await admin.end();
@@ -83,9 +82,27 @@ describe.skipIf(!enabled)("Unified execution SQL integration", () => {
   });
 
   const request: CreateCreation = { mode: "AGENT", input: { prompt: "测试创作", assetIds: [] }, settings: {} };
+  it("preserves large unsigned IDs, UTC dates and JSON through Prisma and raw lock reads", async () => {
+    const id = 9_007_199_254_740_993n;
+    await db.users.create({ data: { id, login_name: "large_id_test", nickname: "Big ID", password_hash: "not-a-login-hash" } });
+    const created = await repository.create(id.toString(), request, []);
+    expect(created.user_id).toBe(id.toString());
+    expect(created.request_json).toMatchObject({ input: { prompt: request.input.prompt } });
+    const timestamp = new Date("2026-10-22T01:02:03.456Z");
+    await db.executions.update({ where: { id: BigInt(created.id) }, data: { completed_at: timestamp,
+      provider_response_json: { requestId: "existing-response", imageUrls: ["https://images.test/1.png"] } } });
+    await repository.locked(created.id, async (row, tx) => {
+      expect(row.user_id).toBe(id.toString());
+      expect(typeof row.revision).toBe("number");
+      expect(row.request_json).toEqual(created.request_json);
+      expect(row.completed_at?.toISOString()).toBe(timestamp.toISOString());
+      const saved = await tx.executions.findUniqueOrThrow({ where: { id: BigInt(created.id) } });
+      expect(saved.provider_response_json).toEqual({ requestId: "existing-response", imageUrls: ["https://images.test/1.png"] });
+    });
+  });
   it("upgrades legacy running images conservatively without issuing their paid request again", async () => {
-    const row = (await sql<{ provider_started_at: Date | null }>`SELECT provider_started_at FROM executions
-      WHERE id = ${legacyGenerationId}`.execute(db)).rows[0];
+    const row = (await queryRows<{ provider_started_at: Date | null }>(db, Prisma.sql`SELECT provider_started_at FROM executions
+      WHERE id = ${legacyGenerationId}`))[0];
     expect(row?.provider_started_at).toBeInstanceOf(Date);
     const { service, provider } = taskService();
     await service.recover();
@@ -110,7 +127,7 @@ describe.skipIf(!enabled)("Unified execution SQL integration", () => {
   it("enforces the thirtieth creation atomically without calling any model", async () => {
     const first = await repository.create(userId, request, []);
     await repository.transition(first, "FAILED");
-    await sql`UPDATE generation_sessions SET creation_count = 29 WHERE id = ${first.session_id}`.execute(db);
+    await db.$executeRaw(Prisma.sql`UPDATE generation_sessions SET creation_count = 29 WHERE id = ${first.session_id}`);
     const results = await Promise.allSettled([
       repository.create(userId, { ...request, sessionId: first.session_id }, []),
       repository.create(userId, { ...request, sessionId: first.session_id }, []),
@@ -129,29 +146,25 @@ describe.skipIf(!enabled)("Unified execution SQL integration", () => {
     "does not require an exclusive user lock for session operation %s", async operation => {
       const first = await repository.create(userId, request, []);
       await repository.transition(first, "FAILED");
-      await db.connection().execute(async connectionDb => {
-        const previous = (await sql<{ timeout: number }>`SELECT @@session.innodb_lock_wait_timeout AS timeout`
-          .execute(connectionDb)).rows[0]!.timeout;
-        await sql`SET SESSION innodb_lock_wait_timeout = 2`.execute(connectionDb);
-        try {
-          const isolated = new ExecutionRepository(connectionDb, new SessionStore(root, process.cwd()));
-          await db.transaction().execute(async holder => {
-            // A FK check in another transaction can hold this compatible shared user lock.
-            await sql`SELECT id FROM users WHERE id = ${userId} FOR SHARE`.execute(holder);
-            if (operation === "new") await isolated.create(userId, request, []);
-            else if (operation === "continue") await isolated.create(userId, { ...request, sessionId: first.session_id }, []);
-            else if (operation === "rename") {
-              await isolated.renameSession(userId, first.session_id, "renamed");
-              expect((await isolated.ownedSession(userId, first.session_id)).title).toBe("renamed");
-            } else {
-              await isolated.deleteSession(userId, first.session_id);
-              await expect(isolated.ownedSession(userId, first.session_id)).rejects.toMatchObject({ code: "NOT_FOUND" });
-            }
-          });
-        } finally {
-          await sql`SET SESSION innodb_lock_wait_timeout = ${Number(previous)}`.execute(connectionDb);
-        }
-      });
+      const connectionDb = createDatabaseClient({ ...connection, database }, ["SET SESSION innodb_lock_wait_timeout = 2"]);
+      try {
+        const isolated = new ExecutionRepository(connectionDb, new SessionStore(root, process.cwd()));
+        await db.$transaction(async holder => {
+          // A FK check in another transaction can hold this compatible shared user lock.
+          await queryRows<Record<string, unknown>>(holder, Prisma.sql`SELECT id FROM users WHERE id = ${userId} FOR SHARE`);
+          if (operation === "new") await isolated.create(userId, request, []);
+          else if (operation === "continue") await isolated.create(userId, { ...request, sessionId: first.session_id }, []);
+          else if (operation === "rename") {
+            await isolated.renameSession(userId, first.session_id, "renamed");
+            expect((await isolated.ownedSession(userId, first.session_id)).title).toBe("renamed");
+          } else {
+            await isolated.deleteSession(userId, first.session_id);
+            await expect(isolated.ownedSession(userId, first.session_id)).rejects.toMatchObject({ code: "NOT_FOUND" });
+          }
+        });
+      } finally {
+        await connectionDb.$disconnect();
+      }
     });
 
   it("denies cross-user access and serializes active submissions in the same session", async () => {
@@ -244,11 +257,12 @@ describe.skipIf(!enabled)("Unified execution SQL integration", () => {
 
   async function generation(count: number, createdAt = new Date(), ownerId = userId) {
     const parent = await repository.create(ownerId, request, []);
-    const inserted = await sql`INSERT INTO executions (user_id, session_id, parent_id, kind, mode,
-      tool_call_id, status, request_json, requested_image_count, width, height, created_at)
-      VALUES (${ownerId}, ${parent.session_id}, ${parent.id}, 'GENERATION', 'NORMAL', 'test', 'RUNNING',
-        '{}', ${count}, 2048, 2048, ${createdAt})`.execute(db);
-    return inserted.insertId!.toString();
+    const inserted = await db.executions.create({ data: {
+      user_id: BigInt(ownerId), session_id: BigInt(parent.session_id), parent_id: BigInt(parent.id),
+      kind: "GENERATION", mode: "NORMAL", tool_call_id: "test", status: "RUNNING", request_json: {},
+      requested_image_count: count, width: 2048, height: 2048, created_at: createdAt,
+    }, select: { id: true } });
+    return inserted.id.toString();
   }
 
   it("soft-deletes idempotently and blocks every conversation entry point without erasing history", async () => {
@@ -260,12 +274,12 @@ describe.skipIf(!enabled)("Unified execution SQL integration", () => {
       {} as never, {} as never, {} as never, {} as never, {} as never);
 
     await expect(runtime.deleteSession(userId, created.session_id)).resolves.toEqual({ sessionId: created.session_id, deleted: true });
-    const deletedAt = (await sql<{ deleted_at: Date }>`SELECT deleted_at FROM generation_sessions
-      WHERE id = ${created.session_id}`.execute(db)).rows[0]!.deleted_at;
+    const deletedAt = (await queryRows<{ deleted_at: Date }>(db, Prisma.sql`SELECT deleted_at FROM generation_sessions
+      WHERE id = ${created.session_id}`))[0]!.deleted_at;
     expect(deletedAt).toBeInstanceOf(Date);
     await runtime.deleteSession(userId, created.session_id);
-    expect((await sql<{ deleted_at: Date }>`SELECT deleted_at FROM generation_sessions
-      WHERE id = ${created.session_id}`.execute(db)).rows[0]!.deleted_at).toEqual(deletedAt);
+    expect((await queryRows<{ deleted_at: Date }>(db, Prisma.sql`SELECT deleted_at FROM generation_sessions
+      WHERE id = ${created.session_id}`))[0]!.deleted_at).toEqual(deletedAt);
     expect((await repository.list(userId)).some(row => String(row.id) === String(created.session_id))).toBe(false);
     await expect(repository.ownedSession(userId, created.session_id)).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(runtime.history(userId, created.session_id)).rejects.toMatchObject({ code: "NOT_FOUND" });
@@ -284,15 +298,16 @@ describe.skipIf(!enabled)("Unified execution SQL integration", () => {
 
   it.each(["QUEUED", "RUNNING", "WAITING_INPUT"] as const)("rejects deletion while a creation is %s", async status => {
     const created = await repository.create(userId, request, []);
-    await sql`UPDATE executions SET status = ${status} WHERE id = ${created.id}`.execute(db);
+    await db.$executeRaw(Prisma.sql`UPDATE executions SET status = ${status} WHERE id = ${created.id}`);
     await expect(repository.deleteSession(userId, created.session_id)).rejects.toMatchObject({ code: "SESSION_BUSY" });
     expect((await repository.ownedSession(userId, created.session_id)).deleted_at).toBeNull();
   });
 
   it("preserves already-delivered images, publications and quota after parent cancellation", async () => {
-    const owner = await sql`INSERT INTO users (login_name, nickname, password_hash)
-      VALUES ('delete_images_test', 'Delete test', 'not-a-login-hash')`.execute(db);
-    const ownerId = owner.insertId!.toString();
+    const owner = await db.users.create({ data: {
+      login_name: "delete_images_test", nickname: "Delete test", password_hash: "not-a-login-hash",
+    }, select: { id: true } });
+    const ownerId = owner.id.toString();
     const id = await generation(1, new Date(), ownerId);
     const imageTask = await repository.get(id);
     await expect(repository.deleteSession(ownerId, imageTask.session_id)).rejects.toMatchObject({ code: "SESSION_BUSY" });
@@ -301,16 +316,16 @@ describe.skipIf(!enabled)("Unified execution SQL integration", () => {
     const result = await settlement.settle(id, [{ sourceIndex: 0, objectKey: `users/${ownerId}/tasks/${id}/0`,
       fileSize: 100n, width: 2048, height: 2048 }]);
     const assetId = result!.assets[0]!.assetId;
-    await sql`UPDATE executions SET status = 'CANCELLED' WHERE id = ${imageTask.parent_id}`.execute(db);
-    await sql`INSERT INTO image_publications (asset_id, title, review_status, public_at)
-      VALUES (${assetId}, '保留的作品', 'APPROVED', UTC_TIMESTAMP(3))`.execute(db);
-    const assetsBefore = (await sql`SELECT * FROM image_assets WHERE id = ${assetId}`.execute(db)).rows;
-    const publicationsBefore = (await sql`SELECT * FROM image_publications WHERE asset_id = ${assetId}`.execute(db)).rows;
-    const quotaBefore = (await sql`SELECT * FROM user_generation_daily_usage WHERE user_id = ${ownerId}`.execute(db)).rows;
+    await db.$executeRaw(Prisma.sql`UPDATE executions SET status = 'CANCELLED' WHERE id = ${imageTask.parent_id}`);
+    await db.$executeRaw(Prisma.sql`INSERT INTO image_publications (asset_id, title, review_status, public_at)
+      VALUES (${assetId}, '保留的作品', 'APPROVED', UTC_TIMESTAMP(3))`);
+    const assetsBefore = (await queryRows<Record<string, unknown>>(db, Prisma.sql`SELECT * FROM image_assets WHERE id = ${assetId}`));
+    const publicationsBefore = (await queryRows<Record<string, unknown>>(db, Prisma.sql`SELECT * FROM image_publications WHERE asset_id = ${assetId}`));
+    const quotaBefore = (await queryRows<Record<string, unknown>>(db, Prisma.sql`SELECT * FROM user_generation_daily_usage WHERE user_id = ${ownerId}`));
     await repository.deleteSession(ownerId, imageTask.session_id);
-    expect((await sql`SELECT * FROM image_assets WHERE id = ${assetId}`.execute(db)).rows).toEqual(assetsBefore);
-    expect((await sql`SELECT * FROM image_publications WHERE asset_id = ${assetId}`.execute(db)).rows).toEqual(publicationsBefore);
-    expect((await sql`SELECT * FROM user_generation_daily_usage WHERE user_id = ${ownerId}`.execute(db)).rows).toEqual(quotaBefore);
+    expect((await queryRows<Record<string, unknown>>(db, Prisma.sql`SELECT * FROM image_assets WHERE id = ${assetId}`))).toEqual(assetsBefore);
+    expect((await queryRows<Record<string, unknown>>(db, Prisma.sql`SELECT * FROM image_publications WHERE asset_id = ${assetId}`))).toEqual(publicationsBefore);
+    expect((await queryRows<Record<string, unknown>>(db, Prisma.sql`SELECT * FROM user_generation_daily_usage WHERE user_id = ${ownerId}`))).toEqual(quotaBefore);
     expect((await repository.get(id)).status).toBe("SUCCEEDED");
   });
 
@@ -344,8 +359,8 @@ describe.skipIf(!enabled)("Unified execution SQL integration", () => {
     if (results[1]!.status === "rejected") expect(results[1]!.reason).toMatchObject({ code: "NOT_FOUND" });
     await expect(repository.renameSession(userId, first.session_id, "删除后改名"))
       .rejects.toMatchObject({ code: "NOT_FOUND" });
-    expect((await sql<{ title: string }>`SELECT title FROM generation_sessions
-      WHERE id = ${first.session_id}`.execute(db)).rows[0]!.title).not.toBe("删除后改名");
+    expect((await queryRows<{ title: string }>(db, Prisma.sql`SELECT title FROM generation_sessions
+      WHERE id = ${first.session_id}`))[0]!.title).not.toBe("删除后改名");
   });
 
   it("atomically settles partial output and makes duplicate result delivery idempotent", async () => {
@@ -358,8 +373,8 @@ describe.skipIf(!enabled)("Unified execution SQL integration", () => {
     expect(outputs[0]).toEqual(outputs[1]);
     expect(outputs[0]?.status).toBe("PARTIALLY_SUCCEEDED");
     expect(outputs[0]?.assets).toHaveLength(1);
-    const row = (await sql<{ count: number }>`SELECT SUM(requested_image_count) AS count FROM user_generation_daily_usage
-      WHERE user_id = ${userId}`.execute(db)).rows[0]!;
+    const row = (await queryRows<{ count: number }>(db, Prisma.sql`SELECT SUM(requested_image_count) AS count FROM user_generation_daily_usage
+      WHERE user_id = ${userId}`))[0]!;
     expect(Number(row.count)).toBe(1);
     expect((await repository.get(id)).status).toBe("PARTIALLY_SUCCEEDED");
   });
@@ -373,8 +388,8 @@ describe.skipIf(!enabled)("Unified execution SQL integration", () => {
     expect((await repository.get(id)).status).toBe("RUNNING");
     expect((await settlement.settle(id, [])).status).toBe("FAILED");
     await settlement.settle(id, []);
-    const row = (await sql<{ count: number }>`SELECT requested_image_count AS count FROM user_generation_daily_usage
-      WHERE user_id = ${userId} AND usage_date = '2026-01-01'`.execute(db)).rows[0]!;
+    const row = (await queryRows<{ count: number }>(db, Prisma.sql`SELECT requested_image_count AS count FROM user_generation_daily_usage
+      WHERE user_id = ${userId} AND usage_date = '2026-01-01'`))[0]!;
     expect(Number(row.count)).toBe(0);
   });
 
@@ -405,7 +420,7 @@ describe.skipIf(!enabled)("Unified execution SQL integration", () => {
   async function imageTask(service: GenerationTaskService) {
     const created = await repository.create(userId, request, []);
     const parent = (await repository.claim(created.id, created.revision))!;
-    const start = creationStartSchema.parse(typeof parent.request_json === "string" ? JSON.parse(parent.request_json) : parent.request_json);
+    const start = creationStartSchema.parse(parent.request_json);
     const item = await service.create(parent, start, "image-call", imageRequest, new Map());
     return { id: item.generationId!, parent, start, item };
   }
@@ -442,7 +457,7 @@ describe.skipIf(!enabled)("Unified execution SQL integration", () => {
     const { service, provider, transfer, events } = taskService();
     const { id, parent } = await imageTask(service);
     transfer.transfer.mockImplementationOnce(async (task) => {
-      const saved = (await sql<{ provider_response_json: unknown }>`SELECT provider_response_json FROM executions WHERE id = ${id}`.execute(db)).rows[0];
+      const saved = (await queryRows<{ provider_response_json: unknown }>(db, Prisma.sql`SELECT provider_response_json FROM executions WHERE id = ${id}`))[0];
       expect(saved?.provider_response_json).toBeTruthy();
       return [{ sourceIndex: 0, objectKey: `users/${task.user_id}/tasks/${task.id}/0`, fileSize: 100n, width: task.width, height: task.height }];
     });
@@ -484,7 +499,7 @@ describe.skipIf(!enabled)("Unified execution SQL integration", () => {
     await service.cancelPending(String(parent.id));
     await running;
     await service.cancelPending(String(parent.id));
-    const row = (await sql<{ status: string; quota_refunded_at: unknown; quota_reserved_at: unknown }>`SELECT * FROM executions WHERE id = ${id}`.execute(db)).rows[0]!;
+    const row = (await queryRows<{ status: string; quota_refunded_at: unknown; quota_reserved_at: unknown }>(db, Prisma.sql`SELECT * FROM executions WHERE id = ${id}`))[0]!;
     expect(row.status).toBe("CANCELLED");
     expect(row.quota_reserved_at).toBeTruthy();
     expect(row.quota_refunded_at).toBeTruthy();
@@ -508,7 +523,7 @@ describe.skipIf(!enabled)("Unified execution SQL integration", () => {
     expect(await waiting).toMatchObject({ status: "FAILED", assets: [], code: "USER_CANCELLED" });
     expect(updates.at(-1)).toBe("CANCELLED");
     expect(transfer.transfer).not.toHaveBeenCalled();
-    const state = (await sql<{ quota_refunded_at: Date | null; status: string }>`SELECT * FROM executions WHERE id = ${id}`.execute(db)).rows[0]!;
+    const state = (await queryRows<{ quota_refunded_at: Date | null; status: string }>(db, Prisma.sql`SELECT * FROM executions WHERE id = ${id}`))[0]!;
     expect(state).toMatchObject({ status: "CANCELLED", quota_refunded_at: null });
     await service.execute(id, 0);
     expect(provider.generate).toHaveBeenCalledTimes(1);
@@ -532,8 +547,8 @@ describe.skipIf(!enabled)("Unified execution SQL integration", () => {
     release.resolve();
     await running;
     expect((await repository.get(id)).status).toBe("CANCELLED");
-    expect((await sql`SELECT * FROM image_assets WHERE origin_task_id = ${id}`.execute(db)).rows).toHaveLength(0);
-    expect((await sql<{ quota_refunded_at: unknown }>`SELECT quota_refunded_at FROM executions WHERE id = ${id}`.execute(db)).rows[0]!.quota_refunded_at).toBeNull();
+    expect((await queryRows<Record<string, unknown>>(db, Prisma.sql`SELECT * FROM image_assets WHERE origin_task_id = ${id}`))).toHaveLength(0);
+    expect((await queryRows<{ quota_refunded_at: unknown }>(db, Prisma.sql`SELECT quota_refunded_at FROM executions WHERE id = ${id}`))[0]!.quota_refunded_at).toBeNull();
     expect(transfer.deleteGroup).toHaveBeenCalledWith(`users/${parent.user_id}/tasks/${id}/0`);
     await service.execute(id, 0);
     expect(transfer.deleteGroup).toHaveBeenCalledTimes(1);
@@ -590,7 +605,7 @@ describe.skipIf(!enabled)("Unified execution SQL integration", () => {
     await service.execute(id, 0);
     expect(provider.generate).not.toHaveBeenCalled();
     expect((await repository.get(id)).status).toBe("CANCELLED");
-    const state = (await sql<{ quota_refunded_at: unknown; provider_started_at: unknown }>`SELECT * FROM executions WHERE id = ${id}`.execute(db)).rows[0]!;
+    const state = (await queryRows<{ quota_refunded_at: unknown; provider_started_at: unknown }>(db, Prisma.sql`SELECT * FROM executions WHERE id = ${id}`))[0]!;
     expect(state.provider_started_at).toBeNull();
     expect(state.quota_refunded_at).toBeTruthy();
   });
@@ -598,7 +613,7 @@ describe.skipIf(!enabled)("Unified execution SQL integration", () => {
   it("expires undispatched work even when no consumer is available", async () => {
     const { service, provider } = taskService();
     const { id } = await imageTask(service);
-    await sql`UPDATE executions SET created_at = ${new Date(Date.now() - 70_000)} WHERE id = ${id}`.execute(db);
+    await db.$executeRaw(Prisma.sql`UPDATE executions SET created_at = ${new Date(Date.now() - 70_000)} WHERE id = ${id}`);
     expect((await service.queued()).some((row) => row.id === id)).toBe(false);
     await service.execute(id, 0);
     expect(await service.waitForResult(id)).toMatchObject({ status: "FAILED", code: "GENERATION_QUEUE_TIMEOUT" });
@@ -625,11 +640,11 @@ describe.skipIf(!enabled)("Unified execution SQL integration", () => {
     }));
     const running = service.execute(id, 0);
     await ready.promise;
-    await sql`UPDATE executions SET created_at = ${new Date(Date.now() - 70_000)} WHERE id = ${id}`.execute(db);
+    await db.$executeRaw(Prisma.sql`UPDATE executions SET created_at = ${new Date(Date.now() - 70_000)} WHERE id = ${id}`);
     expect(await service.waitForResult(id)).toMatchObject({ status: "FAILED", code: "GENERATION_QUEUE_TIMEOUT" });
     await running;
     expect(provider.generate).not.toHaveBeenCalled();
-    const row = (await sql<{ quota_refunded_at: unknown }>`SELECT quota_refunded_at FROM executions WHERE id = ${id}`.execute(db)).rows[0];
+    const row = (await queryRows<{ quota_refunded_at: unknown }>(db, Prisma.sql`SELECT quota_refunded_at FROM executions WHERE id = ${id}`))[0];
     expect(row?.quota_refunded_at).toBeTruthy();
   });
 
@@ -651,10 +666,10 @@ describe.skipIf(!enabled)("Unified execution SQL integration", () => {
     const ambiguous = await imageTask(service);
     const settlement = new GenerationSettlement(db, { daily: 1000, concurrent: 200 }, (key) => `https://images.test/${key}`);
     for (const id of [saved.id, ambiguous.id]) {
-      await sql`UPDATE executions SET status = 'RUNNING', revision = 1, provider_started_at = UTC_TIMESTAMP(3) WHERE id = ${id}`.execute(db);
+      await db.$executeRaw(Prisma.sql`UPDATE executions SET status = 'RUNNING', revision = 1, provider_started_at = UTC_TIMESTAMP(3) WHERE id = ${id}`);
       await settlement.reserve(id);
     }
-    await sql`UPDATE executions SET provider_response_json = ${JSON.stringify(providerResult)} WHERE id = ${saved.id}`.execute(db);
+    await db.$executeRaw(Prisma.sql`UPDATE executions SET provider_response_json = ${JSON.stringify(providerResult)} WHERE id = ${saved.id}`);
     await service.recover();
     const recovered = await repository.get(saved.id);
     expect(recovered.status).toBe("QUEUED");
@@ -678,7 +693,7 @@ describe.skipIf(!enabled)("Unified execution SQL integration", () => {
   it("falls back to database completion when a notification is absent and aborts a detached waiter", async () => {
     const { service } = taskService();
     const { id } = await imageTask(service);
-    await sql`UPDATE executions SET status = 'RUNNING', revision = 1 WHERE id = ${id}`.execute(db);
+    await db.$executeRaw(Prisma.sql`UPDATE executions SET status = 'RUNNING', revision = 1 WHERE id = ${id}`);
     const settlement = new GenerationSettlement(db, { daily: 1000, concurrent: 200 }, (key) => `https://images.test/${key}`);
     await settlement.reserve(id);
     const reading = deferred<void>();

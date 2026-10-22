@@ -1,6 +1,6 @@
+import { Prisma, queryRows } from "../database/prisma.js";
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { sql } from "kysely";
 import type { Environment } from "../config/environment.js";
 import { DatabaseService } from "../database/database.service.js";
 import type { GenerationExecution } from "../database/database.types.js";
@@ -10,18 +10,28 @@ import { GenerationImageTransferService } from "../generation/generation-image-t
 import { GenerationImageUrlService } from "../generation/generation-image-url.service.js";
 import { GenerationRateLimiterService } from "../generation/generation-rate-limiter.service.js";
 import { BailianProviderError } from "../generation/generation-provider-error.js";
-import { ExecutionConflict, type ExecutionRow } from "./execution-repository.js";
+import { ExecutionConflict, executionRow, type ExecutionRow } from "./execution-repository.js";
+import type { executions } from "../generated/prisma/client.js";
 import { GenerationQuotaError, GenerationSettlement } from "./generation-settlement.js";
 import { RuntimeEventService } from "./runtime-event-service.js";
 import type { AssetReference, CreationStart, ExecutionStatus, GenerationItem, GenerationResult } from "./session-contract.js";
 
 interface ImageTask extends GenerationExecution {
   tool_call_id: string; status: ExecutionStatus; created_at: Date; failure_code: string | null;
-  request_json: string | (GenerationToolRequest & { assets: AssetReference[] });
-  provider_started_at: Date | null; provider_response_json: string | BailianProviderResult | null;
+  request_json: GenerationToolRequest & { assets: AssetReference[] };
+  provider_started_at: Date | null; provider_response_json: BailianProviderResult | null;
 }
 type ActiveCall = { controller: AbortController; started: boolean };
 const terminal = new Set<ExecutionStatus>(["SUCCEEDED", "PARTIALLY_SUCCEEDED", "FAILED", "CANCELLED"]);
+
+function imageTaskRow(row: executions): ImageTask {
+  // GENERATION requests created by this service supply the provider fields.
+  return { ...executionRow(row), parent_id: row.parent_id!.toString(), tool_call_id: row.tool_call_id!,
+    operation: row.operation!, model: row.model!, final_prompt: row.final_prompt!, width: row.width!, height: row.height!,
+    final_negative_prompt: row.final_negative_prompt, prompt_extend: row.prompt_extend,
+    requested_image_count: row.requested_image_count!, request_json: row.request_json as ImageTask["request_json"],
+    provider_started_at: row.provider_started_at, provider_response_json: row.provider_response_json as BailianProviderResult | null };
+}
 
 /** This failure must stop the parent loop: asking the model to retry could double-charge. */
 export class GenerationOutcomeUnknownError extends Error {
@@ -64,36 +74,40 @@ export class GenerationTaskService {
       if (!asset) throw new Error("Unauthorized generation input");
       return asset;
     });
-    const snapshot = JSON.stringify({ ...request, assets });
-    const id = await this.database.db.transaction().execute(async (transaction) => {
-      const current = (await sql<ExecutionRow>`SELECT * FROM executions WHERE id = ${parent.id}
-        AND kind = 'CREATION' FOR UPDATE`.execute(transaction)).rows[0];
+    const id = await this.database.db.$transaction(async (transaction) => {
+      const current = (await queryRows<ExecutionRow>(transaction, Prisma.sql`SELECT * FROM executions WHERE id = ${parent.id}
+        AND kind = 'CREATION' FOR UPDATE`))[0];
       if (!current || current.status !== "RUNNING" || current.revision !== parent.revision) {
         throw new ExecutionConflict("REVISION_CONFLICT");
       }
-      const existing = (await sql<ImageTask>`SELECT * FROM executions
-        WHERE parent_id = ${parent.id} AND tool_call_id = ${toolCallId}`.execute(transaction)).rows[0];
+      const saved = await transaction.executions.findUnique({ where: {
+        parent_id_tool_call_id: { parent_id: BigInt(parent.id), tool_call_id: toolCallId },
+      } });
+      const existing = saved ? imageTaskRow(saved) : null;
       if (existing) {
         // Compare normalized fields; MySQL JSON objects do not preserve property order.
-        const previous = parseJson(existing.request_json);
+        const previous = existing.request_json;
         if (Object.entries(request).some(([key, value]) => JSON.stringify(previous[key as keyof typeof previous]) !== JSON.stringify(value))) {
           throw new Error("A tool call cannot change its persisted image request");
         }
         return String(existing.id);
       }
       if (start.settings.aspectRatio && request.aspectRatio !== start.settings.aspectRatio) throw new Error("Aspect ratio constraint mismatch");
-      const used = (await sql<{ count: string }>`SELECT COALESCE(SUM(requested_image_count), 0) AS count
-        FROM executions WHERE parent_id = ${parent.id} AND kind = 'GENERATION'
-          AND status NOT IN ('FAILED', 'CANCELLED')`.execute(transaction)).rows[0];
-      if (start.settings.imageCount && Number(used?.count ?? 0) + request.imageCount > start.settings.imageCount) {
+      const used = await transaction.executions.aggregate({ where: { parent_id: BigInt(parent.id), kind: "GENERATION",
+        status: { notIn: ["FAILED", "CANCELLED"] } }, _sum: { requested_image_count: true } });
+      if (start.settings.imageCount && (used._sum.requested_image_count ?? 0) + request.imageCount > start.settings.imageCount) {
         throw new Error("Image count exceeds creation limit");
       }
-      const inserted = await sql`INSERT INTO executions (user_id, session_id, parent_id, kind, mode, tool_call_id,
-        status, request_json, operation, model, final_prompt, final_negative_prompt, width, height, prompt_extend, requested_image_count)
-        VALUES (${parent.user_id}, ${parent.session_id}, ${parent.id}, 'GENERATION', ${parent.mode}, ${toolCallId},
-        'QUEUED', ${snapshot}, ${request.operation}, ${this.config.get("AIVISTA_GENERATION_MODEL", { infer: true })},
-        ${request.prompt}, ${request.negativePrompt}, ${dimensions[0]!}, ${dimensions[1]!}, ${request.promptExtend}, ${request.imageCount})`.execute(transaction);
-      return inserted.insertId!.toString();
+      const inserted = await transaction.executions.create({ data: {
+        user_id: BigInt(parent.user_id), session_id: BigInt(parent.session_id), parent_id: BigInt(parent.id),
+        kind: "GENERATION", mode: parent.mode, tool_call_id: toolCallId, status: "QUEUED",
+        request_json: { ...request, assets }, operation: request.operation,
+        model: this.config.get("AIVISTA_GENERATION_MODEL", { infer: true }),
+        final_prompt: request.prompt, final_negative_prompt: request.negativePrompt,
+        width: dimensions[0]!, height: dimensions[1]!, prompt_extend: request.promptExtend,
+        requested_image_count: request.imageCount,
+      }, select: { id: true } });
+      return inserted.id.toString();
     });
     return this.publish(await this.get(id));
   }
@@ -150,8 +164,9 @@ export class GenerationTaskService {
   }
 
   private async run(id: string, expectedRevision: number): Promise<void> {
-    const claimed = await sql`UPDATE executions SET status = 'RUNNING', revision = revision + 1
-      WHERE id = ${id} AND kind = 'GENERATION' AND status = 'QUEUED' AND revision = ${expectedRevision}`.execute(this.database.db);
+    const claimed = await this.database.db.executions.updateMany({ where: {
+      id: BigInt(id), kind: "GENERATION", status: "QUEUED", revision: expectedRevision,
+    }, data: { status: "RUNNING", revision: { increment: 1 } } });
     let task: ImageTask;
     try { task = await this.get(id); }
     catch (error) {
@@ -160,14 +175,14 @@ export class GenerationTaskService {
       throw error;
     }
     // A redelivery after an infrastructure error can finish the same claimed revision.
-    if (claimed.numAffectedRows !== 1n && (task.status !== "RUNNING" || task.revision !== expectedRevision + 1)) return;
-    if (task.provider_response_json) { await this.finish(task, parseJson(task.provider_response_json)); return; }
+    if (claimed.count !== 1 && (task.status !== "RUNNING" || task.revision !== expectedRevision + 1)) return;
+    if (task.provider_response_json) { await this.finish(task, task.provider_response_json); return; }
     if (task.provider_started_at) { await this.fail(task, "GENERATION_OUTCOME_UNKNOWN"); return; }
     const local: ActiveCall = { controller: new AbortController(), started: false };
     this.pending.set(id, local);
     let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
-      const parent = (await sql<{ status: string }>`SELECT status FROM executions WHERE id = ${task.parent_id}`.execute(this.database.db)).rows[0];
+      const parent = await this.database.db.executions.findUnique({ where: { id: BigInt(task.parent_id) }, select: { status: true } });
       if (parent?.status === "CANCELLED") { await this.settlement.cancel(id); await this.publish(await this.get(id)); return; }
       if (await this.expire(task)) return;
       await this.publish(task);
@@ -190,7 +205,7 @@ export class GenerationTaskService {
           local.controller.signal.throwIfAborted();
           local.started = true;
           clearTimeout(timeout);
-          return this.provider.generate(task, parseJson(task.request_json).assets);
+          return this.provider.generate(task, task.request_json.assets);
         }, local.controller.signal);
       } catch (error) {
         if (!local.started) {
@@ -204,8 +219,8 @@ export class GenerationTaskService {
         await this.fail(task, knownRejection ? "GENERATION_FAILED" : "GENERATION_OUTCOME_UNKNOWN");
         return;
       }
-      await sql`UPDATE executions SET provider_response_json = ${JSON.stringify(result)}, provider_request_id = ${result.requestId}
-        WHERE id = ${id} AND status = 'RUNNING'`.execute(this.database.db);
+      await this.database.db.executions.updateMany({ where: { id: BigInt(id), status: "RUNNING" },
+        data: { provider_response_json: { requestId: result.requestId, imageUrls: result.imageUrls }, provider_request_id: result.requestId } });
       await this.finish(task, result);
     } finally {
       if (timeout) clearTimeout(timeout);
@@ -214,32 +229,32 @@ export class GenerationTaskService {
   }
 
   async queued(): Promise<Array<{ id: string; revision: number }>> {
-    const expired = (await sql<ImageTask>`SELECT * FROM executions WHERE kind = 'GENERATION' AND status = 'QUEUED'
-      AND provider_started_at IS NULL AND created_at <= ${new Date(Date.now() - this.queueTimeoutMs)}`.execute(this.database.db)).rows;
+    const expired = (await this.database.db.executions.findMany({ where: { kind: "GENERATION", status: "QUEUED",
+      provider_started_at: null, created_at: { lte: new Date(Date.now() - this.queueTimeoutMs) } } })).map(imageTaskRow);
     for (const task of expired) await this.expire(task);
-    return (await sql<{ id: string; revision: number }>`SELECT id, revision FROM executions WHERE kind = 'GENERATION'
-      AND status = 'QUEUED' AND dispatched_at IS NULL ORDER BY id LIMIT 200`.execute(this.database.db)).rows
+    return (await this.database.db.executions.findMany({ where: { kind: "GENERATION", status: "QUEUED", dispatched_at: null },
+      select: { id: true, revision: true }, orderBy: { id: "asc" }, take: 200 }))
       .map((row) => ({ id: String(row.id), revision: row.revision }));
   }
 
   async markDispatched(id: string, revision: number): Promise<void> {
-    await sql`UPDATE executions SET dispatched_at = UTC_TIMESTAMP(3)
-      WHERE id = ${id} AND kind = 'GENERATION' AND status = 'QUEUED' AND revision = ${revision}`.execute(this.database.db);
+    await this.database.db.executions.updateMany({ where: { id: BigInt(id), kind: "GENERATION", status: "QUEUED", revision },
+      data: { dispatched_at: new Date() } });
   }
 
   /** Called once before consumers start; a saved response is always resumed without another paid request. */
   async recover(): Promise<void> {
-    const rows = (await sql<ImageTask>`SELECT * FROM executions WHERE kind = 'GENERATION' AND status = 'RUNNING'`.execute(this.database.db)).rows;
+    const rows = (await this.database.db.executions.findMany({ where: { kind: "GENERATION", status: "RUNNING" } })).map(imageTaskRow);
     for (const task of rows) {
       if (task.provider_started_at && !task.provider_response_json) await this.fail(task, "GENERATION_OUTCOME_UNKNOWN");
-      else await sql`UPDATE executions SET status = 'QUEUED', revision = revision + 1, dispatched_at = NULL
-        WHERE id = ${task.id} AND status = 'RUNNING' AND revision = ${task.revision}`.execute(this.database.db);
+      else await this.database.db.executions.updateMany({ where: { id: BigInt(task.id), status: "RUNNING", revision: task.revision },
+        data: { status: "QUEUED", revision: { increment: 1 }, dispatched_at: null } });
     }
   }
 
   async cancelPending(creationId: string): Promise<void> {
-    const rows = (await sql<ImageTask>`SELECT * FROM executions WHERE parent_id = ${creationId}
-      AND kind = 'GENERATION' AND status IN ('QUEUED', 'RUNNING')`.execute(this.database.db)).rows;
+    const rows = (await this.database.db.executions.findMany({ where: { parent_id: BigInt(creationId), kind: "GENERATION",
+      status: { in: ["QUEUED", "RUNNING"] } } })).map(imageTaskRow);
     for (const task of rows) {
       const local = this.pending.get(String(task.id));
       if (local?.started || task.provider_started_at && !local) continue;
@@ -249,8 +264,8 @@ export class GenerationTaskService {
   }
 
   async history(sessionId: string): Promise<Array<{ creationId: string; item: GenerationItem }>> {
-    const rows = (await sql<ImageTask>`SELECT * FROM executions WHERE session_id = ${sessionId}
-      AND kind = 'GENERATION' ORDER BY id`.execute(this.database.db)).rows;
+    const rows = (await this.database.db.executions.findMany({ where: { session_id: BigInt(sessionId), kind: "GENERATION" },
+      orderBy: { id: "asc" } })).map(imageTaskRow);
     return Promise.all(rows.map(async (task) => ({ creationId: String(task.parent_id), item: await this.item(task) })));
   }
 
@@ -265,7 +280,7 @@ export class GenerationTaskService {
   }
 
   private async finish(task: ImageTask, result: BailianProviderResult): Promise<void> {
-    const parent = (await sql<{ status: string }>`SELECT status FROM executions WHERE id = ${task.parent_id}`.execute(this.database.db)).rows[0];
+    const parent = await this.database.db.executions.findUnique({ where: { id: BigInt(task.parent_id) }, select: { status: true } });
     let completed: Awaited<ReturnType<GenerationImageTransferService["transfer"]>> = [];
     if (parent?.status !== "CANCELLED") {
       completed = await this.transfer.transfer(task, result.imageUrls);
@@ -288,15 +303,15 @@ export class GenerationTaskService {
   }
 
   private async get(id: string): Promise<ImageTask> {
-    const task = (await sql<ImageTask>`SELECT * FROM executions WHERE id = ${id} AND kind = 'GENERATION'`.execute(this.database.db)).rows[0];
+    const task = await this.database.db.executions.findFirst({ where: { id: BigInt(id), kind: "GENERATION" } });
     if (!task) throw new ExecutionConflict("NOT_FOUND");
-    return task;
+    return imageTaskRow(task);
   }
 
   private async item(task: ImageTask): Promise<GenerationItem> {
-    const assets = (await sql<{ id: string; original_object_key: string }>`SELECT id, original_object_key
-      FROM image_assets WHERE origin_task_id = ${task.id} ORDER BY source_index`.execute(this.database.db)).rows;
-    const parent = (await sql<{ status: string }>`SELECT status FROM executions WHERE id = ${task.parent_id}`.execute(this.database.db)).rows[0];
+    const assets = await this.database.db.image_assets.findMany({ where: { origin_task_id: BigInt(task.id) },
+      select: { id: true, original_object_key: true }, orderBy: { source_index: "asc" } });
+    const parent = await this.database.db.executions.findUnique({ where: { id: BigInt(task.parent_id) }, select: { status: true } });
     const status = parent?.status === "CANCELLED" && !terminal.has(task.status) ? "CANCELLED" : task.status;
     return { id: task.tool_call_id, kind: "generation", generationId: String(task.id), status,
       assets: assets.map((asset) => ({ assetId: String(asset.id), url: this.images.unsigned(asset.original_object_key) })) };
@@ -313,5 +328,3 @@ export class GenerationTaskService {
     return item;
   }
 }
-
-function parseJson<T>(value: string | T): T { return typeof value === "string" ? JSON.parse(value) as T : value; }

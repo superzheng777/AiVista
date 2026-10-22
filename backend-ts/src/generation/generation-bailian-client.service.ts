@@ -1,6 +1,5 @@
 import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import type { Selectable } from "kysely";
 import type { Environment } from "../config/environment.js";
 import type { GenerationExecution } from "../database/database.types.js";
 import { GenerationImageUrlService } from "./generation-image-url.service.js";
@@ -25,7 +24,7 @@ export class GenerationBailianClientService {
     this.readTimeoutMs = config.get("AIVISTA_BAILIAN_READ_TIMEOUT_MS", { infer: true });
   }
 
-  async generate(task: Selectable<GenerationExecution>, inputs: AssetReference[] = []): Promise<BailianProviderResult> {
+  async generate(task: GenerationExecution, inputs: AssetReference[] = []): Promise<BailianProviderResult> {
     if (!this.endpoint || !this.apiKey) throw new Error("Bailian configuration is missing");
     const content = [...inputs.map((asset) => ({ image: this.imageUrls.signReference(asset.url) })),
       { text: task.final_prompt }];

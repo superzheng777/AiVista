@@ -1,6 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { sql } from "kysely";
 import { z } from "zod";
 import type { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { Environment } from "../config/environment.js";
@@ -44,10 +43,11 @@ export class CreationRuntimeService {
       private readonly observability: AgentObservabilityService) {
     this.store = new SessionStore(config.get("AIVISTA_SESSION_DIRECTORY", { infer: true }), AGENT_PROJECT_ROOT);
     this.executions = new ExecutionRepository(database.db, this.store);
-    this.eventClient.activeIds = async (userId) => (await sql<{ id: string }>`SELECT e.id FROM executions e
-      JOIN generation_sessions s ON s.id = e.session_id WHERE e.user_id = ${userId} AND e.kind = 'CREATION'
-      AND (e.status IN ('QUEUED', 'RUNNING', 'WAITING_INPUT') OR EXISTS (SELECT 1 FROM executions child
-        WHERE child.parent_id = e.id AND child.status IN ('QUEUED', 'RUNNING'))) AND s.deleted_at IS NULL`.execute(database.db)).rows.map((row) => String(row.id));
+    this.eventClient.activeIds = async (userId) => (await database.db.executions.findMany({ where: {
+      user_id: BigInt(userId), kind: "CREATION", generation_sessions: { deleted_at: null },
+      OR: [{ status: { in: ["QUEUED", "RUNNING", "WAITING_INPUT"] } },
+        { other_executions: { some: { status: { in: ["QUEUED", "RUNNING"] } } } }],
+    }, select: { id: true } })).map((row) => row.id.toString());
     this.eventClient.resolveTurn = async (userId, id) => {
       const row = await this.executions.get(id);
       const turn = await this.turn(userId, id);
@@ -151,8 +151,8 @@ export class CreationRuntimeService {
       }
       this.sessionManager(userId, String(row.session_id))
         .appendCustomMessageEntry(FORM_ANSWER, JSON.stringify(answer), false);
-      await sql`UPDATE executions SET status = 'QUEUED', revision = revision + 1
-        WHERE id = ${creationId}`.execute(transaction);
+      await transaction.executions.update({ where: { id: BigInt(creationId) },
+        data: { status: "QUEUED", revision: { increment: 1 } } });
       return true;
     });
     const turn = await this.turn(userId, creationId);
@@ -167,8 +167,8 @@ export class CreationRuntimeService {
       await this.executions.ownedSession(userId, String(row.session_id), transaction);
       if (row.status === "CANCELLED") return;
       if (!["QUEUED", "RUNNING", "WAITING_INPUT"].includes(row.status)) throw new ExecutionConflict("REVISION_CONFLICT");
-      await sql`UPDATE executions SET status = 'CANCELLED', revision = revision + 1,
-        completed_at = UTC_TIMESTAMP(3) WHERE id = ${creationId}`.execute(transaction);
+      await transaction.executions.update({ where: { id: BigInt(creationId) },
+        data: { status: "CANCELLED", revision: { increment: 1 }, completed_at: new Date() } });
     });
     this.running.get(creationId)?.abort("USER_CANCELLED");
     await this.tasks.cancelPending(creationId);
@@ -221,7 +221,7 @@ export class CreationRuntimeService {
     let manager: SessionManager | undefined;
     try {
       signal.throwIfAborted();
-      const start = creationStartSchema.parse(typeof row.request_json === "string" ? JSON.parse(row.request_json) : row.request_json);
+      const start = creationStartSchema.parse(row.request_json);
       manager = this.store.open(envelope.userId, envelope.sessionId);
       this.activeSessions.set(envelope.sessionId, manager);
       const activeManager = manager;

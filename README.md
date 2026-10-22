@@ -130,7 +130,7 @@ Java 与 TS 连接同一个 MySQL 库；生成结算由 TS 负责，资产管理
 | --- | --- |
 | Web | Next.js、React、TypeScript、Tailwind CSS、TanStack Query、Zustand |
 | Java Core | Java、Spring Boot、Spring Security、MyBatis-Flex、Flyway |
-| AI Runtime | NestJS、TypeScript、Pi Agent SDK、阿里云百炼、Langfuse / OpenTelemetry（可选） |
+| AI Runtime | NestJS、TypeScript、Prisma、Pi Agent SDK、阿里云百炼、Langfuse / OpenTelemetry（可选） |
 | 基础设施 | MySQL、RabbitMQ、Meilisearch、阿里云 OSS |
 
 ## 项目结构

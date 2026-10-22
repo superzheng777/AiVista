@@ -1,0 +1,277 @@
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model auth_sessions {
+  id                 BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  user_id            BigInt   @db.UnsignedBigInt
+  client_type        String   @db.VarChar(16)
+  refresh_token_hash Bytes    @unique(map: "uk_auth_sessions_refresh_token_hash") @db.Binary(32)
+  expires_at         DateTime @db.DateTime(0)
+  created_at         DateTime @default(now()) @db.DateTime(0)
+  updated_at         DateTime @default(now()) @db.DateTime(0)
+  users              users    @relation(fields: [user_id], references: [id], onUpdate: NoAction, map: "fk_auth_sessions_user_id")
+
+  @@index([expires_at], map: "idx_auth_sessions_expires_at")
+  @@index([user_id], map: "idx_auth_sessions_user_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model executions {
+  id                     BigInt              @id @default(autoincrement()) @db.UnsignedBigInt
+  user_id                BigInt              @db.UnsignedBigInt
+  session_id             BigInt              @db.UnsignedBigInt
+  parent_id              BigInt?             @db.UnsignedBigInt
+  kind                   String              @db.VarChar(16)
+  mode                   String              @db.VarChar(16)
+  tool_call_id           String?             @db.VarChar(128)
+  status                 String              @default("QUEUED") @db.VarChar(32)
+  revision               Int                 @default(0) @db.UnsignedInt
+  request_json           Json
+  pending_tool_call_id   String?             @db.VarChar(128)
+  dispatched_at          DateTime?
+  operation              String?             @db.VarChar(32)
+  model                  String?             @db.VarChar(128)
+  final_prompt           String?             @db.Text
+  final_negative_prompt  String?             @db.Text
+  width                  Int?                @db.UnsignedInt
+  height                 Int?                @db.UnsignedInt
+  prompt_extend          Boolean             @default(true)
+  requested_image_count  Int?                @db.UnsignedTinyInt
+  completed_image_count  Int                 @default(0) @db.UnsignedTinyInt
+  quota_reserved_at      DateTime?
+  quota_refunded_at      DateTime?
+  settled_at             DateTime?
+  provider_request_id    String?             @db.VarChar(128)
+  provider_started_at    DateTime?
+  provider_response_json Json?
+  failure_code           String?             @db.VarChar(64)
+  created_at             DateTime            @default(now())
+  updated_at             DateTime            @default(now())
+  completed_at           DateTime?
+  executions             executions?         @relation("executionsToexecutions", fields: [parent_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_executions_parent")
+  other_executions       executions[]        @relation("executionsToexecutions")
+  generation_sessions    generation_sessions @relation(fields: [session_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_executions_session")
+  users                  users               @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_executions_user")
+  image_assets           image_assets[]
+
+  @@unique([parent_id, tool_call_id], map: "uk_executions_parent_tool")
+  @@index([status, id], map: "idx_executions_queued")
+  @@index([session_id, kind, id], map: "idx_executions_session")
+  @@index([user_id, status], map: "idx_executions_user_status")
+}
+
+model flyway_schema_history {
+  installed_rank Int      @id
+  version        String?  @db.VarChar(50)
+  description    String   @db.VarChar(200)
+  type           String   @db.VarChar(20)
+  script         String   @db.VarChar(1000)
+  checksum       Int?
+  installed_by   String   @db.VarChar(100)
+  installed_on   DateTime @default(now()) @db.Timestamp(0)
+  execution_time Int
+  success        Boolean
+
+  @@index([success], map: "flyway_schema_history_s_idx")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model generation_sessions {
+  id              BigInt       @id @default(autoincrement()) @db.UnsignedBigInt
+  user_id         BigInt       @db.UnsignedBigInt
+  title           String       @db.VarChar(100)
+  last_message_at DateTime
+  created_at      DateTime     @default(now())
+  updated_at      DateTime     @default(now())
+  creation_count  Int          @default(0) @db.UnsignedSmallInt
+  deleted_at      DateTime?
+  executions      executions[]
+  users           users        @relation(fields: [user_id], references: [id], onUpdate: NoAction, map: "fk_generation_sessions_user_id")
+
+  @@index([user_id, deleted_at, last_message_at, id], map: "idx_generation_sessions_user_visible_message")
+}
+
+model image_asset_likes {
+  user_id             BigInt       @db.UnsignedBigInt
+  asset_id            BigInt       @db.UnsignedBigInt
+  publication_version BigInt       @db.UnsignedBigInt
+  liked_at            DateTime     @default(now())
+  image_assets        image_assets @relation(fields: [asset_id], references: [id], onUpdate: NoAction, map: "fk_image_asset_likes_asset_id")
+  users               users        @relation(fields: [user_id], references: [id], onUpdate: NoAction, map: "fk_image_asset_likes_user_id")
+
+  @@id([user_id, asset_id, publication_version])
+  @@index([asset_id, publication_version], map: "idx_image_asset_likes_asset_version")
+  @@index([user_id, liked_at(sort: Desc), asset_id(sort: Desc)], map: "idx_image_asset_likes_user_list")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model image_assets {
+  id                        BigInt               @id @default(autoincrement()) @db.UnsignedBigInt
+  user_id                   BigInt               @db.UnsignedBigInt
+  origin                    String               @db.VarChar(16)
+  lifecycle                 String               @db.VarChar(16)
+  origin_task_id            BigInt?              @db.UnsignedBigInt
+  source_index              Int?                 @db.UnsignedTinyInt
+  object_key                String               @db.VarChar(512)
+  original_object_key       String               @db.VarChar(512)
+  content_type              String               @db.VarChar(64)
+  file_size                 BigInt               @db.UnsignedBigInt
+  width                     Int                  @db.UnsignedInt
+  height                    Int                  @db.UnsignedInt
+  is_favorited              Boolean              @default(false)
+  deleted_at                DateTime?
+  expires_at                DateTime?
+  oss_cleanup_status        String?              @db.VarChar(16)
+  oss_cleanup_attempt_count Int                  @default(0) @db.UnsignedInt
+  oss_cleanup_available_at  DateTime?
+  oss_cleanup_last_error    String?              @db.VarChar(512)
+  created_at                DateTime             @default(now())
+  image_asset_likes         image_asset_likes[]
+  executions                executions?          @relation(fields: [origin_task_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_image_assets_origin_task_id")
+  users                     users                @relation(fields: [user_id], references: [id], onUpdate: NoAction, map: "fk_image_assets_user_id")
+  image_publications        image_publications?
+  user_notifications        user_notifications[]
+
+  @@unique([origin_task_id, source_index], map: "uk_image_assets_origin_task_source")
+  @@index([oss_cleanup_status, oss_cleanup_available_at], map: "idx_image_assets_cleanup")
+  @@index([user_id, deleted_at, created_at, id], map: "idx_image_assets_user_visible_created")
+}
+
+model image_publications {
+  asset_id             BigInt       @id @db.UnsignedBigInt
+  review_status        String       @default("NONE") @db.VarChar(16)
+  publication_version  BigInt       @default(0) @db.UnsignedBigInt
+  review_attempt_count Int          @default(0) @db.UnsignedTinyInt
+  review_started_at    DateTime?
+  title                String?      @db.VarChar(100)
+  description          String?      @db.VarChar(500)
+  public_at            DateTime?
+  like_count           BigInt       @default(0) @db.UnsignedBigInt
+  image_assets         image_assets @relation(fields: [asset_id], references: [id], onUpdate: NoAction, map: "fk_image_publications_asset_id")
+
+  @@index([public_at(sort: Desc), asset_id(sort: Desc)], map: "idx_image_publications_public_list")
+  @@index([review_status, review_started_at], map: "idx_image_publications_review_recovery")
+}
+
+model outbox_events {
+  id                BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  event_type        String    @db.VarChar(64)
+  aggregate_type    String    @db.VarChar(64)
+  aggregate_id      BigInt    @db.UnsignedBigInt
+  aggregate_version BigInt    @db.UnsignedBigInt
+  payload_json      Json?
+  status            String    @default("PENDING") @db.VarChar(16)
+  retry_count       Int       @default(0) @db.UnsignedInt
+  available_at      DateTime
+  locked_at         DateTime?
+  published_at      DateTime?
+  last_error        String?   @db.VarChar(500)
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @default(now())
+
+  @@index([status, published_at, id], map: "idx_outbox_events_published_cleanup")
+  @@index([status, available_at], map: "idx_outbox_events_status_available")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model user_consents {
+  user_id             BigInt   @db.UnsignedBigInt
+  consent_type        String   @db.VarChar(64)
+  policy_version      String   @db.VarChar(64)
+  policy_content_hash String   @db.Char(64)
+  consented_at        DateTime
+  users               users    @relation(fields: [user_id], references: [id], onUpdate: NoAction, map: "fk_user_consents_user_id")
+
+  @@id([user_id, consent_type])
+}
+
+model user_follows {
+  follower_user_id                            BigInt   @db.UnsignedBigInt
+  following_user_id                           BigInt   @db.UnsignedBigInt
+  created_at                                  DateTime @default(now())
+  users_user_follows_follower_user_idTousers  users    @relation("user_follows_follower_user_idTousers", fields: [follower_user_id], references: [id], onUpdate: NoAction, map: "fk_user_follows_follower_user_id")
+  users_user_follows_following_user_idTousers users    @relation("user_follows_following_user_idTousers", fields: [following_user_id], references: [id], onUpdate: NoAction, map: "fk_user_follows_following_user_id")
+
+  @@id([follower_user_id, following_user_id])
+  @@index([following_user_id, follower_user_id], map: "idx_user_follows_following_user_id")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model user_generation_daily_usage {
+  user_id               BigInt   @db.UnsignedBigInt
+  usage_date            DateTime @db.Date
+  requested_image_count Int      @default(0) @db.UnsignedTinyInt
+  updated_at            DateTime @default(now())
+  users                 users    @relation(fields: [user_id], references: [id], onUpdate: NoAction, map: "fk_user_generation_daily_usage_user_id")
+
+  @@id([user_id, usage_date])
+}
+
+model user_notifications {
+  id                                                BigInt        @id @default(autoincrement()) @db.UnsignedBigInt
+  recipient_user_id                                 BigInt        @db.UnsignedBigInt
+  category                                          String        @db.VarChar(32)
+  event_type                                        String        @db.VarChar(64)
+  actor_user_id                                     BigInt?       @db.UnsignedBigInt
+  asset_id                                          BigInt?       @db.UnsignedBigInt
+  publication_version                               BigInt?       @db.UnsignedBigInt
+  dedup_key                                         String?       @db.VarChar(160)
+  title                                             String?       @db.VarChar(200)
+  content                                           String?       @db.VarChar(500)
+  metadata_json                                     Json?
+  read_at                                           DateTime?
+  created_at                                        DateTime      @default(now())
+  deleted_at                                        DateTime?
+  users_user_notifications_actor_user_idTousers     users?        @relation("user_notifications_actor_user_idTousers", fields: [actor_user_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_user_notifications_actor_user_id")
+  image_assets                                      image_assets? @relation(fields: [asset_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_user_notifications_asset_id")
+  users_user_notifications_recipient_user_idTousers users         @relation("user_notifications_recipient_user_idTousers", fields: [recipient_user_id], references: [id], onUpdate: NoAction, map: "fk_user_notifications_recipient_user_id")
+
+  @@unique([recipient_user_id, dedup_key], map: "uq_notifications_recipient_dedup")
+  @@index([asset_id], map: "fk_user_notifications_asset_id")
+  @@index([actor_user_id], map: "idx_notifications_actor_user_id")
+  @@index([recipient_user_id, category, deleted_at, created_at(sort: Desc), id(sort: Desc)], map: "idx_notifications_recipient_list")
+  @@index([recipient_user_id, category, deleted_at, read_at], map: "idx_notifications_recipient_unread")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model user_stats {
+  user_id             BigInt @id @db.UnsignedBigInt
+  following_count     BigInt @default(0) @db.UnsignedBigInt
+  follower_count      BigInt @default(0) @db.UnsignedBigInt
+  received_like_count BigInt @default(0) @db.UnsignedBigInt
+  users               users  @relation(fields: [user_id], references: [id], onUpdate: NoAction, map: "fk_user_stats_user_id")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model users {
+  id                                                             BigInt                        @id @default(autoincrement()) @db.UnsignedBigInt
+  login_name                                                     String                        @unique(map: "uk_users_login_name") @db.VarChar(32)
+  password_hash                                                  String                        @db.VarChar(255)
+  nickname                                                       String                        @db.VarChar(32)
+  avatar_url                                                     String?                       @db.VarChar(512)
+  bio                                                            String?                       @db.VarChar(500)
+  created_at                                                     DateTime                      @default(now()) @db.DateTime(0)
+  updated_at                                                     DateTime                      @default(now()) @db.DateTime(0)
+  likes_public                                                   Boolean                       @default(false)
+  auth_sessions                                                  auth_sessions[]
+  executions                                                     executions[]
+  generation_sessions                                            generation_sessions[]
+  image_asset_likes                                              image_asset_likes[]
+  image_assets                                                   image_assets[]
+  user_consents                                                  user_consents[]
+  user_follows_user_follows_follower_user_idTousers              user_follows[]                @relation("user_follows_follower_user_idTousers")
+  user_follows_user_follows_following_user_idTousers             user_follows[]                @relation("user_follows_following_user_idTousers")
+  user_generation_daily_usage                                    user_generation_daily_usage[]
+  user_notifications_user_notifications_actor_user_idTousers     user_notifications[]          @relation("user_notifications_actor_user_idTousers")
+  user_notifications_user_notifications_recipient_user_idTousers user_notifications[]          @relation("user_notifications_recipient_user_idTousers")
+  user_stats                                                     user_stats?
+}
